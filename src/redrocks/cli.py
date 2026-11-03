@@ -9,7 +9,9 @@ from pathlib import Path
 from .dem import BBox, fetch_dem, square_bbox
 from .geo import LocalProjection
 from .landscape import export_landscape
+from .monoliths import build_monoliths, monolith_to_obj
 from .osm import fetch_osm
+from .venue import build_venue, summary as venue_summary
 
 # Centre of the Red Rocks Amphitheatre seating bowl.
 RED_ROCKS_LAT = 39.66550
@@ -47,6 +49,24 @@ def build(args: argparse.Namespace) -> int:
     east, north, up = projection.to_local(RED_ROCKS_LAT, RED_ROCKS_LON)
     print(f"origin local coords  E{east:.2f} N{north:.2f} U{up:.2f}")
 
+    print("\ngenerating seating bowl ...")
+    venue_way = next((w for w in osm.ways if w.tags.get("amenity") == "theatre"), None)
+    venue = None
+    if venue_way is None:
+        print("  no amenity=theatre way found; skipping venue")
+    else:
+        venue = build_venue(
+            osm.way_coords(venue_way), dem, projection, RED_ROCKS_LAT, RED_ROCKS_LON
+        )
+        print(venue_summary(venue))
+
+    print("\nextruding monoliths ...")
+    monoliths = build_monoliths(osm, dem, projection, RED_ROCKS_LAT, RED_ROCKS_LON)
+    for rock in monoliths:
+        print(rock.summary())
+        obj_path = monolith_to_obj(rock, out_dir / f"{rock.name.split(' (')[0].replace(' ', '_')}.obj")
+        print(f"  -> {obj_path.name}")
+
     manifest = {
         "venue": "Red Rocks Amphitheatre",
         "origin": {"lat": RED_ROCKS_LAT, "lon": RED_ROCKS_LON},
@@ -66,11 +86,33 @@ def build(args: argparse.Namespace) -> int:
             "scale_xy_cm": round(landscape.metres_per_pixel * 100.0, 4),
         },
         "osm": {"nodes": len(osm.nodes), "ways": len(osm.ways), "by_kind": counts},
+        "monoliths": [
+            {
+                "name": r.name,
+                "height_m": round(r.height_m, 3),
+                "base_elevation_m": round(r.base_elevation_m, 3),
+                "top_elevation_m": round(r.top_elevation_m, 3),
+                "footprint_m2": round(r.footprint.area, 2),
+                "centroid_east": round(r.footprint.centroid.x, 2),
+                "centroid_north": round(r.footprint.centroid.y, 2),
+                "strata_dip_degrees": r.strata_dip_degrees,
+                "obj": f"{r.name.split(' (')[0].replace(' ', '_')}.obj",
+            }
+            for r in monoliths
+        ],
         "attribution": [
             "Elevation: USGS 3DEP, public domain",
             "Map data (c) OpenStreetMap contributors, ODbL 1.0",
         ],
     }
+    if venue is not None:
+        manifest["venue"] = {
+            "rows": len(venue.rows),
+            "seats": venue.total_seats,
+            "rise_m": round(venue.rise_m, 3),
+            "rake_degrees": round(venue.rake_degrees, 2),
+            "row_1_elevation_m": round(venue.rows[0].elevation_m, 3),
+        }
     (out_dir / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n")
     print(f"\nwrote {out_dir}/manifest.json")
     return 0
