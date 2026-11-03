@@ -20,7 +20,9 @@ Unreal Engine on this machine and not enough disk to install one.
 ```
 out/
   redrocks_heightmap.png   2017x2017 16-bit heightmap, Unreal landscape format
-  manifest.json            Z scale, bbox, origin, feature counts, attribution
+  Creation_Rock.obj        north monolith, 91.4 m, watertight
+  Ship_Rock.obj            south monolith, 61.0 m, watertight
+  manifest.json            Z scale, bbox, origin, venue, monoliths, attribution
 ```
 
 Run:
@@ -39,6 +41,26 @@ Current output for a 2.4 km box centred on the amphitheatre:
 | Elevation range | 1753.9 m – 2400.0 m (646 m relief) |
 | **Z scale** | **126.2013** |
 | OSM features | 15,114 nodes, 1,397 ways |
+
+### Monoliths
+
+Both flanking rocks are extruded from their **surveyed OSM footprints**, so the
+plan-view silhouette is real rather than invented. Heights come from the
+official figures, not the DEM — the DEM reads 20–40 ft high because it samples
+the ridge behind each rock.
+
+| | footprint | height | top elevation |
+|---|---|---|---|
+| Creation Rock (north) | 163.6 × 94.8 m, 8,132 m² | 91.4 m (300 ft) | 2023.8 m |
+| Ship Rock (south) | 236.1 × 177.2 m, 18,647 m² | 61.0 m (200 ft) | 1993.4 m |
+
+Meshes are watertight, outward-facing, and their volume matches
+footprint × height to six digits. Units are centimetres, matching Unreal.
+
+The 30° westward strata dip is **not** applied as a geometric shear. The
+monoliths are vertical columns; the dip is a property of the bedding and belongs
+in the material as diagonal banding. Shearing the mesh would fake a lean that
+does not exist.
 
 ## Importing into Unreal
 
