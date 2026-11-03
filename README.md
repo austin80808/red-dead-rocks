@@ -22,8 +22,10 @@ terrain mesh, Creation Rock and Ship Rock at their real positions, a sun, sky
 atmosphere, sky light, height fog, a PlayerStart and a framing camera. It is the
 editor startup map and the game default map.
 
-Not done yet: materials (everything is the default grey), bench geometry, the
-stage, and the ml0w photogrammetry scan in `assets/scan`, which is not imported.
+The sandstone material is applied to the terrain and both rocks. Written but not
+yet run in the level: the bench import and the ml0w scan import (see the script
+table). Not done: the stage, tuning the material (the ground reads pale and the
+fine bands shimmer at distance).
 
 ## What it produces
 
@@ -33,6 +35,7 @@ out/
   RedRocks_Terrain.obj     377x377 grid terrain mesh, 282,752 triangles, cm
   Creation_Rock.obj        north monolith, 91.4 m, watertight
   Ship_Rock.obj            south monolith, 61.0 m, watertight
+  Benches.obj              68 bench rows, 816 triangles, terrain frame
   manifest.json            Z scale, bbox, origin, venue, monoliths, attribution
 ```
 
@@ -43,18 +46,13 @@ python3 -m venv .venv && .venv/bin/pip install -e .
 .venv/bin/redrocks build --out out
 ```
 
-`redrocks build` writes the heightmap, the monoliths and the manifest. The
-terrain mesh is not wired into the CLI yet; generate it from Python:
+`redrocks build` writes everything above. `--terrain-grid` sets the terrain
+mesh resolution (default 377; `0` skips it).
 
-```python
-from pathlib import Path
-from redrocks.cli import RED_ROCKS_LAT, RED_ROCKS_LON, DEFAULT_SIDE_M
-from redrocks.dem import fetch_dem, square_bbox
-from redrocks.terrain_mesh import export_terrain_obj
-
-dem = fetch_dem(square_bbox(RED_ROCKS_LAT, RED_ROCKS_LON, DEFAULT_SIDE_M))
-export_terrain_obj(dem, Path("out/RedRocks_Terrain.obj"), grid=377)
-```
+Benches are one solid box per generated row, 0.9 m deep and 0.45 m tall, in
+the terrain mesh's frame so they need no transform in Unreal. Rows are straight
+chords, because the slicer cuts the theatre footprint with straight lines, and
+each bench is flat at its row centre's DEM elevation.
 
 Current output for a 2.4 km box centred on the amphitheatre:
 
@@ -115,10 +113,12 @@ Run them in this order; each writes a log to `/tmp/redrocks_*.log`:
 
 | Script | Does |
 |---|---|
-| `import_redrocks.py` | imports the three OBJs to `/Game/RedRocks` and places them in `Lvl_RedRocks` |
+| `import_redrocks.py` | imports the terrain, rocks and benches OBJs to `/Game/RedRocks` and places them in `Lvl_RedRocks`. **Clears every actor in the level first.** |
 | `setup_lighting.py` | adds sun, sky atmosphere, sky light, height fog, PlayerStart |
 | `configure_level.py` | fixed-exposure post-process volume and a framing camera |
 | `fix_camera.py` | lifts the camera above the 645 m ridge, removes test actors |
+| `setup_materials.py` | `M_Sandstone` with 30° strata bands; rock and ground instances; bench material |
+| `import_scan.py` | imports the ml0w scan with Nanite and credits it; run after `import_redrocks.py` |
 | `render_preview.py` | renders the level to `Saved/redrocks_preview.png` |
 | `diagnose.py` | lists actors, mesh triangle counts and the startup map |
 
@@ -241,17 +241,14 @@ Cache on local disk, sync the source and built packages to MEGA.
 
 ## Next steps
 
-1. Materials: a sandstone material for the terrain and monoliths, with the 30°
-   strata dip as diagonal banding.
-2. Import the ml0w scan (rotate Y-up to Z-up, check its scale against the 120 m
-   bowl width) and decide whether it replaces the extruded monoliths visually,
-   with the monoliths kept as collision.
-3. Extrude the generated rows into bench geometry — 68 rows, 9,525 seats, each
-   with its own elevation and length already computed.
+1. Run `import_redrocks.py` (benches) and `import_scan.py` in the level, then
+   tune the scan's placement constants by eye and decide whether it replaces the
+   extruded monoliths visually, with the monoliths kept as collision.
+2. Tune `MI_Sandstone_Ground`: less exposure, thicker bands.
+3. Curve the benches: have the slicer produce arcs instead of straight chords.
 4. Stage shell, roof, and retaining walls. None of these exist in any free
    dataset.
-5. Wire `export_terrain_obj` into `redrocks build`.
-6. First-person traversal pass, then multiplayer.
+5. First-person traversal pass, then multiplayer.
 
 For a *fantasy replication* rather than a survey-accurate twin, the monoliths,
 tunnel, and stage shell are the pieces that carry the feel. Those are modelling
@@ -260,11 +257,14 @@ work, and no amount of geodata substitutes for them.
 ## Tests
 
 ```bash
-.venv/bin/python -m pytest tests -q   # 75 passed
+.venv/bin/python -m pytest tests -q   # 121 passed
 ```
 
 Covers the projection (round-trip, axis orientation, distance accuracy), DEM
 sampling and interpolation, the Unreal Z scale formula, heightmap encoding, OSM
-parsing and feature classification, the seating bowl, monolith geometry, and the
-OBJ exports (terrain grid, winding, and a valid UV on every face). No network in
-tests. The `unreal/` scripts are not covered; they need the editor.
+parsing and feature classification, the seating bowl, monolith geometry, the OBJ
+exports (terrain grid, benches, winding, and a valid UV on every face), and the
+CLI build. No network in tests.
+
+The `unreal/` scripts are only checked offline: they must parse, and none may
+pass `unreal.Rotator` angles positionally. Running them needs the editor.
