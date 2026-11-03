@@ -11,6 +11,7 @@ from .geo import LocalProjection
 from .landscape import export_landscape
 from .monoliths import build_monoliths, monolith_to_obj
 from .osm import fetch_osm
+from .terrain_mesh import export_terrain_obj, summary as terrain_summary
 from .venue import build_venue, summary as venue_summary
 
 # Centre of the Red Rocks Amphitheatre seating bowl.
@@ -35,6 +36,14 @@ def build(args: argparse.Namespace) -> int:
     print("exporting landscape heightmap ...")
     landscape = export_landscape(dem, out_dir / "redrocks_heightmap.png", size=args.landscape_size)
     print(landscape.summary())
+
+    terrain = None
+    if args.terrain_grid:
+        print("exporting terrain mesh ...")
+        terrain = export_terrain_obj(dem, out_dir / "RedRocks_Terrain.obj", grid=args.terrain_grid)
+        print(terrain_summary(terrain))
+    else:
+        print("skipping terrain mesh (--terrain-grid 0)")
 
     print("fetching OSM ...")
     osm = fetch_osm(bbox)
@@ -105,6 +114,16 @@ def build(args: argparse.Namespace) -> int:
             "Map data (c) OpenStreetMap contributors, ODbL 1.0",
         ],
     }
+    if terrain is not None:
+        manifest["terrain_mesh"] = {
+            "obj": terrain.path.name,
+            "grid": terrain.grid,
+            "triangles": terrain.triangles,
+            "width_m": round(terrain.width_m, 3),
+            "height_m": round(terrain.height_m, 3),
+            "min_elevation_m": round(terrain.min_elevation_m, 3),
+            "max_elevation_m": round(terrain.max_elevation_m, 3),
+        }
     if venue is not None:
         manifest["venue"] = {
             "rows": len(venue.rows),
@@ -127,6 +146,12 @@ def main(argv: list[str] | None = None) -> int:
     build_cmd.add_argument("--side-m", type=float, default=DEFAULT_SIDE_M, help="bbox side in metres")
     build_cmd.add_argument("--dem-size", type=int, default=2017, help="DEM raster size to request")
     build_cmd.add_argument("--landscape-size", type=int, default=2017, help="landscape vertices per side")
+    build_cmd.add_argument(
+        "--terrain-grid",
+        type=int,
+        default=377,
+        help="terrain mesh vertices per side (0 skips RedRocks_Terrain.obj)",
+    )
     build_cmd.set_defaults(func=build)
 
     args = parser.parse_args(argv)
