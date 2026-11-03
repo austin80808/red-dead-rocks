@@ -21,7 +21,8 @@ def l_shape():
 def load_obj(path):
     text = path.read_text().splitlines()
     verts = np.array([[float(v) for v in l.split()[1:4]] for l in text if l.startswith("v ")])
-    faces = [[int(i) - 1 for i in l.split()[1:]] for l in text if l.startswith("f ")]
+    # Faces may be "v", "v/vt" or "v/vt/vn"; take the vertex index only.
+    faces = [[int(tok.split("/")[0]) - 1 for tok in l.split()[1:]] for l in text if l.startswith("f ")]
     return verts, faces
 
 

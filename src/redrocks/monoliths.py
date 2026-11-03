@@ -163,8 +163,39 @@ def monolith_to_obj(monolith: Monolith, out_path: Path, segments: int = HEIGHT_S
     lines.append(f"o {monolith.name.split(' (')[0].replace(' ', '_')}")
     for x, y, z in vertices:
         lines.append(f"v {x:.4f} {y:.4f} {z:.4f}")
+
+    # Unreal's OBJ importer requires a UV channel; without one it fails an
+    # ensure and keeps only a fraction of the triangles. Side walls get their
+    # perimeter distance along U and height along V so the strata banding runs
+    # horizontally, matching the real bedding.
+    uvs: list[tuple[float, float]] = []
+    perimeter = [0.0]
+    for i in range(1, n + 1):
+        x0, y0 = ring[i - 1]
+        x1, y1 = ring[i % n]
+        perimeter.append(perimeter[-1] + math.hypot(x1 - x0, y1 - y0))
+
+    for level in range(segments + 1):
+        v = (level / segments) * monolith.height_m
+        for i in range(n):
+            uvs.append((perimeter[i], v))
+
+    # The cap fans reuse the first vertex, so give them a degenerate UV that
+    # still sits inside the channel rather than referencing a missing index.
+    cap_uv = len(uvs) + 1
+    uvs.append((perimeter[0], monolith.height_m))
+
+    for u, v in uvs:
+        lines.append(f"vt {u:.4f} {v:.4f}")
+
     for face in faces:
-        lines.append("f " + " ".join(str(i) for i in face))
+        # Vertex index doubles as the UV index for the walls; cap triangles that
+        # reference the far end of the ring still resolve, because every vertex
+        # has a matching UV entry in the same order.
+        if face[0] == 1 and face[1] > top:
+            lines.append("f " + " ".join(f"{i}/{cap_uv}" for i in face))
+        else:
+            lines.append("f " + " ".join(f"{i}/{i}" for i in face))
 
     out_path.parent.mkdir(parents=True, exist_ok=True)
     out_path.write_text("\n".join(lines) + "\n")
