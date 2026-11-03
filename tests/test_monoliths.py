@@ -111,6 +111,32 @@ def test_obj_face_indices_are_one_based_and_in_range(tmp_path):
     for line in lines:
         if not line.startswith("f "):
             continue
-        for idx in line.split()[1:]:
-            i = int(idx)
+        for tok in line.split()[1:]:
+            i = int(tok.split("/")[0])
             assert 1 <= i <= n_vertices
+
+
+def test_obj_declares_uvs(tmp_path):
+    """Unreal's OBJ importer collapses meshes that have no UV channel."""
+    rock = make_monolith()
+    text = monolith_to_obj(rock, tmp_path / "r.obj", segments=4).read_text().splitlines()
+
+    n_verts = sum(1 for l in text if l.startswith("v "))
+    n_uvs = sum(1 for l in text if l.startswith("vt "))
+    assert n_verts > 0
+    assert n_uvs > 0
+
+
+def test_every_face_references_a_valid_uv(tmp_path):
+    rock = make_monolith()
+    text = monolith_to_obj(rock, tmp_path / "r.obj", segments=4).read_text().splitlines()
+
+    n_uvs = sum(1 for l in text if l.startswith("vt "))
+    for line in text:
+        if not line.startswith("f "):
+            continue
+        for token in line.split()[1:]:
+            parts = token.split("/")
+            assert len(parts) >= 2, f"face token {token} has no UV index"
+            uv_index = int(parts[1])
+            assert 1 <= uv_index <= n_uvs
