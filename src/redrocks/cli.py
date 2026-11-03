@@ -8,6 +8,7 @@ from pathlib import Path
 
 from .dem import BBox, fetch_dem, square_bbox
 from .geo import LocalProjection
+from .benches import export_benches_obj, row_polylines, terrain_base_elevation
 from .landscape import export_landscape
 from .monoliths import build_monoliths, monolith_to_obj
 from .osm import fetch_osm
@@ -68,6 +69,16 @@ def build(args: argparse.Namespace) -> int:
             osm.way_coords(venue_way), dem, projection, RED_ROCKS_LAT, RED_ROCKS_LON
         )
         print(venue_summary(venue))
+
+    benches = None
+    if venue is not None:
+        print("\nbuilding benches ...")
+        # Benches share the terrain mesh's Z datum, so use the same grid it was
+        # resampled at; a different grid shifts the minimum elevation.
+        base = terrain_base_elevation(dem, grid=args.terrain_grid or 377)
+        lines = row_polylines(venue, osm.way_coords(venue_way), projection)
+        benches = export_benches_obj(venue.rows, lines, out_dir / "Benches.obj", base)
+        print(f"  {benches.benches} benches, {benches.triangles} triangles -> {benches.path.name}")
 
     print("\nextruding monoliths ...")
     monoliths = build_monoliths(osm, dem, projection, RED_ROCKS_LAT, RED_ROCKS_LON)
@@ -131,6 +142,13 @@ def build(args: argparse.Namespace) -> int:
             "rise_m": round(venue.rise_m, 3),
             "rake_degrees": round(venue.rake_degrees, 2),
             "row_1_elevation_m": round(venue.rows[0].elevation_m, 3),
+        }
+    if benches is not None:
+        manifest["benches"] = {
+            "obj": benches.path.name,
+            "benches": benches.benches,
+            "triangles": benches.triangles,
+            "base_elevation_m": round(benches.base_elevation_m, 3),
         }
     (out_dir / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n")
     print(f"\nwrote {out_dir}/manifest.json")
