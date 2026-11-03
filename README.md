@@ -1,25 +1,36 @@
-# redrocks-ue
+# red-dead-rocks
 
-Builds a real-world **Red Rocks Amphitheatre** terrain package for Unreal Engine
-from public geodata: a 1:1 landscape heightmap plus the OSM feature set for the
-park, georeferenced to a single origin.
+Builds a real-world **Red Rocks Amphitheatre** for Unreal Engine from public
+geodata: a 1:1 terrain from the USGS DEM, the two flanking monoliths extruded
+from their surveyed OSM footprints, and the OSM feature set for the park, all
+georeferenced to a single origin.
 
-This is the data half of the "GTA in your own city" idea. It is engine-agnostic
-in principle but the heightmap is written to Unreal's landscape spec.
+This is the data half of the "GTA in your own city" idea. The Python package
+writes engine-agnostic OBJ and heightmap files; the `unreal/` scripts import
+them into a UE 5.8 project and build the level.
+
+The local checkout lives at `~/dev/redrocks-ue`.
 
 ## Status
 
-Working: DEM fetch, heightmap export, OSM ingest, georeferencing, seating-bowl
-generation, tests.
+Working: DEM fetch, heightmap and terrain-mesh export, OSM ingest,
+georeferencing, seating-bowl generation, monolith meshes, tests.
 
-**Not done: the Unreal project itself.** See [Blockers](#blockers) — there is no
-Unreal Engine on this machine and not enough disk to install one.
+**In Unreal:** the project is at `~/Documents/Unreal Projects/RedRocks`
+(UE 5.8, Apple Silicon). Its level `/Game/RedRocks/Lvl_RedRocks` holds the
+terrain mesh, Creation Rock and Ship Rock at their real positions, a sun, sky
+atmosphere, sky light, height fog, a PlayerStart and a framing camera. It is the
+editor startup map and the game default map.
+
+Not done yet: materials (everything is the default grey), bench geometry, the
+stage, and the ml0w photogrammetry scan in `assets/scan`, which is not imported.
 
 ## What it produces
 
 ```
 out/
   redrocks_heightmap.png   2017x2017 16-bit heightmap, Unreal landscape format
+  RedRocks_Terrain.obj     377x377 grid terrain mesh, 282,752 triangles, cm
   Creation_Rock.obj        north monolith, 91.4 m, watertight
   Ship_Rock.obj            south monolith, 61.0 m, watertight
   manifest.json            Z scale, bbox, origin, venue, monoliths, attribution
@@ -32,6 +43,19 @@ python3 -m venv .venv && .venv/bin/pip install -e .
 .venv/bin/redrocks build --out out
 ```
 
+`redrocks build` writes the heightmap, the monoliths and the manifest. The
+terrain mesh is not wired into the CLI yet; generate it from Python:
+
+```python
+from pathlib import Path
+from redrocks.cli import RED_ROCKS_LAT, RED_ROCKS_LON, DEFAULT_SIDE_M
+from redrocks.dem import fetch_dem, square_bbox
+from redrocks.terrain_mesh import export_terrain_obj
+
+dem = fetch_dem(square_bbox(RED_ROCKS_LAT, RED_ROCKS_LON, DEFAULT_SIDE_M))
+export_terrain_obj(dem, Path("out/RedRocks_Terrain.obj"), grid=377)
+```
+
 Current output for a 2.4 km box centred on the amphitheatre:
 
 | | |
@@ -40,7 +64,20 @@ Current output for a 2.4 km box centred on the amphitheatre:
 | Ground resolution | 1.19 m per pixel |
 | Elevation range | 1753.9 m – 2400.0 m (646 m relief) |
 | **Z scale** | **126.2013** |
+| Terrain mesh | 377 × 377 vertices, 282,752 triangles |
 | OSM features | 15,114 nodes, 1,397 ways |
+
+### Terrain mesh
+
+The terrain goes into Unreal as a static mesh, not a Landscape. Landscape
+heightmap import can't be driven from Python in vanilla UE, while an OBJ imports
+through `AssetImportTask` like any other asset, including from a headless
+commandlet. The cost is losing Landscape features (paint layers, grass,
+Landscape LOD); the mesh can be swapped for a Landscape later.
+
+Axes are X east, Y north, Z up, in centimetres, centred on the origin, with the
+lowest point at Z = 0. Faces wind counter-clockwise seen from above, so normals
+point up.
 
 ### Monoliths
 
@@ -55,7 +92,9 @@ the ridge behind each rock.
 | Ship Rock (south) | 236.1 × 177.2 m, 18,647 m² | 61.0 m (200 ft) | 1993.4 m |
 
 Meshes are watertight, outward-facing, and their volume matches
-footprint × height to six digits. Units are centimetres, matching Unreal.
+footprint × height to six digits. Units are centimetres, matching Unreal. Side
+walls carry UVs with perimeter distance along U and height along V, so strata
+banding in a material runs horizontally.
 
 The 30° westward strata dip is **not** applied as a geometric shear. The
 monoliths are vertical columns; the dip is a property of the bedding and belongs
@@ -63,6 +102,36 @@ in the material as diagonal banding. Shearing the mesh would fake a lean that
 does not exist.
 
 ## Importing into Unreal
+
+The scripts in `unreal/` run headless against the project:
+
+```bash
+UE="/Users/Shared/Epic Games/UE_5.8/Engine/Binaries/Mac/UnrealEditor-Cmd"
+PROJ="$HOME/Documents/Unreal Projects/RedRocks/RedRocks.uproject"
+"$UE" "$PROJ" -run=pythonscript -script=unreal/import_redrocks.py -unattended -nosplash -stdout
+```
+
+Run them in this order; each writes a log to `/tmp/redrocks_*.log`:
+
+| Script | Does |
+|---|---|
+| `import_redrocks.py` | imports the three OBJs to `/Game/RedRocks` and places them in `Lvl_RedRocks` |
+| `setup_lighting.py` | adds sun, sky atmosphere, sky light, height fog, PlayerStart |
+| `configure_level.py` | fixed-exposure post-process volume and a framing camera |
+| `fix_camera.py` | lifts the camera above the 645 m ridge, removes test actors |
+| `render_preview.py` | renders the level to `Saved/redrocks_preview.png` |
+| `diagnose.py` | lists actors, mesh triangle counts and the startup map |
+
+Close the editor before running them, or the commandlet and the editor will
+both hold `Lvl_RedRocks`. Inside a running editor, run one from the console
+instead: `py "/Users/austin/dev/redrocks-ue/unreal/diagnose.py"`.
+
+The `probe_*.py` scripts are the experiments that found the import problems
+below; they are kept for reference.
+
+### Landscape instead of a mesh
+
+To use the heightmap as a Landscape:
 
 1. New level, enable the **Landscape** plugin.
 2. Landscape mode → **Import from File** → `out/redrocks_heightmap.png`.
@@ -73,6 +142,36 @@ does not exist.
 
 The Z scale formula is `relief / 512 * 100`, because Unreal's landscape maps the
 full 0–65535 heightmap range onto 100 units per 512 units of scale.
+
+### Unreal gotchas
+
+Each of these cost real time:
+
+- **`unreal.Rotator` positional order is (roll, pitch, yaw).** Always pass
+  keywords: `unreal.Rotator(pitch=-38, yaw=145, roll=0)`. Positional
+  `(-38, 145, 0)` gives pitch 145°, which puts the sun below the horizon:
+  the level renders as night, with black terrain and black sky.
+- **OBJs need a UV channel.** Without `vt` lines, the OBJ importer fails an
+  ensure and keeps only a fraction of the triangles (a 282,752-triangle terrain
+  came back with 3,716). Every exported OBJ now carries UVs.
+- **`spawn_actor_from_object` does nothing in a headless commandlet.** Spawn a
+  `StaticMeshActor` with `spawn_actor_from_class` and set its mesh instead.
+- **A minimized editor looks frozen.** macOS throttles it to a few frames per
+  second and it ignores input until it's brought forward and finishes compiling
+  shaders.
+- **The project still contains the FirstPerson template level**
+  (`/Game/FirstPerson/Lvl_FirstPerson`: a grey platform with yellow pads). It
+  isn't Red Rocks; open `Lvl_RedRocks`.
+
+## Assets
+
+| Folder | What | Licence |
+|---|---|---|
+| `assets/rocks` | 5 Poly Haven rock and cliff FBX models, for surface detail and scatter | CC0 |
+| `assets/scan` | ml0w's drone photogrammetry of Red Rocks, 2,995,743 triangles, Y-up USD | **CC BY 4.0, attribution required** |
+
+Each folder has an `ATTRIBUTION.md`. The scan's credit to ml0w has to appear in
+any build that ships.
 
 ## Data sources
 
@@ -116,17 +215,16 @@ seats gives 16.6 inches per seat, which matches Red Rocks' famously
 shoulder-to-shoulder benches. That figure was never an input — it falls out of
 the official capacity and bench length.
 
-## Blockers
+## Storage
 
-**No Unreal Engine installed.** Nothing under `/Applications` or
-`/Users/Shared/Epic Games`. UE 5.x is ~60 GB. Disk is at **56 GB free** and
-rising, so this is now a "start the install" problem rather than a "free space
-first" problem.
+Disk was the original blocker; UE 5.8 is now installed under
+`/Users/Shared/Epic Games/UE_5.8`, with about 46 GB free on the system disk
+(2026-11-03).
 
-macOS 27 / arm64 is fine: UE 5.4+ supports Apple Silicon natively.
-
-Nothing here is storage-bound for the *data* side — the whole package is 4.3 MB.
-The 60 GB is the editor.
+Two files in the repo are over GitHub's 50 MB recommendation:
+`assets/scan/usdz_extract/scene.usdc` (70 MB) and
+`assets/rocks/sand_rocks_small_01.fbx` (57 MB). Both are under the 100 MB hard
+limit; move them to Git LFS before adding anything larger.
 
 ### MEGA as storage
 
@@ -143,13 +241,17 @@ Cache on local disk, sync the source and built packages to MEGA.
 
 ## Next steps
 
-1. Install UE 5.5 once disk allows.
-2. Import the heightmap, confirm the Z scale lands the bowl at the right depth.
+1. Materials: a sandstone material for the terrain and monoliths, with the 30°
+   strata dip as diagonal banding.
+2. Import the ml0w scan (rotate Y-up to Z-up, check its scale against the 120 m
+   bowl width) and decide whether it replaces the extruded monoliths visually,
+   with the monoliths kept as collision.
 3. Extrude the generated rows into bench geometry — 68 rows, 9,525 seats, each
    with its own elevation and length already computed.
-4. Stage shell, the two 300 ft sandstone monoliths (Ship Rock and Creation
-   Rock), roof, and retaining walls. None of these exist in any free dataset.
-5. First-person traversal pass, then multiplayer.
+4. Stage shell, roof, and retaining walls. None of these exist in any free
+   dataset.
+5. Wire `export_terrain_obj` into `redrocks build`.
+6. First-person traversal pass, then multiplayer.
 
 For a *fantasy replication* rather than a survey-accurate twin, the monoliths,
 tunnel, and stage shell are the pieces that carry the feel. Those are modelling
@@ -158,9 +260,11 @@ work, and no amount of geodata substitutes for them.
 ## Tests
 
 ```bash
-.venv/bin/python -m pytest tests -q   # 34 passed
+.venv/bin/python -m pytest tests -q   # 75 passed
 ```
 
 Covers the projection (round-trip, axis orientation, distance accuracy), DEM
-sampling and interpolation, the Unreal Z scale formula, heightmap encoding, and
-OSM parsing and feature classification. No network in tests.
+sampling and interpolation, the Unreal Z scale formula, heightmap encoding, OSM
+parsing and feature classification, the seating bowl, monolith geometry, and the
+OBJ exports (terrain grid, winding, and a valid UV on every face). No network in
+tests. The `unreal/` scripts are not covered; they need the editor.
