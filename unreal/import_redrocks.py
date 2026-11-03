@@ -12,6 +12,12 @@ geometry.
 
 The terrain mesh is also tagged as non-Nanite: it is a single 282k-triangle
 surface and Nanite buys nothing while costing build time and memory.
+
+Also imports out/Benches.obj (one object, "Benches", already in the terrain's
+frame in centimetres) to /Game/RedRocks/Benches and places it at the origin with
+no rotation, Nanite off. If the file does not exist it is logged and skipped.
+Run unreal/import_scan.py AFTER this script: this one clears the level's actors
+on every run, which removes the scan actor too.
 """
 
 import json
@@ -61,7 +67,14 @@ def main():
 
     _ensure_dir(ASSET_DIR)
 
-    for name in ("RedRocks_Terrain", "Creation_Rock", "Ship_Rock"):
+    names = ["RedRocks_Terrain", "Creation_Rock", "Ship_Rock"]
+    benches_present = os.path.exists(os.path.join(OUT_DIR, "Benches.obj"))
+    if benches_present:
+        names.append("Benches")
+    else:
+        log.append("SKIP Benches: %s not found" % os.path.join(OUT_DIR, "Benches.obj"))
+
+    for name in names:
         paths = _import(name)
         log.append("imported %s -> %s" % (name, paths))
         for path in paths:
@@ -106,6 +119,9 @@ def main():
         log.append("placed %s at %s" % (asset_name, location))
 
     _place("RedRocks_Terrain", unreal.Vector(0.0, 0.0, 0.0))
+    if benches_present:
+        # Already in the terrain's frame (cm), so origin and no rotation.
+        _place("Benches", unreal.Vector(0.0, 0.0, 0.0))
 
     # The terrain mesh is authored with its lowest point at Z=0, so the bowl
     # floor sits at the height offset from that minimum.
