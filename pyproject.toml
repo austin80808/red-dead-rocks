@@ -1,0 +1,21 @@
+[project]
+name = "redrocks-ue"
+version = "0.1.0"
+description = "Build a real-world Red Rocks Amphitheatre terrain package for Unreal Engine"
+requires-python = ">=3.11"
+dependencies = [
+    "numpy>=2.0",
+    "pillow>=10.0",
+    "requests>=2.31",
+    "shapely>=2.0",
+]
+
+[project.scripts]
+redrocks = "redrocks.cli:main"
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]
