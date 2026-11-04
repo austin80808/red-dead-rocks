@@ -41,16 +41,23 @@ ACTOR_LABEL = "Scan_ml0w"
 CREDIT = "Red Rocks scan: ml0w (CC BY 4.0)"
 
 # ---- Placement, from tools/fit_scan.py --------------------------------------
-# The USD carries no real-world units (Sketchfab normalised them) and the
-# extents in ATTRIBUTION.md don't match the file, so scale, yaw and position
-# come from fitting the scan's heights to the 3DEP terrain. Re-run
-# unreal/export_scan_points.py and tools/fit_scan.py to refresh these. The fit
-# is not conclusive (detrended correlation ~0.70); check it by eye.
-FIT_SCALE = 31.1814  # cm per scan unit
-FIT_YAW_DEG = 292.00
-FIT_MIRROR_X = 1
-FIT_SCAN_CENTRE = (15.967, 21.806)  # scan units, removed before rotating
-FIT_OFFSET_CM = (-7000.0, 40000.0, 21459.2)
+# The USD carries no real-world units (Sketchfab normalised them), so scale, yaw
+# and position come from tools/fit_scan.py: scale searched within +-8 % of the
+# 0.516 m/unit measured in PR #33, then yaw/mirror/offset fitted to the 3DEP
+# terrain heights plus landmarks (stage front edge, both rock summits). Frame:
+# the OBJ/manifest terrain frame (X east, +Y north, cm), i.e. the level's world
+# frame once the OBJ imports carry scale (1,-1,1). Re-run
+# unreal/export_scan_points.py or pass the USD to tools/fit_scan.py to refresh.
+# Residuals of this fit: median |dz| 4.4 m over 50k points; stage front edge
+# 0.2 m off, Creation Rock summit 12.3 m, Ship Rock summit 5.2 m. The scale sits
+# at the low edge of the search (0.475 m/unit), so rock-to-rock distances favour
+# a smaller scale still; check by eye. (Old fit: 31.1814 / 292.00, which put the
+# stage ~400 m north of the bowl.)
+FIT_SCALE = 47.4751  # cm per scan unit
+FIT_YAW_DEG = 187.34
+FIT_MIRROR_X = -1
+FIT_SCAN_CENTRE = (15.956, 21.755)  # scan units, removed before rotating
+FIT_OFFSET_CM = (-2901.0, 4335.6, 18007.2)
 # Re-import the USD only when asked; re-placing reuses the existing chunks.
 REIMPORT = False
 # -----------------------------------------------------------------------------

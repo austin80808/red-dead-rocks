@@ -37,7 +37,7 @@ closed.
 
 The sandstone material is applied to the terrain and both rocks. Written but not
 yet run in the level: the bench import and the ml0w scan import (see the script
-table). Stage blockout generated (not yet imported). Not done: tuning the material (the ground reads pale and the
+table). Stage blockout generated (not yet imported). The scan's placement is fitted by `tools/fit_scan.py` (scale within 8 % of 0.516 m/unit, then terrain heights plus stage and rock landmarks); see issue #14 for the residuals. Not done: tuning the material (the ground reads pale and the
 fine bands shimmer at distance).
 
 ## What it produces
