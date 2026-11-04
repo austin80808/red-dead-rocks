@@ -25,7 +25,8 @@ import os
 
 import unreal
 
-OUT_DIR = "/Users/austin/dev/redrocks-ue/out"
+# The redrocks build output; REDROCKS_OUT_DIR points a test copy at another build.
+OUT_DIR = os.environ.get("REDROCKS_OUT_DIR", "/Users/austin/dev/redrocks-ue/out")
 ASSET_DIR = "/Game/RedRocks"
 LEVEL_PATH = "/Game/RedRocks/Lvl_RedRocks"
 
@@ -151,5 +152,5 @@ try:
 except Exception as exc:
     log.append("ERROR: %r" % (exc,))
 
-with open("/tmp/redrocks_import.log", "w") as fh:
+with open(os.path.join(os.environ.get("REDROCKS_LOG_DIR", "/tmp"), "redrocks_import.log"), "w") as fh:
     fh.write("\n".join(log))
