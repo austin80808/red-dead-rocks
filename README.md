@@ -52,6 +52,14 @@ out/
   manifest.json            Z scale, bbox, origin, venue, monoliths, attribution
 ```
 
+Clone with Git LFS installed: the scan, rock models and textures in `assets/`
+are LFS files, and without it you get 133-byte pointer files instead.
+
+```bash
+git lfs install   # once per machine
+git clone https://github.com/austin80808/red-dead-rocks.git
+```
+
 Run:
 
 ```bash
