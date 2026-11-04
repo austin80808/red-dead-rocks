@@ -1,4 +1,4 @@
-"""Create the Red Rocks sandstone material and apply it to the imported meshes.
+"""Create the Red Rocks materials and apply them to the imported meshes.
 
 Run headless (close the editor first):
     UnrealEditor-Cmd RedRocks.uproject -run=pythonscript \
@@ -6,16 +6,29 @@ Run headless (close the editor first):
 or inside a running editor console:
     py "/Users/austin/dev/redrocks-ue/unreal/setup_materials.py"
 
-Creates under /Game/RedRocks/Materials:
-    M_Sandstone         master material: Fountain Formation strata driven by
-                        world position (bedding dips 30 deg west), rough, non-metal
-    MI_Sandstone_Rock   instance for Creation_Rock and Ship_Rock
-    MI_Sandstone_Ground paler, dustier, less banded, redder on steep slopes
-    M_Benches           plain weathered wood (only if a "Benches" mesh exists)
+Creates under /Game/RedRocks/Materials, all procedural (world-position noise,
+no textures to import):
 
-Then sets slot 0 of the StaticMesh assets and saves them. Safe to re-run: the
-master material graph is rebuilt, existing instances are reused. Log goes to
-/tmp/redrocks_materials.log.
+    M_Sandstone         master for rock and ground. Fountain Formation red
+                        sandstone in strata dipping 30 deg west: wide pale and
+                        iron bands, warped by noise so they are not ruled lines,
+                        fading to their average colour with distance so they
+                        never shimmer. Steep ground turns to that rock; flat
+                        ground is red soil with patches of olive and dry grass.
+    MI_Sandstone_Rock   instance for Creation_Rock and Ship_Rock: all rock
+    MI_Sandstone_Ground instance for the terrain: soil and grass, rock on slopes
+    M_Benches           weathered redwood planks on the seat tops (0.3 m planks
+                        with dark seams and grain), concrete on the risers
+    M_Concrete          stage: warm grey with stains and speckle
+    M_Asphalt           roads: oxidised asphalt, worn patches, dusty edges
+    M_Lot               parking: the same asphalt without road edges
+    M_Gravel            paths: red decomposed-granite gravel, dusty edges
+    M_Scrub             juniper/scrub clumps (instanced by setup_environment.py)
+
+Then sets the StaticMesh assets' materials and saves them. setup_gameplay.py
+assigns the stage, road, path and parking materials after it imports those
+meshes; it reuses these assets when they exist. Safe to re-run: every graph is
+rebuilt, existing instances are reused. Log: /tmp/redrocks_materials.log.
 """
 
 import math
@@ -58,157 +71,386 @@ def srgb_to_linear(hex_color):
 DIP = math.radians(30.0)
 BED_NORMAL = (-math.sin(DIP), 0.0, math.cos(DIP))
 
+# Noise feature sizes, cm.
+MACRO_CM = 30000.0  # hillside-scale patches of grass and soil
+MID_CM = 2500.0     # weathering stains, band warp
+FINE_CM = 180.0     # clumps and grain
+MICRO_CM = 25.0     # grit, faded out beyond a few metres
 
-# ---------------------------------------------------------------- graph helpers
-
-def _node(mat, cls_name, x, y, **props):
-    cls = getattr(unreal, cls_name)
-    node = lib.create_material_expression(mat, cls, x, y)
-    for key, value in props.items():
-        node.set_editor_property(key, value)
-    return node
-
-
-def _link(src, dst, dst_pin, src_pin=""):
-    """Connect src output to dst input; raises if Unreal refuses."""
-    if not lib.connect_material_expressions(src, src_pin, dst, dst_pin):
-        raise RuntimeError("connect failed: %s -> %s.%s" % (src, dst, dst_pin))
-
-
-def _link_single(src, dst, src_pin=""):
-    """Connect to a single-input node whose pin name may be '' or 'Input'."""
-    for pin in ("", "Input"):
-        try:
-            if lib.connect_material_expressions(src, src_pin, dst, pin):
-                return
-        except Exception:
-            pass
-    raise RuntimeError("could not connect %s -> %s" % (src, dst))
-
-
-def _scalar_param(mat, name, value, x, y):
-    return _node(mat, "MaterialExpressionScalarParameter", x, y,
-                 parameter_name=name, default_value=value)
-
-
-def _vector_param(mat, name, hex_color, x, y):
-    return _node(mat, "MaterialExpressionVectorParameter", x, y,
-                 parameter_name=name, default_value=srgb_to_linear(hex_color))
-
-
-def _mul(mat, a, b, x, y, const_b=None):
-    n = _node(mat, "MaterialExpressionMultiply", x, y)
-    _link(a, n, "A")
-    if b is not None:
-        _link(b, n, "B")
-    else:
-        n.set_editor_property("const_b", const_b)
-    return n
+# ----------------------------------------------------------- sandstone presets
+# Fountain Formation: deep red-orange arkose with pale buff and iron-dark beds.
+SANDSTONE_DEFAULTS = {
+    "scalars": {
+        "BandThickness": 600.0,   # cm, coarse beds; fine beds are 1/3.7 of it
+        "BandContrast": 0.75,
+        "BandWarp": 350.0,        # cm the beds wander
+        "BandFadeNear": 4000.0,   # cm: full bands nearer than this
+        "BandFadeFar": 30000.0,   # cm: average colour beyond this
+        "DustAmount": 0.15,
+        "SlopeRed": 1.0,          # how hard steep ground turns to rock
+        "RockStart": 0.42,        # 1 - normal.z where rock begins (~55 deg)
+        "RockAmount": 0.0,        # 1 = rock everywhere
+        "GrassAmount": 0.0,
+        "Variation": 0.25,
+    },
+    "vectors": {
+        "BaseColor": "#A2482A",
+        "BuffColor": "#C98A5E",
+        "IronColor": "#5C2416",
+        "DustColor": "#B27D58",
+        "SoilColor": "#7E4530",
+        "GrassColor": "#5F6236",
+        "DryGrassColor": "#8E8058",
+    },
+}
+ROCK_INSTANCE = {"scalars": {"RockAmount": 1.0}, "vectors": {}}
+GROUND_INSTANCE = {
+    "scalars": {"GrassAmount": 0.6, "DustAmount": 0.1, "SlopeRed": 2.2,
+                "BandThickness": 700.0, "BandContrast": 0.6},
+    "vectors": {},
+}
 
 
-def _add_const(mat, a, const_b, x, y):
-    n = _node(mat, "MaterialExpressionAdd", x, y)
-    _link(a, n, "A")
-    n.set_editor_property("const_b", const_b)
-    return n
+class Graph:
+    """Small helper for wiring a material graph from Python.
+
+    Inputs may be expression nodes or plain numbers (which become Constant
+    nodes). Node positions are only for a readable graph in the editor.
+    """
+
+    def __init__(self, mat):
+        self.mat = mat
+        self.n = 0
+
+    def node(self, cls_name, **props):
+        self.n += 1
+        x = -2400 + 220 * (self.n % 12)
+        y = -1200 + 160 * (self.n // 12)
+        node = lib.create_material_expression(self.mat, getattr(unreal, cls_name), x, y)
+        for key, value in props.items():
+            node.set_editor_property(key, value)
+        return node
+
+    def _in(self, value):
+        if isinstance(value, (int, float)):
+            return self.node("MaterialExpressionConstant", r=float(value))
+        return value
+
+    @staticmethod
+    def link(src, dst, pin, src_pin=""):
+        if not lib.connect_material_expressions(src, src_pin, dst, pin):
+            raise RuntimeError("connect failed: %s -> %s.%s" % (src, dst, pin))
+
+    def link1(self, src, dst):
+        """Single-input nodes name their pin '' or 'Input' depending on class."""
+        for pin in ("", "Input"):
+            try:
+                if lib.connect_material_expressions(src, "", dst, pin):
+                    return
+            except Exception:
+                pass
+        raise RuntimeError("could not connect %s -> %s" % (src, dst))
+
+    def binop(self, cls_name, a, b):
+        n = self.node(cls_name)
+        self.link(self._in(a), n, "A")
+        self.link(self._in(b), n, "B")
+        return n
+
+    def mul(self, a, b):
+        return self.binop("MaterialExpressionMultiply", a, b)
+
+    def add(self, a, b):
+        return self.binop("MaterialExpressionAdd", a, b)
+
+    def sub(self, a, b):
+        return self.binop("MaterialExpressionSubtract", a, b)
+
+    def div(self, a, b):
+        return self.binop("MaterialExpressionDivide", a, b)
+
+    def dot(self, a, b):
+        return self.binop("MaterialExpressionDotProduct", a, b)
+
+    def append(self, a, b):
+        return self.binop("MaterialExpressionAppendVector", a, b)
+
+    def lerp(self, a, b, t):
+        n = self.node("MaterialExpressionLinearInterpolate")
+        self.link(self._in(a), n, "A")
+        self.link(self._in(b), n, "B")
+        self.link(self._in(t), n, "Alpha")
+        return n
+
+    def unary(self, cls_name, src, **props):
+        n = self.node(cls_name, **props)
+        self.link1(self._in(src), n)
+        return n
+
+    def sat(self, a):
+        return self.unary("MaterialExpressionSaturate", a)
+
+    def frac(self, a):
+        return self.unary("MaterialExpressionFrac", a)
+
+    def floor(self, a):
+        return self.unary("MaterialExpressionFloor", a)
+
+    def absv(self, a):
+        return self.unary("MaterialExpressionAbs", a)
+
+    def one_minus(self, a):
+        return self.unary("MaterialExpressionOneMinus", a)
+
+    def mask(self, a, channel):
+        flags = {c: (c == channel) for c in "rgba"}
+        return self.unary("MaterialExpressionComponentMask", a, **flags)
+
+    def smooth(self, lo, hi, x):
+        """saturate((x - lo) / (hi - lo)), a linear ramp (cheap smoothstep)."""
+        return self.sat(self.mul(self.sub(x, lo), 1.0 / (hi - lo)))
+
+    def scalar(self, name, value):
+        return self.node("MaterialExpressionScalarParameter",
+                         parameter_name=name, default_value=float(value))
+
+    def vector(self, name, hex_color):
+        return self.node("MaterialExpressionVectorParameter",
+                         parameter_name=name, default_value=srgb_to_linear(hex_color))
+
+    def color(self, hex_color):
+        return self.node("MaterialExpressionConstant3Vector",
+                         constant=srgb_to_linear(hex_color))
+
+    def vec3(self, x, y, z):
+        return self.node("MaterialExpressionConstant3Vector",
+                         constant=unreal.LinearColor(r=x, g=y, b=z, a=1.0))
+
+    def world_pos(self):
+        return self.node("MaterialExpressionWorldPosition")
+
+    def depth(self):
+        return self.node("MaterialExpressionPixelDepth")
+
+    def normal_z(self):
+        return self.mask(self.node("MaterialExpressionVertexNormalWS"), "b")
+
+    def uv(self):
+        return self.node("MaterialExpressionTextureCoordinate", coordinate_index=0)
+
+    def noise(self, position, size_cm, levels=2, func="SIMPLEX_TEX"):
+        """0..1 noise with features about size_cm across."""
+        n = self.node(
+            "MaterialExpressionNoise",
+            scale=1.0 / size_cm, levels=levels, quality=1,
+            noise_function=getattr(unreal.NoiseFunction, "NOISEFUNCTION_" + func),
+            output_min=0.0, output_max=1.0, turbulence=False,
+        )
+        self.link(position, n, "World Position")
+        return n
+
+    def near_fade(self, start_cm, end_cm):
+        """1 near the camera, 0 beyond end_cm: for detail that would alias."""
+        return self.one_minus(self.smooth(start_cm, end_cm, self.depth()))
+
+    def output(self, base_color, roughness, metallic=0.0, normal=None):
+        mp = unreal.MaterialProperty
+        lib.connect_material_property(base_color, "", mp.MP_BASE_COLOR)
+        lib.connect_material_property(self._in(roughness), "", mp.MP_ROUGHNESS)
+        lib.connect_material_property(self._in(metallic), "", mp.MP_METALLIC)
+        if normal is not None:
+            lib.connect_material_property(normal, "", mp.MP_NORMAL)
 
 
-def _lerp(mat, a, b, alpha, x, y):
-    n = _node(mat, "MaterialExpressionLinearInterpolate", x, y)
-    _link(a, n, "A")
-    _link(b, n, "B")
-    _link(alpha, n, "Alpha")
-    return n
+def _band(g, coord, thickness, contrast):
+    """0..1 sine band mask: sin(2*pi*coord/thickness) * contrast * 0.5 + 0.5."""
+    sine = g.unary("MaterialExpressionSine", g.div(coord, thickness), period=1.0)
+    return g.sat(g.add(g.mul(g.mul(sine, contrast), 0.5), 0.5))
 
 
-def _saturate(mat, a, x, y):
-    n = _node(mat, "MaterialExpressionSaturate", x, y)
-    _link_single(a, n)
-    return n
-
-
-def _band_mask(mat, band_coord, thickness_param, contrast, x, y):
-    """0..1 sine mask: sin(2*pi * coord/thickness) * contrast * 0.5 + 0.5."""
-    scaled = _node(mat, "MaterialExpressionDivide", x, y)
-    _link(band_coord, scaled, "A")
-    _link(thickness_param, scaled, "B")
-    sine = _node(mat, "MaterialExpressionSine", x + 200, y, period=1.0)
-    _link_single(scaled, sine)
-    amp = _mul(mat, sine, contrast, x + 400, y)
-    half = _mul(mat, amp, None, x + 600, y, const_b=0.5)
-    shifted = _add_const(mat, half, 0.5, x + 800, y)
-    return _saturate(mat, shifted, x + 1000, y)
-
+# --------------------------------------------------------------------- graphs
 
 def build_sandstone(mat):
-    """Wire the whole sandstone graph into `mat`."""
+    """Rock and ground in one graph; the instances move the balance."""
     lib.delete_all_material_expressions(mat)
+    g = Graph(mat)
+    p = {k: g.scalar(k, v) for k, v in SANDSTONE_DEFAULTS["scalars"].items()}
+    c = {k: g.vector(k, v) for k, v in SANDSTONE_DEFAULTS["vectors"].items()}
 
-    # Parameters (instances override these).
-    base = _vector_param(mat, "BaseColor", "#B5532E", -1400, -400)
-    buff = _vector_param(mat, "BuffColor", "#D9A66F", -1400, -250)
-    iron = _vector_param(mat, "IronColor", "#6E2A1A", -1400, -100)
-    dust = _vector_param(mat, "DustColor", "#C98F6A", -1400, 50)
-    thick_a = _scalar_param(mat, "BandThickness", 250.0, -1400, 250)  # cm
-    contrast = _scalar_param(mat, "BandContrast", 1.0, -1400, 400)
-    dust_amt = _scalar_param(mat, "DustAmount", 0.0, -1400, 550)
-    slope_red = _scalar_param(mat, "SlopeRed", 0.0, -1400, 700)
+    wpos = g.world_pos()
+    n_macro = g.noise(wpos, MACRO_CM, levels=3)
+    n_mid = g.noise(wpos, MID_CM, levels=3)
+    n_fine = g.noise(wpos, FINE_CM, levels=2)
+    n_micro = g.noise(wpos, MICRO_CM, levels=1)
+    depth = g.depth()
 
-    # Band coordinate: dot(WorldPosition, bedding normal), cm along the normal.
-    wpos = _node(mat, "MaterialExpressionWorldPosition", -1400, 900)
-    normal = _node(
-        mat, "MaterialExpressionConstant3Vector", -1400, 1050,
-        constant=unreal.LinearColor(
-            r=BED_NORMAL[0], g=BED_NORMAL[1], b=BED_NORMAL[2], a=1.0),
-    )
-    coord = _node(mat, "MaterialExpressionDotProduct", -1100, 950)
-    _link(wpos, coord, "A")
-    _link(normal, coord, "B")
+    # Strata coordinate: cm along the bedding normal, wandered by mid noise.
+    coord = g.dot(wpos, g.vec3(*BED_NORMAL))
+    coord = g.add(coord, g.mul(g.sub(n_mid, 0.5), p["BandWarp"]))
+    # Distance fade: lerp each band mask toward its mean (0.5) so far bands
+    # resolve to their average colour instead of aliasing into stripes. The
+    # fine beds fade three times sooner.
+    fade = g.sat(g.div(g.sub(depth, p["BandFadeNear"]),
+                       g.sub(p["BandFadeFar"], p["BandFadeNear"])))
+    fade_fine = g.sat(g.mul(fade, 3.0))
+    coarse = g.lerp(_band(g, coord, p["BandThickness"], p["BandContrast"]), 0.5, fade)
+    fine = g.lerp(_band(g, coord, g.mul(p["BandThickness"], 1.0 / 3.7), p["BandContrast"]),
+                  0.5, fade_fine)
 
-    # Fine band thickness = A / 3.7 so the two sine layers never line up.
-    thick_b = _mul(mat, thick_a, None, -1100, 250, const_b=1.0 / 3.7)
+    rock = g.lerp(c["BaseColor"], c["BuffColor"], g.mul(coarse, 0.8))
+    rock = g.lerp(rock, c["IronColor"], g.mul(fine, 0.45))
+    # Weathering: broad darker/lighter stains, then grain.
+    stain = g.lerp(g.sub(1.0, p["Variation"]), g.add(1.0, g.mul(p["Variation"], 0.5)), n_mid)
+    rock = g.mul(rock, stain)
+    rock = g.mul(rock, g.lerp(0.88, 1.08, n_fine))
+    rock = g.lerp(rock, c["DustColor"], g.mul(p["DustAmount"], n_macro))
 
-    # Coarse bands: base red <-> pale buff. Fine bands: darker iron staining.
-    coarse = _band_mask(mat, coord, thick_a, contrast, -900, -400)
-    fine = _band_mask(mat, coord, thick_b, contrast, -900, 200)
-    fine_soft = _mul(mat, fine, None, 300, 200, const_b=0.6)
+    # Ground: red soil, with grass where the noise clears a threshold on flat
+    # ground. Coverage mixes three scales so patches have ragged edges.
+    soil = g.lerp(c["SoilColor"], c["DustColor"], g.mul(n_fine, 0.5))
+    grass = g.lerp(c["GrassColor"], c["DryGrassColor"], n_mid)
+    grass = g.mul(grass, g.lerp(0.8, 1.1, n_fine))
+    cover = g.add(g.add(g.mul(n_macro, 0.5), g.mul(n_mid, 0.38)), g.mul(n_fine, 0.12))
+    nz = g.sat(g.normal_z())
+    flat = g.smooth(0.65, 0.9, nz)
+    grass_mask = g.mul(g.sat(g.add(g.mul(g.sub(g.add(cover, p["GrassAmount"]), 1.0), 3.5), 0.5)), flat)
+    grass_mask = g.mul(grass_mask, g.sat(g.mul(p["GrassAmount"], 4.0)))
+    ground = g.lerp(soil, grass, grass_mask)
 
-    col = _lerp(mat, base, buff, coarse, 600, -300)
-    col = _lerp(mat, col, iron, fine_soft, 800, -200)
+    # Rock where the ground is steep, with a ragged noisy edge.
+    steep = g.one_minus(nz)
+    rock_mask = g.add(g.mul(g.sub(steep, p["RockStart"]), g.mul(p["SlopeRed"], 4.0)),
+                      g.mul(g.sub(n_mid, 0.5), 0.8))
+    rock_mask = g.sat(g.add(rock_mask, p["RockAmount"]))
+    col = g.lerp(ground, rock, rock_mask)
 
-    # Dust wash (the ground instance turns this up).
-    col = _lerp(mat, col, dust, dust_amt, 1000, -100)
+    # Grit close to the camera only.
+    grit = g.lerp(1.0, g.lerp(0.86, 1.1, n_micro), g.near_fade(800.0, 3000.0))
+    col = g.mul(col, grit)
 
-    # Slope: steep faces (normal.z small) go back toward the base red.
-    vn = _node(mat, "MaterialExpressionVertexNormalWS", 400, 700)
-    nz = _node(mat, "MaterialExpressionComponentMask", 600, 700,
-               r=False, g=False, b=True, a=False)
-    _link_single(vn, nz)
-    flat = _saturate(mat, nz, 800, 700)
-    steep = _node(mat, "MaterialExpressionOneMinus", 1000, 700)
-    _link_single(flat, steep)
-    steep_amt = _mul(mat, steep, slope_red, 1200, 700)
-    col = _lerp(mat, col, base, _saturate(mat, steep_amt, 1400, 700), 1600, -100)
-
-    rough = _node(mat, "MaterialExpressionConstant", 1600, 200, r=0.92)
-    metal = _node(mat, "MaterialExpressionConstant", 1600, 350, r=0.0)
-
-    mp = unreal.MaterialProperty
-    lib.connect_material_property(col, "", mp.MP_BASE_COLOR)
-    lib.connect_material_property(rough, "", mp.MP_ROUGHNESS)
-    lib.connect_material_property(metal, "", mp.MP_METALLIC)
+    rough = g.lerp(0.95, 0.86, g.mul(rock_mask, n_fine))
+    g.output(col, rough)
 
 
-def build_plain(mat, hex_color, roughness):
+def build_benches(mat):
+    """Redwood planks on top, weathered grey where exposed; concrete risers.
+
+    Bench UVs are metres: U along the row, V across the seat (0..0.9) on the
+    top and up the riser (0..0.45) on the sides.
+    """
     lib.delete_all_material_expressions(mat)
-    color = _node(mat, "MaterialExpressionConstant3Vector", -400, 0,
-                  constant=srgb_to_linear(hex_color))
-    rough = _node(mat, "MaterialExpressionConstant", -400, 200, r=roughness)
-    metal = _node(mat, "MaterialExpressionConstant", -400, 320, r=0.0)
-    mp = unreal.MaterialProperty
-    lib.connect_material_property(color, "", mp.MP_BASE_COLOR)
-    lib.connect_material_property(rough, "", mp.MP_ROUGHNESS)
-    lib.connect_material_property(metal, "", mp.MP_METALLIC)
+    g = Graph(mat)
+    uv = g.uv()
+    u = g.mask(uv, "r")
+    v = g.mask(uv, "g")
+    plank_w = 0.3
+    pv = g.div(v, plank_w)
+    plank_id = g.floor(pv)
+    # Seams: dark 1 cm gaps at the plank edges.
+    edge = g.mul(g.absv(g.sub(g.frac(pv), 0.5)), 2.0)
+    seam = g.smooth(0.9, 0.97, edge)
+    # Boards are 3.6 m long; each board gets its own tint.
+    board = g.floor(g.div(u, 3.6))
+    board_pos = g.append(g.append(g.mul(board, 1700.0), g.mul(plank_id, 2300.0)), 0.0)
+    board_tint = g.noise(board_pos, 1000.0, levels=1)
+    # Grain: stretched noise, long along U, tight across.
+    grain_pos = g.append(g.append(g.mul(u, 60.0), g.mul(v, 2500.0)), g.mul(plank_id, 977.0))
+    grain = g.noise(grain_pos, 100.0, levels=3)
+    wpos = g.world_pos()
+    weather = g.noise(wpos, 1500.0, levels=2)
+
+    wood = g.lerp(g.color("#8C5434"), g.color("#5E3420"), g.mul(grain, 0.7))
+    wood = g.lerp(wood, g.color("#93857A"), g.mul(g.add(g.mul(weather, 0.6), g.mul(board_tint, 0.4)), 0.6))
+    wood = g.mul(wood, g.lerp(0.85, 1.12, board_tint))
+    wood = g.lerp(wood, g.color("#1E140E"), g.mul(seam, g.near_fade(1500.0, 6000.0)))
+
+    # Risers: concrete stained by decades of red dust.
+    concrete = _concrete_color(g, wpos, "#A8927C", "#8A7663")
+    top = g.smooth(0.55, 0.75, g.sat(g.normal_z()))
+    col = g.lerp(concrete, wood, top)
+    rough = g.lerp(0.92, 0.78, top)
+    g.output(col, rough)
+
+
+def _concrete_color(g, wpos, light_hex, dark_hex):
+    blotch = g.noise(wpos, 400.0, levels=3)
+    speck = g.noise(wpos, 6.0, levels=1, func="VALUE_ALU")
+    col = g.lerp(g.color(light_hex), g.color(dark_hex), g.mul(g.smooth(0.3, 0.8, blotch), 0.6))
+    return g.mul(col, g.lerp(1.0, g.lerp(0.9, 1.08, speck), g.near_fade(300.0, 1500.0)))
+
+
+def build_concrete(mat):
+    lib.delete_all_material_expressions(mat)
+    g = Graph(mat)
+    wpos = g.world_pos()
+    col = _concrete_color(g, wpos, "#ADA597", "#8E8577")
+    # A red-dust tint from the hillside, in broad patches.
+    dust = g.noise(wpos, 2500.0, levels=2)
+    col = g.lerp(col, g.color("#9C6F55"), g.mul(g.smooth(0.55, 0.85, dust), 0.35))
+    g.output(col, 0.85)
+
+
+def _asphalt_color(g, wpos, fresh_hex, worn_hex):
+    worn = g.noise(wpos, 1800.0, levels=3)
+    stones = g.noise(wpos, 3.0, levels=1, func="VALUE_ALU")
+    col = g.lerp(g.color(fresh_hex), g.color(worn_hex), g.mul(g.smooth(0.3, 0.85, worn), 0.7))
+    return g.mul(col, g.lerp(1.0, g.lerp(0.8, 1.25, stones), g.near_fade(200.0, 1200.0)))
+
+
+def _dusty_edges(g, col, wpos, soil_hex, width):
+    """Blend toward red soil near the ribbon edges (ribbon V runs 0..1 across)."""
+    v = g.mask(g.uv(), "g")
+    centre = g.absv(g.sub(g.frac(v), 0.5))  # 0 mid-ribbon, 0.5 at the edges
+    ragged = g.mul(g.noise(wpos, 120.0, levels=2), 0.12)
+    edge = g.smooth(0.5 - width, 0.5, g.add(centre, ragged))
+    return g.lerp(col, g.color(soil_hex), g.mul(edge, 0.85))
+
+
+def build_asphalt(mat):
+    lib.delete_all_material_expressions(mat)
+    g = Graph(mat)
+    wpos = g.world_pos()
+    col = _asphalt_color(g, wpos, "#4A4845", "#67635D")
+    col = _dusty_edges(g, col, wpos, "#8A5A40", 0.14)
+    g.output(col, 0.82)
+
+
+def build_lot(mat):
+    lib.delete_all_material_expressions(mat)
+    g = Graph(mat)
+    wpos = g.world_pos()
+    col = _asphalt_color(g, wpos, "#57544F", "#706B64")
+    g.output(col, 0.85)
+
+
+def build_gravel(mat):
+    lib.delete_all_material_expressions(mat)
+    g = Graph(mat)
+    wpos = g.world_pos()
+    patches = g.noise(wpos, 600.0, levels=2)
+    pebbles = g.noise(wpos, 4.0, levels=1, func="VORONOI_ALU")
+    col = g.lerp(g.color("#9B6A4B"), g.color("#B98F6C"), patches)
+    col = g.mul(col, g.lerp(1.0, g.lerp(0.75, 1.2, pebbles), g.near_fade(300.0, 1500.0)))
+    col = _dusty_edges(g, col, wpos, "#8C4F33", 0.2)
+    g.output(col, 0.95)
+
+
+def build_scrub(mat):
+    """Juniper and scrub-oak clumps: dark olive, each bush its own shade."""
+    lib.delete_all_material_expressions(mat)
+    mat.set_editor_property("used_with_instanced_static_meshes", True)
+    g = Graph(mat)
+    wpos = g.world_pos()
+    leaves = g.noise(wpos, 60.0, levels=2)
+    per_bush = g.node("MaterialExpressionPerInstanceRandom")
+    col = g.lerp(g.color("#2E3A22"), g.color("#55583A"), per_bush)
+    col = g.mul(col, g.lerp(0.6, 1.15, leaves))
+    # Leafy clumps: tilt the normal with two noises so the smooth lobes break
+    # up into lit and shaded tufts instead of reading as balls.
+    nx = g.mul(g.sub(g.noise(wpos, 45.0, levels=2), 0.5), 2.2)
+    ny = g.mul(g.sub(g.noise(g.add(wpos, g.vec3(317.0, 911.0, 53.0)), 45.0, levels=2), 0.5), 2.2)
+    normal = g.append(g.append(nx, ny), 1.0)
+    g.output(col, 0.9, normal=normal)
 
 
 # --------------------------------------------------------------- asset helpers
@@ -224,17 +466,22 @@ def _get_or_create(name, asset_class, factory):
     return asset
 
 
-def make_material(name, builder, *args):
+def _save_asset(asset):
+    if not eal.save_loaded_asset(asset, False):
+        raise RuntimeError("save failed for %s (read-only file?)" % asset.get_path_name())
+
+
+def make_material(name, builder):
     mat = _get_or_create(name, unreal.Material, unreal.MaterialFactoryNew())
     if mat is None:
         raise RuntimeError("could not create %s" % name)
-    _step("build graph %s" % name, builder, mat, *args)
+    _step("build graph %s" % name, builder, mat)
     _step("recompile %s" % name, lib.recompile_material, mat)
-    _step("save %s" % name, eal.save_loaded_asset, mat)
+    _step("save %s" % name, _save_asset, mat)
     return mat
 
 
-def make_instance(name, parent, scalars, vectors):
+def make_instance(name, parent, preset):
     inst = _get_or_create(
         name, unreal.MaterialInstanceConstant,
         unreal.MaterialInstanceConstantFactoryNew(),
@@ -242,15 +489,19 @@ def make_instance(name, parent, scalars, vectors):
     if inst is None:
         raise RuntimeError("could not create %s" % name)
     _step("parent %s" % name, inst.set_editor_property, "parent", parent)
-    for key, value in scalars.items():
+    # Clear old overrides so a parameter dropped from the preset falls back to
+    # the master's default instead of keeping a stale value.
+    if hasattr(lib, "clear_all_material_instance_parameters"):
+        _step("clear %s" % name, lib.clear_all_material_instance_parameters, inst)
+    for key, value in preset["scalars"].items():
         _step("%s.%s" % (name, key),
               lib.set_material_instance_scalar_parameter_value, inst, key, value)
-    for key, hex_color in vectors.items():
+    for key, hex_color in preset["vectors"].items():
         _step("%s.%s" % (name, key),
               lib.set_material_instance_vector_parameter_value,
               inst, key, srgb_to_linear(hex_color))
     _step("update %s" % name, lib.update_material_instance, inst)
-    _step("save %s" % name, eal.save_loaded_asset, inst)
+    _step("save %s" % name, _save_asset, inst)
     return inst
 
 
@@ -262,18 +513,22 @@ def apply_to_mesh(mesh_name, material):
     mesh = eal.load_asset(path)
     if mesh is None or material is None:
         raise RuntimeError("could not load mesh or material for %s" % path)
-    try:
-        mesh.set_material(0, material)
-    except Exception as exc:
-        log.append("set_material failed (%r), trying static_materials" % (exc,))
-        slots = list(mesh.get_editor_property("static_materials"))
-        if not slots:
-            raise RuntimeError("%s has no material slots" % path)
-        slots[0].set_editor_property("material_interface", material)
-        mesh.set_editor_property("static_materials", slots)
-    _step("save mesh %s" % mesh_name, eal.save_loaded_asset, mesh)
+    for i in range(max(1, len(mesh.get_editor_property("static_materials")))):
+        mesh.set_material(i, material)
+    _step("save mesh %s" % mesh_name, _save_asset, mesh)
     log.append("applied %s -> %s" % (material.get_name(), mesh_name))
     return True
+
+
+# Built here; setup_gameplay.py assigns the ones for meshes it imports.
+SURFACES = [
+    ("M_Benches", build_benches, "Benches"),
+    ("M_Concrete", build_concrete, "Stage"),
+    ("M_Asphalt", build_asphalt, "Roads"),
+    ("M_Lot", build_lot, "Parking"),
+    ("M_Gravel", build_gravel, "Paths"),
+    ("M_Scrub", build_scrub, None),  # setup_environment.py instances it
+]
 
 
 def main():
@@ -285,33 +540,27 @@ def main():
     rock = ground = None
     if sandstone is not None:
         rock = _step("MI_Sandstone_Rock", make_instance,
-                     "MI_Sandstone_Rock", sandstone, {}, {})
-        ground = _step(
-            "MI_Sandstone_Ground", make_instance, "MI_Sandstone_Ground", sandstone,
-            {"BandContrast": 0.35, "DustAmount": 0.45, "SlopeRed": 0.8,
-             "BandThickness": 400.0},
-            {"BaseColor": "#B96A45", "BuffColor": "#D8B088", "DustColor": "#CDA27E"},
-        )
+                     "MI_Sandstone_Rock", sandstone, ROCK_INSTANCE)
+        ground = _step("MI_Sandstone_Ground", make_instance,
+                       "MI_Sandstone_Ground", sandstone, GROUND_INSTANCE)
 
     for name in ("Creation_Rock", "Ship_Rock"):
         _step("apply %s" % name, apply_to_mesh, name, rock or sandstone)
     _step("apply RedRocks_Terrain", apply_to_mesh, "RedRocks_Terrain",
           ground or sandstone)
 
-    if eal.does_asset_exist(GAME_DIR + "/Benches"):
-        wood = _step("M_Benches", make_material, "M_Benches", build_plain,
-                     "#6B5438", 0.85)
-        _step("apply Benches", apply_to_mesh, "Benches", wood)
-    else:
-        log.append("skip  Benches (not in %s)" % GAME_DIR)
+    for mat_name, builder, mesh_name in SURFACES:
+        mat = _step(mat_name, make_material, mat_name, builder)
+        if mat is not None and mesh_name:
+            _step("apply %s" % mesh_name, apply_to_mesh, mesh_name, mat)
 
     log.append("done")
 
 
-try:
-    main()
-except Exception as exc:
-    log.append("ERROR: %r" % (exc,))
-
-with open(LOG_PATH, "w") as fh:
-    fh.write("\n".join(log))
+if hasattr(unreal, "EditorAssetLibrary"):
+    try:
+        main()
+    except Exception as exc:
+        log.append("ERROR: %r" % (exc,))
+    with open(LOG_PATH, "w") as fh:
+        fh.write("\n".join(log) + "\n")
