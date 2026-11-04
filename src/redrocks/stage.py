@@ -27,12 +27,16 @@ Every number is in ``DIMENSIONS`` with its source. ``kind`` is one of:
 
 * ``published``: stated by a cited source;
 * ``derived``: computed from published figures or the OSM/DEM data;
-* ``estimate``: an honest rough estimate, not measured on site. **The venue does not publish the stage
-  width/depth, and no source found gives them**, so those are rough estimates, not
-  measured, and must be replaced if a tech pack or survey turns up.
+* ``measured``: read off the ml0w photogrammetry scan (``tools/measure_stage_scan.py``).
+  The scan has no units, so its scale was found from published figures (about 0.52 m
+  per scan unit, within a few percent); each measured source says how and how
+  confident it is;
+* ``estimate``: an honest rough estimate, not measured on site or on the scan.
 
 Sources:
 
+* ml0w, "Red Rocks, Colorado" photogrammetry (Sketchfab, CC BY 4.0, drone data from
+  DroneMapper), ``assets/scan``: stage deck, roof and the wall behind it.
 * IA Stage, "Red Rocks Amphitheater" (rigging contractor project page,
   https://www.iastage.com/red-rocks-amphitheater/): SkyDeck I-beam grid at
   40'2" above the stage floor; Y-columns meet at 36'10"; trusses 12 ft behind
@@ -67,50 +71,69 @@ COLUMN_COUNT = 4
 class Dimension:
     name: str
     value_m: float
-    kind: str  # "published" | "derived" | "estimate"
+    kind: str  # "published" | "derived" | "measured" | "estimate"
     source: str
 
 
-# SkyDeck I-beam grid at 40'2" above the stage floor (IA Stage).
-ROOF_TOP_ABOVE_DECK_M = (40 + 2 / 12.0) * FT
+# SkyDeck I-beam grid at 40'2" above the stage floor (IA Stage). The roof slab sits on it.
+ROOF_GRID_ABOVE_DECK_M = (40 + 2 / 12.0) * FT
 
 # Roof truss stations: 12 ft behind the downstage edge, then 25 ft apart, three trusses.
 _TRUSS_3_FROM_FRONT_M = (12 + 25 + 25) * FT
 
+_SCAN = "ml0w scan (CC BY 4.0), "
+
 DIMENSIONS: tuple[Dimension, ...] = (
-    Dimension("stage_width", 24.4, "estimate",
-              "Rough estimate, not measured (about 80 ft); no source found publishes it. Not OSM-derived."),
-    Dimension("stage_depth", 21.3, "estimate",
-              "Roof trusses reach 62 ft (19 m) behind the downstage edge (IA Stage) plus ~8 ft of "
-              "backstage deck, a rough estimate, not measured: 70 ft."),
+    Dimension("stage_width", 26.3, "measured",
+              _SCAN + "roof plan width: z extent of the connected up-facing roof surface, 51 units x 0.516 m. "
+              "Medium-low confidence (+-1.5 m): the roof is only partly reconstructed and the deck under it is "
+              "hidden; the flat deck seen from above is at least 20.9 m wide. Was an 80 ft estimate."),
+    Dimension("stage_depth", 27.9, "measured",
+              _SCAN + "deck front lip to where the flat deck ends at the wall behind, along the axis on a clean "
+              "strip: 54 units x 0.516 m. Medium confidence (+-1.5 m): the lip is where the ramp's gutter meets the "
+              "deck, the rear is where the profile leaves the deck by 1.5 units. Was 21.3 m (roof span plus 8 ft)."),
     Dimension("stage_front_setback", 3.0, "estimate",
-              "Rough estimate, not measured: pit/aisle between the stage lip and bench row 1."),
-    Dimension("stage_drop", 1.2, "estimate",
-              "Rough estimate, not measured (about 4 ft): deck top below row 1's elevation, per issue #20."),
+              "Not changed: the scan puts row 1 about 3.5 m (+-1.5) uphill of the deck lip, consistent with 3 m, "
+              "but row 1's own position is not resolved in the scan."),
+    Dimension("stage_drop", 0.2, "measured",
+              _SCAN + "deck height against the row-1 tread on the along-axis profile: level to within 0.4 m. "
+              "Low confidence (the ramp ends in a gutter 1 m lower than the deck). Was a 4 ft estimate."),
     Dimension("deck_thickness", 1.5, "estimate",
               "Blockout slab thickness; footers are 6 ft below the deck (IA Stage), the rest is buried."),
-    Dimension("roof_top_above_deck", ROOF_TOP_ABOVE_DECK_M, "published",
-              "SkyDeck I-beam grid at 40'2\" above the stage floor (IA Stage)."),
-    Dimension("roof_thickness", 1.5, "estimate",
-              "Estimate: roof truss + decking depth; IA Stage gives bay spacing, not truss depth."),
+    Dimension("roof_grid_above_deck", ROOF_GRID_ABOVE_DECK_M, "published",
+              "SkyDeck I-beam grid at 40'2\" above the stage floor (IA Stage). The scan agrees: the roof's "
+              "underside surface is 12.33 m above the deck (+-0.6 m with the scale)."),
+    Dimension("roof_thickness", 2.1, "measured",
+              _SCAN + "roof top surface 14.46 m above the deck minus the underside surface 12.33 m (which matches "
+              "the published grid). Medium-low confidence (+-0.7 m): blobby photogrammetry. Was a 1.5 m estimate. "
+              "The roof now sits on the published grid height."),
+    Dimension("roof_depth", 21.9, "measured",
+              _SCAN + "x extent of the up-facing roof surface, 42.5 units x 0.516 m, starting within 0.5 m of the "
+              "deck front lip. Medium confidence (+-1.5 m). The deck runs about 6 m further back than the roof."),
     Dimension("column_size", 0.9, "estimate",
               "Rough estimate, not measured: round/splayed column base about 3 ft across, modelled square."),
     Dimension("column_front_station", 12 * FT, "published",
               "Truss 1 is ~12 ft behind the downstage roof edge (IA Stage); front columns sit there."),
     Dimension("column_rear_station", _TRUSS_3_FROM_FRONT_M, "derived",
               "Truss 3: 12 + 25 + 25 ft behind the downstage roof edge (IA Stage); rear columns sit there."),
-    Dimension("shell_thickness", 0.6, "estimate", "Estimate: back wall of the shell."),
-    Dimension("shell_wing_length", 8.0, "estimate", "Rough estimate, not measured: splayed side walls."),
+    Dimension("shell_thickness", 0.6, "estimate", "Estimate: back wall of the shell. The scan shows one rear face, not a separate shell."),
+    Dimension("shell_wing_length", 8.0, "estimate", "Rough estimate, not measured: splayed side walls (not resolved in the scan)."),
     Dimension("shell_wing_height", 6.0, "estimate", "Rough estimate, not measured."),
     Dimension("shell_wing_splay_degrees", 15.0, "estimate", "Estimate: outward splay of the side walls."),
-    Dimension("retaining_wall_gap", 2.0, "estimate", "Estimate: service gap between shell back wall and retaining wall."),
+    Dimension("retaining_wall_gap", 2.1, "measured",
+              _SCAN + "rear face of the wall minus where the flat deck ends: 4 units x 0.516 m. Low confidence "
+              "(+-1 m); close to the old 2 m estimate."),
     Dimension("retaining_wall_thickness", 0.9, "estimate", "Estimate: typical 3 ft concrete retaining wall, not measured."),
-    Dimension("retaining_wall_height", 6.0, "estimate",
-              "Rough estimate, not measured: height above the deck; the rock slope behind rises above this."),
+    Dimension("retaining_wall_height", 12.9, "measured",
+              _SCAN + "near-vertical rear face from the deck to its crest, 25 units x 0.516 m, on a clean strip "
+              "behind the stage. Low confidence (+-2 m): the scan cannot separate a built wall from the rock face "
+              "it stands against, so this is the whole face. Was a 6 m estimate."),
     Dimension("retaining_wall_buried", 2.0, "estimate", "Estimate: depth below the deck so the wall meets terrain."),
     Dimension("retaining_wall_overhang", 3.0, "estimate", "Estimate: wall extends this far past each side of the stage."),
     Dimension("retaining_gusset_length", 6.0, "estimate", "Estimate: triangular return at each wall end."),
-    Dimension("walkway_width", 4.0, "estimate", "Rough estimate, not measured: top-of-bowl promenade."),
+    Dimension("walkway_width", 4.0, "estimate",
+              "Rough estimate, not measured: top-of-bowl promenade. The scan shows a flat plateau behind the top "
+              "row with no edge that fixes a walkway width."),
     Dimension("walkway_thickness", 0.4, "estimate", "Blockout slab thickness."),
     Dimension("walkway_gap", 0.5, "estimate", "Estimate: clearance between the last bench and the walkway."),
 )
@@ -225,13 +248,14 @@ def stage_parts(
     W, D = STAGE_WIDTH_M, STAGE_DEPTH_M
     deck_top = deck_top_elevation(rows, ground) - base_elevation_m
     deck_bot = deck_top - dim("deck_thickness")
-    roof_top = deck_top + ROOF_TOP_ABOVE_DECK_M
-    roof_bot = roof_top - dim("roof_thickness")
+    roof_bot = deck_top + ROOF_GRID_ABOVE_DECK_M  # the slab sits on the SkyDeck grid
+    roof_top = roof_bot + dim("roof_thickness")
+    RD = dim("roof_depth")
     hw = W / 2.0
 
     parts: list[Part] = []
     parts.append(Part("deck", _rect(origin, a, l, -hw, hw, -D, 0.0), deck_bot, deck_top))
-    parts.append(Part("roof", _rect(origin, a, l, -hw, hw, -D, 0.0), roof_bot, roof_top))
+    parts.append(Part("roof", _rect(origin, a, l, -hw, hw, -RD, 0.0), roof_bot, roof_top))
 
     # Four columns, in from each side, under trusses 1 and 3.
     cs = dim("column_size")

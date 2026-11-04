@@ -161,7 +161,7 @@ does not exist.
 ### Stage blockout
 
 `Stage.obj` is a blockout, not a model: boxes and wedges (vertical prisms with a
-convex plan) for the stage deck, roof, four columns, the shell (back wall and
+convex plan) for the stage deck, roof slab, four columns, the shell (back wall and
 two splayed wings), the retaining wall behind the stage with a triangular return
 at each end, and the walkway along the top of the bowl. It is one watertight
 `Stage` object in the terrain's frame (cm, X east, Y north, Z up, terrain
@@ -176,19 +176,35 @@ the audience. The walkway runs along the last row's chord at that row's
 elevation. On the real build the deck top lands within about 1 m of the terrain
 there.
 
-**Only two figures are published; everything else is a rough estimate.** No
-source found gives the stage width or depth, so those are estimates, flagged as
-such in `redrocks.stage.DIMENSIONS` (`kind` is `published`, `derived` or
-`estimate`). Replace them if a tech pack or survey turns up.
+**Sizes come from the ml0w scan where it could be measured.** `kind` in
+`redrocks.stage.DIMENSIONS` is `published`, `derived`, `measured` (read off the
+scan by `tools/measure_stage_scan.py`) or `estimate` (neither). The scan has no
+units, so the script finds its own scale first from published figures: about
+**0.516 m per scan unit** (bench rise 0.496, roof underside against the 12.24 m
+SkyDeck grid 0.513, Creation/Ship Rock top difference 0.541, so roughly +-4%).
+The fit used to place the scan in Unreal (`FIT_SCALE` in `unreal/import_scan.py`,
+0.312 m per unit) is about 40% too small and puts the stage about 375 m from the
+bowl; see issue #14. Measured values are right only to the confidence in their
+source text: the roof is partly reconstructed and the scan cannot tell the
+retaining wall from the rock it stands against.
 
-| Dimension | Value | Kind | Source |
+| Dimension | Value | Kind | Confidence / source |
 |---|---|---|---|
-| Roof top above deck | 12.24 m (40'2") | published | SkyDeck grid height, [IA Stage](https://www.iastage.com/red-rocks-amphitheater/) |
+| Stage width | 26.3 m (was 24.4 estimate) | measured | roof plan width, medium-low (+-1.5 m); flat deck seen is at least 20.9 m |
+| Stage depth | 27.9 m (was 21.3 estimate) | measured | deck front lip to the wall behind, medium (+-1.5 m) |
+| Roof depth | 21.9 m, starting at the deck front | measured | medium (+-1.5 m); deck runs about 6 m further back |
+| Roof slab sits at | 12.24 m (40'2") above deck | published | [IA Stage](https://www.iastage.com/red-rocks-amphitheater/); the scan's roof underside is 12.33 m |
+| Roof thickness | 2.1 m (was 1.5 estimate) | measured | scan roof top 14.46 m minus the 12.33 m underside, medium-low (+-0.7 m) |
 | Truss 1 / truss 3 behind downstage edge | 3.66 m / 18.90 m | published / derived | 12 ft, then 25 ft apart, [IA Stage](https://www.iastage.com/red-rocks-amphitheater/) |
 | Columns | 4 | published | reduced from twelve, [Structure magazine](https://www.structuremag.org/article/new-stage-roof-rocks-iconic-venue/) |
-| Deck top | row 1 elevation minus 1.2 m | derived + estimate | OSM footprint and DEM via `venue.py`; the 1.2 m drop is an estimate |
-| Stage width × depth | 24.4 × 21.3 m | estimate | not published; depth is the 62 ft truss span plus ~8 ft |
-| Shell, retaining wall, walkway sizes | see `stage.py` | estimate | not measured |
+| Deck top | row 1 elevation minus 0.2 m (was 1.2 m estimate) | derived + measured | deck level with the row-1 tread within 0.4 m, low confidence |
+| Retaining wall gap / height | 2.1 m / 12.9 m (were 2.0 / 6.0 estimates) | measured | low (+-1 m / +-2 m): the height is the whole rear face, rock included |
+| Front setback, columns size, shell, walkway width | see `stage.py` | estimate | not resolvable in the scan |
+
+Re-run the measurement (needs `usd-core` in a venv, not a project dependency):
+`.venv/bin/python tools/measure_stage_scan.py --cache $SCRATCH/scan.npz --out $SCRATCH/diag`.
+It also writes a top-down height map and an axis cross-section with the
+blockout outlines drawn over the scan.
 
 ## Play it
 
