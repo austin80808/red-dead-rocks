@@ -63,8 +63,15 @@ TEX_DIR = os.path.join(SCAN_DIR, "0")
 ASSET_DIR = "/Game/RedRocks/Scan"
 LEVEL_PATH = "/Game/RedRocks/Lvl_RedRocks"
 ACTOR_LABEL = "Scan_ml0w"
-FADE_PNG = os.path.join(REPO_DIR, "assets", "scan", "scan_fade.png")
-FADE_JSON = os.path.join(REPO_DIR, "assets", "scan", "scan_fade.json")
+# The redrocks build output; REDROCKS_OUT_DIR points a test copy at another build.
+OUT_DIR = os.environ.get("REDROCKS_OUT_DIR", os.path.join(REPO_DIR, "out"))
+# The fade mask: `redrocks build` writes a copy with the terraced seating cut
+# out (out/scan_fade.png, redrocks.seating.seating_fade); without one, the
+# scan's own mask from tools/scan_heights.py.
+_CUT = os.path.join(OUT_DIR, "scan_fade.png")
+_FADE_DIR = OUT_DIR if os.path.exists(_CUT) else os.path.join(REPO_DIR, "assets", "scan")
+FADE_PNG = os.path.join(_FADE_DIR, "scan_fade.png")
+FADE_JSON = os.path.join(_FADE_DIR, "scan_fade.json")
 DITHER_FUNCTION = "/Engine/Functions/Engine_MaterialFunctions02/Utility/DitherTemporalAA"
 # World-space noise that breaks the fade into patches. Scale is per cm, so
 # 0.0008 gives blobs of roughly 12 m (the noise's unit cell), about the size of
@@ -119,6 +126,12 @@ FIT_YAW_DEG = 187.34
 FIT_MIRROR_X = -1
 FIT_SCAN_CENTRE = (15.956, 21.755)  # scan units, removed before rotating
 FIT_OFFSET_CM = (-2901.0, 4335.6, 18007.2)
+# FIT_OFFSET_CM's Z is above this absolute elevation: the level's Z = 0 when
+# the fit was made (the 2.4 km world's 377-grid terrain minimum). The level's
+# Z = 0 is the current terrain minimum (out/manifest.json), which the 3.6 km
+# world (#49) moved 11.88 m lower; without this the scan sank by that much
+# under the terrain blended to it. tools/scan_heights.py rasterises on it too.
+FIT_DATUM_M = 1753.980
 # Re-import the USD only when asked; re-placing reuses the existing chunks.
 # Changing any FIT_* value moves the scan: re-run tools/scan_heights.py too (it
 # reads these constants) so the terrain blend and the fade mask follow.
@@ -206,6 +219,20 @@ def _import_textures():
     if tex is not None:
         out["fade"] = tex
     return out
+
+
+def _datum_shift_cm():
+    """How far above FIT_OFFSET_CM's Z the scan goes in this level: FIT_DATUM_M
+    minus the level's Z = 0 (the manifest's terrain base), in cm."""
+    path = os.path.join(OUT_DIR, "manifest.json")
+    if not os.path.exists(path):
+        log.append("WARN no %s; scan Z left at FIT_OFFSET_CM" % path)
+        return 0.0
+    with open(path) as fh:
+        base = json.load(fh)["terrain_mesh"]["min_elevation_m"]
+    shift = (FIT_DATUM_M - float(base)) * 100.0
+    log.append("scan datum %.3f m, level base %.3f m: Z +%.1f cm" % (FIT_DATUM_M, base, shift))
+    return shift
 
 
 def _fade_placement():
@@ -561,7 +588,7 @@ def main():
     location = unreal.Vector(
         FIT_OFFSET_CM[0] - (math.cos(yaw) * cx - math.sin(yaw) * cy),
         FIT_OFFSET_CM[1] - (math.sin(yaw) * cx + math.cos(yaw) * cy),
-        FIT_OFFSET_CM[2],
+        FIT_OFFSET_CM[2] + _datum_shift_cm(),
     )
     for actor in actors:
         actor.set_actor_scale3d(unreal.Vector(FIT_MIRROR_X * s, s, s))

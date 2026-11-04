@@ -11,13 +11,14 @@ import numpy as np
 from .dem import BBox, fetch_dem, square_bbox
 from .explore import Route, carve_creek, creek_route, export_water_obj, plan as explore_plan
 from .geo import LocalProjection
-from .benches import export_benches_obj, row_polylines, terrain_base_elevation
+from .benches import row_polylines, terrain_base_elevation
 from .landscape import export_landscape
 from .monoliths import build_monoliths, monolith_to_obj
 from .osm import fetch_osm
 from .spawn import player_spawn
 from .stage import DIMENSIONS, export_stage_obj
 from .park import TerrainSurface as ParkSurface, export_park
+from .seating import SCAN_CLEARANCE_M, export_seating, seating_fade, seating_layout
 from .scan_blend import (
     FADE_M, FALLOFF_M, MARGIN_M, ScanGround, ScanHeights, blend_summary, conform_dem,
 )
@@ -38,6 +39,10 @@ DEFAULT_DEM_SIZE = 3025
 # The ml0w scan's floor and ground rasters (tools/scan_heights.py), relative to the checkout.
 DEFAULT_SCAN_HEIGHTS = Path("assets") / "scan" / "scan_heights.npz"
 DEFAULT_SCAN_GROUND = Path("assets") / "scan" / "scan_ground.npz"
+# The scan's highest point per cell and its fade mask (tools/scan_heights.py):
+# the seating is cut out of a copy of the mask, out/scan_fade.png.
+DEFAULT_SCAN_TOP = Path("assets") / "scan" / "scan_top.npz"
+DEFAULT_SCAN_FADE = Path("assets") / "scan" / "scan_fade.png"
 
 
 def build(args: argparse.Namespace) -> int:
@@ -112,20 +117,36 @@ def build(args: argparse.Namespace) -> int:
     else:
         print("skipping terrain mesh (--terrain-grid 0)")
 
-    benches = None
+    seating = None
+    layout = None
+    scan_cut = None
     stage = None
     spawn = None
+    for stale in ("scan_fade.png", "scan_fade.json"):
+        (out_dir / stale).unlink(missing_ok=True)
     if venue is not None:
-        print("\nbuilding benches ...")
-        # Seat on the scan's ground; bottoms reach the terrain under it too.
-        benches = export_benches_obj(
-            venue.rows, lines, out_dir / "Benches.obj", base, ground=seat_ground, floor=walkable
+        print("\nbuilding the terraced seating ...")
+        # On the scan, treads clear its surface (its chunks keep collision).
+        on_scan = ground_info != "terrain mesh"
+        layout = seating_layout(
+            venue.rows, lines, ground=seat_ground, floor=walkable,
+            clearance_m=SCAN_CLEARANCE_M if on_scan else 0.0,
         )
-        print(f"  {benches.benches} benches, {benches.triangles} triangles -> {benches.path.name}")
+        seating = export_seating(layout, out_dir, base, ground=seat_ground, floor=walkable)
+        i = layout.info
+        print(f"  {seating.terraces} rows + {seating.front_steps} front steps, {seating.brackets} brackets; "
+              f"rises {i['rise_min_m']:.2f}..{i['rise_max_m']:.2f} m, {i['total_rise_m']:.1f} m in all"
+              + (f"; rows {i['rows_ignored']} left out of the fit" if i["rows_ignored"] else ""))
+        for name, path in seating.paths.items():
+            print(f"  {seating.triangles[name]:,} triangles -> {path.name}")
+        if on_scan:
+            scan_cut = _cut_scan_fade(args, layout, out_dir)
 
         print("\nblocking out the stage ...")
-        stage = export_stage_obj(venue.rows, lines, out_dir / "Stage.obj", base, ground=seat_ground)
+        stage = export_stage_obj(venue.rows, lines, out_dir / "Stage.obj", base, ground=seat_ground,
+                                 levels=layout.levels)
         print(f"  {len(stage.parts)} parts, {stage.triangles} triangles -> {stage.path.name}")
+        print(f"  {stage.handrail_triangles} triangles -> {stage.handrail_path.name}")
 
         spawn = player_spawn(
             stage.front_edge_east, stage.front_edge_north, stage.axis,
@@ -206,14 +227,26 @@ def build(args: argparse.Namespace) -> int:
             "rake_degrees": round(venue.rake_degrees, 2),
             "row_1_elevation_m": round(venue.rows[0].elevation_m, 3),
         }
-    if benches is not None:
+    if seating is not None:
         manifest["benches"] = {
-            "obj": benches.path.name,
-            "benches": benches.benches,
-            "triangles": benches.triangles,
-            "base_elevation_m": round(benches.base_elevation_m, 3),
+            "obj": seating.paths["Benches"].name,
+            "planks_obj": seating.paths["Bench_Planks"].name,
+            "brackets_obj": seating.paths["Bench_Brackets"].name if "Bench_Brackets" in seating.paths else None,
+            "rows": seating.terraces,
+            "front_steps": seating.front_steps,
+            "brackets": seating.brackets,
+            "triangles": seating.triangles["Benches"],
+            "planks_triangles": seating.triangles["Bench_Planks"],
+            "brackets_triangles": seating.triangles.get("Bench_Brackets", 0),
+            "base_elevation_m": round(seating.base_elevation_m, 3),
             "ground": ground_info,
+            "clearance_m": layout.info["clearance_m"],
+            "rows_ignored": layout.info["rows_ignored"],
+            "rise_m": {k: layout.info[k] for k in ("rise_min_m", "rise_max_m", "rise_mean_m", "total_rise_m")},
+            "tread_levels_m": [round(v, 3) for v in layout.levels],
         }
+    if scan_cut is not None:
+        manifest["scan_cut"] = scan_cut
     if spawn is not None:
         manifest["spawn"] = {
             "east_m": round(spawn.east_m, 3),
@@ -224,6 +257,7 @@ def build(args: argparse.Namespace) -> int:
             "yaw_deg": round(spawn.yaw_deg, 3),
         }
     if stage is not None:
+        manifest["handrail"] = {"obj": stage.handrail_path.name, "triangles": stage.handrail_triangles}
         manifest["stage"] = {
             "obj": stage.path.name,
             "parts": {name: {"first_triangle": a, "end_triangle": b} for name, (a, b) in stage.parts.items()},
@@ -273,6 +307,30 @@ def build(args: argparse.Namespace) -> int:
     (out_dir / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n")
     print(f"\nwrote {out_dir}/manifest.json")
     return 0
+
+
+def _cut_scan_fade(args, layout, out_dir: Path) -> dict | None:
+    """out/scan_fade.png and .json: the scan's fade mask with the seating cut out."""
+    from PIL import Image
+
+    png = Path(getattr(args, "scan_fade", "") or "")
+    if not png.name or not png.is_file() or not png.with_suffix(".json").is_file():
+        print(f"no scan fade mask at {png}; the scan is not cut out of the seating")
+        return None
+    place = json.loads(png.with_suffix(".json").read_text())
+    alpha = np.asarray(Image.open(png).convert("L"), dtype=float) / 255.0
+    top_path = Path(getattr(args, "scan_top", "") or "")
+    top = ScanHeights.load(top_path) if top_path.name and top_path.is_file() else None
+    cut, meta = seating_fade(alpha, place, layout, top=top)
+    img = np.round(cut * 255.0).astype(np.uint8)
+    Image.fromarray(np.dstack([img, img, img]), "RGB").save(out_dir / "scan_fade.png")
+    meta["about"] = (f"{place.get('about', 'ml0w scan opacity')}; seating cut out by redrocks build "
+                     f"from {png.name}" + (f" and {top_path.name}" if top is not None else ""))
+    (out_dir / "scan_fade.json").write_text(json.dumps(meta, indent=2) + "\n")
+    info = meta["seating_cut"]
+    print(f"  scan cut out over {info['cut_m2']:,.0f} m^2 of seating, {info['kept_tall_m2']:,.0f} m^2 of "
+          f"tall scan kept -> scan_fade.png ({meta['texels'][0]}x{meta['texels'][1]})")
+    return info
 
 
 def _seat_ground(args, walkable):
@@ -353,6 +411,18 @@ def main(argv: list[str] | None = None) -> int:
         default=str(DEFAULT_SCAN_GROUND),
         help="ml0w scan ground raster from tools/scan_heights.py; the benches, stage "
         "and player spawn stand on it. Pass '' to put them on the terrain mesh.",
+    )
+    build_cmd.add_argument(
+        "--scan-top",
+        default=str(DEFAULT_SCAN_TOP),
+        help="ml0w scan top raster from tools/scan_heights.py; where the scan stands "
+        "tall in the seating it stays visible. Pass '' to cut the seating out regardless.",
+    )
+    build_cmd.add_argument(
+        "--scan-fade",
+        default=str(DEFAULT_SCAN_FADE),
+        help="ml0w scan fade mask (with its .json) from tools/scan_heights.py; out/ gets a "
+        "copy with the seating cut out. Pass '' for no cut.",
     )
     build_cmd.set_defaults(func=build)
 

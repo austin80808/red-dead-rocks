@@ -46,6 +46,22 @@ def test_from_points_keeps_the_lowest_point():
     assert s.heights[0, 0] == 4.0
 
 
+def test_top_from_points_keeps_the_highest_point():
+    s = ScanHeights.from_points([0.5, 1.5, 0.7], [0.5, 0.5, 0.6], [10.0, 7.0, 4.0], cell=2.0, keep="highest")
+    assert s.heights[0, 0] == 10.0
+    with pytest.raises(ValueError):
+        ScanHeights.from_points([0.5], [0.5], [1.0], keep="middle")
+
+
+def test_committed_scan_top_lines_up_with_the_scan_ground():
+    top = ScanHeights.load(ROOT / "assets" / "scan" / "scan_top.npz")
+    ground = ScanHeights.load(ROOT / "assets" / "scan" / "scan_ground.npz")
+    assert (top.x0, top.y0, top.cell, top.shape) == (ground.x0, ground.y0, ground.cell, ground.shape)
+    both = np.isfinite(top.heights) & np.isfinite(ground.heights)
+    # The highest point in a cell is never far under the ground fitted through it.
+    assert np.percentile(top.heights[both] - ground.heights[both], 5) > -0.5
+
+
 def test_save_load_round_trip(tmp_path):
     s = bumpy_scan()
     s.save(tmp_path / "s.npz")
@@ -232,3 +248,29 @@ def test_committed_fade_mask_matches_its_placement():
     assert meta["texels"] == [nx, ny]
     assert meta["x0_cm"] == pytest.approx(s.x0 * 100.0, abs=1.0)
     assert meta["y1_cm"] == pytest.approx((s.y0 + ny * s.cell) * 100.0, abs=1.0)
+
+
+def _scan_heights_tool():
+    spec = importlib.util.spec_from_file_location("scan_heights", ROOT / "tools" / "scan_heights.py")
+    tool = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(tool)
+    return tool
+
+
+def test_scan_fit_is_tied_to_an_absolute_datum():
+    """FIT_OFFSET_CM's Z was fitted when the level's Z = 0 sat at FIT_DATUM_M
+    (the 2.4 km world's terrain minimum). The 3.6 km world (#49) moved Z = 0
+    11.88 m lower; the scan must follow the datum, not the level origin."""
+    fit = _scan_heights_tool().fit_constants((ROOT / "unreal" / "import_scan.py").read_text())
+    assert fit["datum_m"] == pytest.approx(1753.980, abs=0.01)
+
+
+def test_committed_scan_rasters_are_on_the_fit_datum():
+    """The rasters are absolute: the scan's points at FIT_OFFSET above FIT_DATUM_M.
+
+    Re-rasterising a few points with the tool's own place() and datum must land
+    on the committed floor raster, whatever the current world's base is."""
+    tool = _scan_heights_tool()
+    fit = tool.fit_constants((ROOT / "unreal" / "import_scan.py").read_text())
+    assert tool.scan_base_m(fit, manifest_base_m=1742.098) == pytest.approx(fit["datum_m"])
+    assert tool.scan_base_m({k: v for k, v in fit.items() if k != "datum_m"}, manifest_base_m=1742.098) == 1742.098

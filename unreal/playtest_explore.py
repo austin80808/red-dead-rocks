@@ -31,7 +31,7 @@ import unreal
 
 OUT_DIR = os.environ.get("REDROCKS_OUT_DIR", "/Users/austin/dev/redrocks-ue/out")
 LOG_PATH = os.path.join(os.environ.get("REDROCKS_LOG_DIR", "/tmp"), "redrocks_playtest_explore.log")
-ALL = ["bowl", "climb", "wingsuit", "cart", "sled", "tubing", "night", "morrison"]
+ALL = ["seating", "bowl", "climb", "wingsuit", "cart", "sled", "tubing", "night", "morrison"]
 SCENARIOS = [s for s in os.environ.get("SCENARIOS", ",".join(ALL)).split(",") if s]
 TIMEOUT_S = 900.0
 SETTLE_S = 5.0
@@ -174,6 +174,15 @@ def _start_scenario(pawn, world, name):
     elif name == "bowl":
         R.s["views"] = [("stage", 0.0, 4.0, False), ("bowl_top", 0.0, -14.0, False), ("bowl_top", 0.0, -14.0, True)]
         R.steps = [("views", bowl_views)]
+    elif name == "seating":
+        pawn.rr_go(SPOT["stage"])
+        R.steps = [("settle", R.wait(SETTLE_S)),
+                   ("from_stage", seat_view("seating_stage", 0.0, 6.0)),
+                   ("walk_low", seat_walk(0.5)),
+                   ("mid_across", seat_view("seating_mid", 65.0, 6.0)),
+                   ("walk_high", seat_walk(1.0)),
+                   ("walk_end", seat_walk_end),
+                   ("from_top", seat_view("seating_top", 180.0, -16.0))]
     elif name == "morrison":
         pawn.rr_go(SPOT["morrison"])
         R.steps = [("settle", R.wait(SETTLE_S + 3.0)), ("look", morrison_shot)]
@@ -208,6 +217,94 @@ def climb_end(now, pawn, world):
           "gained %.1f m, modes %s" % (gain, sorted(R.s["modes"])))
     _shot(world, "climb_high")
     pawn.script_press("Camera")
+    return True
+
+
+# ---- seating -----------------------------------------------------------------
+# Walk from the stage straight up the terraced rows to the top (no jumping:
+# every riser is under the explorer's step height) and photograph the three
+# views the Commons photos were taken from: up from the stage, across the rows
+# from mid-bowl, down from the top row.
+
+def _seat_target():
+    top = next(sp for sp in explore["spots"] if sp["key"] == "bowl_top")
+    return top["east_m"] * 100.0, top["north_m"] * 100.0
+
+
+def _seat_levels_cm():
+    b = manifest.get("benches") or {}
+    levels = b.get("tread_levels_m") or [0.0, 0.0]
+    base = b.get("base_elevation_m", 0.0)
+    return (levels[0] - base) * 100.0, (levels[-1] - base) * 100.0
+
+
+def _yaw_to(pawn, x, y):
+    loc = pawn.get_actor_location()
+    return math.degrees(math.atan2(y - loc.y, x - loc.x))
+
+
+def seat_view(name, dyaw, pitch):
+    """Face up the bowl (plus dyaw), wait for streaming, shoot, then wait a moment."""
+    def fn(now, pawn, world):
+        if "view_at" not in R.s:
+            pawn.script_move(unreal.Vector2D(0.0, 0.0), False)
+            R.s["view_at"] = now
+            tx, ty = _seat_target()
+            pawn.script_look(_yaw_to(pawn, tx, ty) + dyaw, pitch)
+            return False
+        if now - R.s["view_at"] > 5.0 and not R.s.get("view_shot"):
+            _shot(world, name, ui=False)
+            R.s["view_shot"] = True
+            return False
+        if now - R.s["view_at"] > 7.0:
+            R.s.pop("view_at")
+            R.s.pop("view_shot", None)
+            return True
+        return False
+    return fn
+
+
+def seat_walk(fraction):
+    """Walk toward the top-of-bowl spot until ``fraction`` of the rows' rise is climbed."""
+    def fn(now, pawn, world):
+        loc = pawn.get_actor_location()
+        lo, hi = _seat_levels_cm()
+        if "z0" not in R.s:
+            R.s["z0"] = loc.z
+            R.s["t_walk"] = now
+        if R.s.get("walk_frac") != fraction:  # a new leg: the view before it stood still
+            R.s["walk_frac"] = fraction
+            R.s["stall"] = (now, loc.z)
+        tx, ty = _seat_target()
+        pawn.script_look(_yaw_to(pawn, tx, ty), 0.0)
+        pawn.script_move(unreal.Vector2D(0.0, 1.0), False)
+        R.s["modes"].add(_mode(pawn))
+        R.s["maxz"] = max(R.s["maxz"], loc.z)
+        _film(world, now, "seating")
+        if loc.z > R.s["stall"][1] + 20.0:
+            R.s["stall"] = (now, loc.z)
+        elif now - R.s["stall"][0] > 8.0:
+            note("stuck at z=%.0f (%.0f cm above the start) for 8 s" % (loc.z, loc.z - R.s["z0"]))
+            R.s["stuck"] = True
+            return True
+        feet = loc.z - pawn.get_capsule_component().get_scaled_capsule_half_height()
+        goal = lo + fraction * (hi - lo) - 50.0
+        if int(now - R.s["t_walk"]) % 10 == 0 and int(now - R.s["t_walk"]) not in R.s.setdefault("noted", set()):
+            R.s["noted"].add(int(now - R.s["t_walk"]))
+            note("t=%3ds feet z=%.0f (rows %.0f..%.0f) mode %s" % (now - R.s["t_walk"], feet, lo, hi, _mode(pawn)))
+        return feet >= goal or math.hypot(tx - loc.x, ty - loc.y) < 300.0 or now - R.s["t_walk"] > 150.0
+    return fn
+
+
+def seat_walk_end(now, pawn, world):
+    pawn.script_release()
+    lo, hi = _seat_levels_cm()
+    gain = (R.s["maxz"] - R.s["z0"]) / 100.0
+    need = (hi - lo) / 100.0 - 1.0
+    check("walked up the rows without jumping", not R.s.get("stuck") and gain >= need
+          and R.s["modes"] <= {"WALK"},
+          "gained %.1f m of the rows' %.1f m in %.0f s, modes %s"
+          % (gain, (hi - lo) / 100.0, now - R.s["t_walk"], sorted(R.s["modes"])))
     return True
 
 

@@ -44,8 +44,9 @@ early-morning sun low in the ENE (behind the player at spawn) through the SkyAtm
 light, volumetric clouds, height fog and histogram auto exposure clamped to
 EV100 11-14.2. The ground is procedural Fountain Formation sandstone: red soil
 and olive grass on gentle slopes, banded red rock on steep ones, bands that fade
-to their average colour with distance instead of shimmering. Benches are
-weathered redwood planks on dusty concrete risers; the stage is concrete; roads,
+to their average colour with distance instead of shimmering. The rows are
+terraces of stacked red flagstone with dusty sandstone treads and pale plank
+benches on steel brackets (see Seating); the stage is concrete; roads,
 lots and paths are asphalt and gravel with dusty edges. A generated terrain skirt
 carries the hills out to the horizon (no more flat blue plane past the 3.6 km
 terrain), and about 100,000 procedural junipers, ponderosa pines and scrub oak /
@@ -62,7 +63,11 @@ out/
   Creation_Rock.obj        north monolith, 91.4 m (300 ft), watertight
   Ship_Rock.obj            south monolith, 61.0 m (200 ft), watertight
   Stage_Rock.obj           east monolith, 18.3 m (60 ft), watertight
-  Benches.obj              70 curved bench rows, 16,808 triangles, terrain frame
+  Benches.obj              70 terraced rows + 1 front step, 21,940 triangles, terrain frame
+  Bench_Planks.obj         two boards on every riser edge (43,696 triangles)
+  Bench_Brackets.obj       1,807 steel brackets lined up about the stage (21,684 triangles)
+  Handrail.obj             steel rail on the top walkway's parapet
+  scan_fade.png, .json     the scan's fade mask with the seating cut out (see Seating)
   Stage.obj                stage, Y-columns, trusses, FOH booth & bowl end stairs (462 parts, 5,536 triangles)
   Roads.obj, Paths.obj     OSM highways as draped ribbons (57,146 / 34,472 triangles)
   Parking.obj              53 OSM parking lots as terrain-following patches (52,338 triangles)
@@ -91,12 +96,45 @@ python3 -m venv .venv && .venv/bin/pip install -e .
 `redrocks build` writes everything above. `--terrain-grid` sets the terrain
 mesh resolution (default 377; `0` skips it).
 
-Benches are one solid per generated row, 0.9 m deep and 0.45 m tall, in the
-terrain mesh's frame so they need no transform in Unreal. Rows are arcs
-centred on the stage (see below), so each bench bows around the bowl, and each
-follows the ground: it is subdivided every 2.5 m and its seat top sits 0.45 m
-above the terrain mesh at every station, with its base dropped to the lowest
-ground under the section so no edge floats.
+### Seating
+
+Red Rocks' rows are stepped terraces, not benches on a slope (Commons photos:
+[from the side](https://commons.wikimedia.org/wiki/File:Red_Rock_Amphitheatre_Seatings.jpg),
+[from the top row](https://commons.wikimedia.org/wiki/File:Red_Rocks_Amphitheater.JPG)):
+a flat tread you walk along, a riser of stacked red flagstone, and a pale plank
+bench on dark steel brackets along the riser's top edge. `redrocks.seating`
+builds exactly that from the venue rows, in the terrain's frame:
+
+| Piece | What it is |
+|---|---|
+| `Benches.obj` | one solid per row: its front face on the row's arc (the riser), a flat top at the row's tread level running back under the next row's riser, buried 0.3 m below the ground. Where row 1 stands more than 0.48 m over the ground in front of it, 0.4 m front steps lead up to it. |
+| `Bench_Planks.obj` | two 14 cm boards on every riser's top edge, overhanging it 10 cm toward the stage, top 6 cm over the tread |
+| `Bench_Brackets.obj` | a steel strap every 2.4 m (at the middle row) under the boards, at the **same bearings about the stage in every row**, so they line up into the radial lines the top-row photo shows converging on the stage |
+| `Handrail.obj` (from `stage.py`) | posts and a top rail on the walkway parapet behind the last row |
+
+**Tread levels.** The scan's surface is too smooth to show the rows (its radial
+profile has no row-spaced signal above 1 cm), so the levels come from the bowl's
+profile: the median scan ground across each row's band, smoothed by a quadratic
+in the row number, with rows whose band holds something else (rows
+68, 69, 70: the top plateau) left out of the fit. The rises run
+0.36 m at the bottom to 0.54 m at the top, 31.0 m in all
+against the official 100 ft (30.5 m). The explorer's step height is 58 cm, so you
+walk straight up the rows (people do, in the side photo); the planks and
+brackets have no collision.
+
+**Clearance and the scan cut.** The scan chunks keep complex collision, and the
+scan's surface in the bowl is a smooth ramp a few tenths over its fitted ground.
+Treads sit 0.45 m over the profile, which keeps the scan under them, or within
+15 cm of them, in 97 % of the bowl's 0.5 m cells (measured against the raw scan
+points; 2 % is the tall scan below). `redrocks build` then
+writes `out/scan_fade.png`: the scan's fade mask at 0.5 m with the seating cut
+out, except where the scan stands more than 0.6 m over the tread
+(`assets/scan/scan_top.npz`: the FOH booth, trees, the rocks at the row ends),
+which stays visible so anything solid is something you can see.
+`import_scan.py` uses it when it is there.
+
+The stage's side stairs climb from each tread to the next across the row's band
+(two steps per row) and its walkway sits 2 cm under the top tread.
 
 Current output for a 3.6 km box centred on the amphitheatre (it reaches
 downtown Morrison; the box was 2.4 km until the explorable realm):
@@ -248,13 +286,19 @@ scan and the scan's ragged edge floated as shelves. Two halves fix it (#17):
   which stood 1 to 2 m over the scan's bowl).
 * **Benches, stage and spawn** stand on the scan's ground (`ScanGround`): a
   plane fitted to the scan points around each 1 m cell, with roofs and trees left
-  out (`ground_surface`). Each bench's base is on it and its seat 0.45 m above;
-  the bottoms also reach down to the terrain under the scan, so nothing floats
-  where the scan thins out. The scan's floor raster (lowest point per 2 m cell)
-  sits ~0.37 m under the bowl's slope, which is why the benches use the fit.
-  `Benches.obj` carries flat face normals (`vn`); with the importer's smoothed
-  normals the taller risers tipped the seat tops past `M_Benches`'s "top" test
-  and the planks disappeared.
+  out (`ground_surface`). The seating's tread levels are fitted to it (see
+  Seating); the terraces' bottoms also reach down to the terrain under the scan,
+  so nothing floats where the scan thins out. The scan's floor raster (lowest
+  point per 2 m cell) sits ~0.37 m under the bowl's slope, which is why the
+  seating uses the fit. The seating OBJs carry flat face normals (`vn`), so
+  `M_Benches` can tell treads from risers by their normal.
+* **Scan datum** (`FIT_DATUM_M` in `import_scan.py`): `FIT_OFFSET_CM`'s Z is
+  measured from 1753.98 m, the level's Z = 0 when the scan was fitted (the
+  2.4 km world). The 3.6 km world moved Z = 0 11.88 m lower and the scan did not
+  follow, so from #49 until this fix it sat 11.88 m under the terrain that was
+  blended to it: the bowl was buried and the terrain's smooth copy of the rocks
+  stood over the scanned ones. `import_scan.py` now adds `FIT_DATUM_M` minus the
+  manifest's base, and `tools/scan_heights.py` rasterises on the datum.
 * **Scan material** (`unreal/import_scan.py`): `M_Scan_ml0w` is masked. A plan-view
   fade mask (0 at the footprint edge, 1 from 30 m in) broken up by world noise
   thins the scan into patches toward its edge, DitherTemporalAA softens them,
@@ -263,8 +307,10 @@ scan and the scan's ragged edge floated as shelves. Two halves fix it (#17):
   shaded sandstone.
 
 `tools/scan_heights.py` writes the inputs for both, `assets/scan/scan_heights.npz`
-(scan floor, 2 m cells), `assets/scan/scan_ground.npz` (scan ground, 1 m cells) and `assets/scan/scan_fade.png` + `.json` (the mask and
-where it sits). Re-run it whenever the `FIT_*` constants in `import_scan.py`
+(scan floor, 2 m cells), `assets/scan/scan_ground.npz` (scan ground, 1 m cells),
+`assets/scan/scan_top.npz` (the scan's highest point per 1 m cell) and
+`assets/scan/scan_fade.png` + `.json` (the mask and where it sits). Pass
+`--scan` the USD, or a points cache (`.npz`, key `P`) to skip `usd-core`. Re-run it whenever the `FIT_*` constants in `import_scan.py`
 change, then `redrocks build` and `rebuild_level.py`.
 
 | Before | After |
@@ -415,7 +461,7 @@ once after pulling (the editor also offers to when it opens):
 
 Open the project, make sure `Lvl_RedRocks` is the open level, and press **Play** (green ▶).
 You spawn on the stage deck facing up the bowl, with the credits beside you.
-WASD to walk, mouse to look, Space to jump (you have to jump each bench row; there are no aisle stairs yet).
+WASD to walk, mouse to look, Space to jump. Walk straight up the rows: every riser is under your step height.
 Press **C** to open or close the credits screen (a "C Credits" hint sits in the bottom-left corner).
 
 ![The credits screen, opened with C during play](docs/media/redrocks_credits_open.png)
@@ -474,7 +520,7 @@ a time, in this order; each writes a log to `/tmp/redrocks_*.log`:
 | `setup_lighting.py` | low morning sun (120 klx, ENE, 24° up, behind the spawn), sky atmosphere, real-time sky light, height fog, volumetric clouds, PlayerStart. Replaces the rig on every run |
 | `configure_level.py` | writes Lumen / distance fields / VSM / eye adaptation / TSR into `Config/DefaultEngine.ini` `[SystemSettings]`; post-process volume with Lumen, auto exposure (EV100 11-14.2) and a light grade; framing camera |
 | `fix_camera.py` | lifts the camera above the 645 m ridge, removes test actors |
-| `setup_materials.py` | procedural materials: `M_Sandstone` (30° strata that fade with distance, soil, grass, slope rock) with rock and ground instances; `M_Benches` (redwood planks, concrete risers); `M_Concrete`, `M_Asphalt`, `M_Lot`, `M_Gravel` |
+| `setup_materials.py` | procedural materials: `M_Sandstone` (30° strata that fade with distance, soil, grass, slope rock) with rock and ground instances; `M_Benches` (dusty sandstone treads, stacked red flagstone risers), `M_BenchWood` (plank boards), `M_Steel` (brackets, handrail); `M_Concrete`, `M_Asphalt`, `M_Lot`, `M_Gravel` |
 | `setup_environment.py` | terrain skirt from the DEM edge out to 120 km so the world has a horizon |
 | `setup_vegetation.py` | imports `out/vegetation/` (from `redrocks vegetation`): leaf atlases, bark/leaf/crown materials, 16 Nanite tree and shrub models, and every instance into one `Vegetation` actor; tree trunks block, canopies and shrubs don't |
 | `import_scan.py` | imports the ml0w scan with Nanite and credits it; its material fades the scan out at its edge (see Scan edge blend); run after `import_redrocks.py` |
@@ -658,14 +704,16 @@ Cache on local disk, sync the source and built packages to MEGA.
 
 ## Next steps
 
-1. Run `import_redrocks.py` (benches) and `import_scan.py` in the level, then
-   tune the scan's placement constants by eye and decide whether it replaces the
-   extruded monoliths visually, with the monoliths kept as collision.
-2. Boulders from `assets/rocks` on the hillsides (the trees are done: see
-   Vegetation).
-3. Import `Stage.obj` (see Stage blockout), then replace the blockout with detail.
-   The stage and shell are not in any free dataset.
-4. First-person traversal pass, then multiplayer.
+Making it look like Red Rocks, one piece at a time, each checked side by side
+against real photos from the same spots:
+
+1. **Seating**: terraced rows, planks and brackets (done, see Seating).
+2. **Monoliths**: Creation and Ship Rock outside the scan are still OSM
+   extrusions; their real shapes could come from USGS 3DEP lidar.
+3. **Parking lots**: stall lines, curbs, lights and cars on the 53 OSM lots.
+4. **The postcard view**: the real stage roof and its two stone towers, and the
+   view east to Denver over Stage Rock.
+5. A packaged Mac build (#25), and controller and phone play.
 
 For a *fantasy replication* rather than a survey-accurate twin, the monoliths,
 tunnel, and stage shell are the pieces that carry the feel. Those are modelling
@@ -679,9 +727,10 @@ work, and no amount of geodata substitutes for them.
 
 Covers the projection (round-trip, axis orientation, distance accuracy), DEM
 sampling and interpolation, the Unreal Z scale formula, heightmap encoding, OSM
-parsing and feature classification, the seating bowl (arc rows, stage centre), curved and ground-following benches
-(mitres, watertightness, terrain-mesh match), monolith geometry, roads/paths/parking, the OBJ
-exports (terrain grid, benches, stage blockout, winding, and a valid UV on every face), and the
+parsing and feature classification, the seating bowl (arc rows, stage centre), the terraced
+seating (tread levels, terraces, planks, brackets lined up about the stage, front steps, the
+scan cut), monolith geometry, roads/paths/parking, the OBJ
+exports (terrain grid, seating, stage blockout, handrail, winding, and a valid UV on every face), and the
 CLI build. No network in tests.
 
 The `unreal/` scripts are only checked offline: they must parse, and none may

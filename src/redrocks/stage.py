@@ -57,6 +57,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Callable, Sequence
 
+from shapely.geometry import LineString
+
 import numpy as np
 
 from .terrain_mesh import CM_PER_M
@@ -86,6 +88,15 @@ _TRUSS_3_FROM_FRONT_M = (12 + 25 + 25) * FT
 
 # Two steps per seating row at the row ends keep each rise around 22 cm (< UE MaxStepHeight).
 STEPS_PER_ROW = 2
+# With the terraced seating's tread levels (redrocks.seating): the walkway sits
+# this far under the top tread, so the tread's curved back edge shows over it.
+WALKWAY_UNDER_TREAD_M = 0.02
+# Steel handrail on the walkway parapet (the photo from the side shows a pipe
+# rail along the top of the bowl): top rail at the usual guard height.
+HANDRAIL_HEIGHT_M = 1.07
+HANDRAIL_POST_SPACING_M = 2.0
+HANDRAIL_POST_M = 0.06
+HANDRAIL_RAIL_M = 0.05
 SKYDECK_BEAM_COUNT = 3
 
 _SCAN = "ml0w scan (CC BY 4.0), "
@@ -212,6 +223,8 @@ class StageMesh:
     front_edge_east: float = 0.0
     front_edge_north: float = 0.0
     axis: tuple[float, float] = field(default=(0.0, 1.0))
+    handrail_path: Path | None = None
+    handrail_triangles: int = 0
 
 
 def stage_axis(rows: Sequence[Row]) -> np.ndarray:
@@ -302,6 +315,7 @@ def stage_parts(
     polylines: Sequence[np.ndarray],
     base_elevation_m: float,
     ground: Callable[[float, float], float] | None = None,
+    levels: Sequence[float] | None = None,
 ) -> list[Part]:
     """Lay out every blockout part from the seating-bowl rows.
 
@@ -309,9 +323,16 @@ def stage_parts(
     ml0w scan's, or the terrain's); the deck and the walkway sit on it. Without
     it the deck sits ``STAGE_DROP_M`` below row 1's elevation and the walkway
     at the last row's, regardless of the terrain.
+
+    ``levels`` are the terraced seating's tread elevations, one per row
+    (``seating.tread_levels``). With them the side stairs climb from each tread
+    to the next across the row's band, the stage steps reach row 1's tread and
+    the walkway sits just under the top tread.
     """
     if len(rows) != len(polylines):
         raise ValueError(f"{len(rows)} rows but {len(polylines)} polylines")
+    if levels is not None and len(levels) != len(rows):
+        raise ValueError(f"{len(rows)} rows but {len(levels)} tread levels")
     a = stage_axis(rows)
     l = np.array([a[1], -a[0]])
     first, last = rows[0], rows[-1]
@@ -420,10 +441,11 @@ def stage_parts(
     stair_w = dim("stair_width")
     tread_d = dim("stair_tread_depth")
     row1_z = first.elevation_m - base_elevation_m
+    row1_target = levels[0] - base_elevation_m if levels is not None else row1_z + 0.45
     for sx, nm in ((1, "e"), (-1, "w")):
         for step_idx in (1, 2):
             frac = step_idx / 2.0
-            sz1 = deck_top + frac * max(0.35, (row1_z + 0.45) - deck_top)
+            sz1 = deck_top + frac * max(0.35, row1_target - deck_top)
             sz0 = min(deck_bot, sz1 - 0.6)
             sy0 = (step_idx - 1) * tread_d
             sy1 = step_idx * tread_d
@@ -465,6 +487,7 @@ def stage_parts(
     wall_t = dim("stair_wall_thickness")
     wall_h = dim("stair_wall_height")
     stair_gap = 0.12
+    shapes = [LineString(np.asarray(p, dtype=float)[:, :2]) for p in polylines]
     for idx, (row, line) in enumerate(zip(rows, polylines)):
         pts = np.asarray(line, dtype=float)[:, :2]
         if len(pts) < 2:
@@ -484,12 +507,22 @@ def stage_parts(
                 float(ground(float(p_end[0]), float(p_end[1])))
                 if ground is not None else row.elevation_m
             ) - base_elevation_m
-            z_base = end_ground - 0.60
-            # Two steps per row (each ~22.5 cm rise) so a character walks up smoothly without jumping.
+            if levels is None:
+                # Two steps per row (each ~22.5 cm rise) so a character walks up smoothly without jumping.
+                lo, hi = end_ground, end_ground + bench_h
+                band0, band = -bench_half, STEPS_PER_ROW * tread_d
+            else:
+                # Terraces: from the tread below (row 1: the ground at its end)
+                # to this row's, across the band from its riser to the next row.
+                hi = levels[idx] - base_elevation_m
+                lo = levels[idx - 1] - base_elevation_m if idx > 0 else min(end_ground, hi - bench_h)
+                near = shapes[idx + 1] if idx + 1 < len(shapes) else shapes[idx - 1] if idx else None
+                band0, band = 0.0, float(shapes[idx].distance(near)) if near is not None else 2 * tread_d
+            z_base = min(end_ground, lo) - 0.60
             for step_k in range(1, STEPS_PER_ROW + 1):
-                y0 = -bench_half + (step_k - 1) * tread_d
-                y1 = -bench_half + step_k * tread_d
-                z_step_top = end_ground + (step_k / STEPS_PER_ROW) * bench_h
+                y0 = band0 + (step_k - 1) * band / STEPS_PER_ROW
+                y1 = band0 + step_k * band / STEPS_PER_ROW
+                z_step_top = lo + (step_k / STEPS_PER_ROW) * (hi - lo)
                 parts.append(Part(
                     f"stair_{side_tag}_r{row.index}_s{step_k}",
                     _rect(p_end, n_up, u_out, stair_gap, stair_gap + stair_w, y0, y1),
@@ -500,9 +533,9 @@ def stage_parts(
                 _rect(
                     p_end, n_up, u_out,
                     stair_gap + stair_w + 0.02, stair_gap + stair_w + 0.02 + wall_t,
-                    -bench_half, -bench_half + STEPS_PER_ROW * tread_d,
+                    band0, band0 + band,
                 ),
-                z_base, end_ground + bench_h + wall_h))
+                z_base, hi + wall_h))
 
     # Top-of-bowl walkway behind the last row, along its chord, plus a rear parapet wall.
     chord = np.asarray(polylines[-1], dtype=float)[:, :2]
@@ -516,6 +549,9 @@ def stage_parts(
     n1 = n0 + dim("walkway_width")
     walk = np.array([p0 + n * n0, p1 + n * n0, p1 + n * n1, p0 + n * n1])
     wz0, wz1 = _walkway_heights(walk, last.elevation_m, ground)
+    if levels is not None:
+        wz1 = levels[-1] - WALKWAY_UNDER_TREAD_M
+        wz0 = min(wz0, wz1 - dim("walkway_thickness"))
     parts.append(Part("walkway", walk, wz0 - base_elevation_m, wz1 - base_elevation_m))
     parapet_t = dim("stair_wall_thickness")
     parapet_h = dim("walkway_parapet_height")
@@ -596,6 +632,7 @@ def export_stage_obj(
     out_path: Path,
     base_elevation_m: float,
     ground: Callable[[float, float], float] | None = None,
+    levels: Sequence[float] | None = None,
 ) -> StageMesh:
     """Write the blockout as one OBJ object, ``Stage``.
 
@@ -609,7 +646,7 @@ def export_stage_obj(
             sit on (``scan_blend.ScanGround`` or ``terrain_mesh.TerrainSurface``);
             optional, see ``stage_parts``.
     """
-    parts = stage_parts(rows, polylines, base_elevation_m, ground)
+    parts = stage_parts(rows, polylines, base_elevation_m, ground, levels)
 
     all_v: list[np.ndarray] = []
     all_uv: list[np.ndarray] = []
@@ -652,6 +689,9 @@ def export_stage_obj(
     out_path.parent.mkdir(parents=True, exist_ok=True)
     out_path.write_text("\n".join(lines) + "\n")
 
+    handrail_path = out_path.parent / "Handrail.obj"
+    handrail_tris = _write_handrail(parts, handrail_path, base_elevation_m)
+
     a = stage_axis(rows)
     origin = np.array([rows[0].centre_east, rows[0].centre_north]) - a * STAGE_FRONT_SETBACK_M
     return StageMesh(
@@ -665,7 +705,64 @@ def export_stage_obj(
         front_edge_east=float(origin[0]),
         front_edge_north=float(origin[1]),
         axis=(float(a[0]), float(a[1])),
+        handrail_path=handrail_path,
+        handrail_triangles=handrail_tris,
     )
+
+
+def handrail_parts(parts: Sequence[Part]) -> list[Part]:
+    """Steel posts every ``HANDRAIL_POST_SPACING_M`` on the walkway parapet, and a top rail.
+
+    The parapet's plan runs (p0, p1) along its bowl-side face and (p1, p0) back
+    along its rear face; the rail follows its middle, ``HANDRAIL_HEIGHT_M`` over
+    the walkway.
+    """
+    walkway = next(p for p in parts if p.name == "walkway")
+    parapet = next(p for p in parts if p.name == "walkway_parapet")
+    a0, a1, b1, b0 = (np.asarray(v, dtype=float) for v in parapet.plan)
+    m0, m1 = (a0 + b0) / 2.0, (a1 + b1) / 2.0
+    length = float(np.hypot(*(m1 - m0)))
+    along = (m1 - m0) / length
+    across = np.array([-along[1], along[0]])
+    top = walkway.z1 + HANDRAIL_HEIGHT_M
+
+    def box(c0, c1, w):
+        h = across * (w / 2.0)
+        return np.array([c0 - h, c1 - h, c1 + h, c0 + h])
+
+    out = []
+    for k in range(int(length // HANDRAIL_POST_SPACING_M) + 1):
+        # The last post stops at the end of the parapet rather than past it.
+        c0 = m0 + along * min(k * HANDRAIL_POST_SPACING_M, length - HANDRAIL_POST_M)
+        c1 = c0 + along * HANDRAIL_POST_M
+        out.append(Part(f"post_{k + 1}", box(c0, c1, HANDRAIL_POST_M), parapet.z1, top - HANDRAIL_RAIL_M))
+    out.append(Part("rail", box(m0, m1, HANDRAIL_RAIL_M), top - HANDRAIL_RAIL_M, top))
+    return out
+
+
+def _write_handrail(parts: Sequence[Part], path: Path, base_elevation_m: float) -> int:
+    rail = handrail_parts(parts)
+    lines = [
+        "# Red Rocks top-of-bowl steel handrail on the walkway parapet",
+        f"# {len(rail) - 1} posts and a rail, centimetres, base {base_elevation_m:.3f} m",
+        "o Handrail",
+    ]
+    vs, uvs, faces = [], [], []
+    v_off = uv_off = 0
+    for part in rail:
+        verts, tris, puv, tuvs = prism(part.plan, part.z0, part.z1)
+        vs.append(verts)
+        uvs.append(puv)
+        faces.append(f"# {part.name.replace('_', ' ')}")
+        for t, tu in zip(tris, tuvs):
+            faces.append("f " + " ".join(f"{v_off + v + 1}/{uv_off + u + 1}" for v, u in zip(t, tu)))
+        v_off += len(verts)
+        uv_off += len(puv)
+    lines += [f"v {x:.3f} {y:.3f} {z:.3f}" for x, y, z in np.vstack(vs) * CM_PER_M]
+    lines += [f"vt {u:.4f} {v:.4f}" for u, v in np.vstack(uvs)]
+    lines += faces
+    path.write_text("\n".join(lines) + "\n")
+    return sum(1 for f in faces if f.startswith("f "))
 
 
 def dimensions_table() -> str:
