@@ -48,7 +48,7 @@ out/
   RedRocks_Terrain.obj     377x377 grid terrain mesh, 282,752 triangles, cm
   Creation_Rock.obj        north monolith, 91.4 m, watertight
   Ship_Rock.obj            south monolith, 61.0 m, watertight
-  Benches.obj              68 bench rows, 816 triangles, terrain frame
+  Benches.obj              70 curved bench rows, 16,808 triangles, terrain frame
   manifest.json            Z scale, bbox, origin, venue, monoliths, attribution
 ```
 
@@ -70,10 +70,12 @@ python3 -m venv .venv && .venv/bin/pip install -e .
 `redrocks build` writes everything above. `--terrain-grid` sets the terrain
 mesh resolution (default 377; `0` skips it).
 
-Benches are one solid box per generated row, 0.9 m deep and 0.45 m tall, in
-the terrain mesh's frame so they need no transform in Unreal. Rows are straight
-chords, because the slicer cuts the theatre footprint with straight lines, and
-each bench is flat at its row centre's DEM elevation.
+Benches are one solid per generated row, 0.9 m deep and 0.45 m tall, in the
+terrain mesh's frame so they need no transform in Unreal. Rows are arcs
+centred on the stage (see below), so each bench bows around the bowl, and each
+follows the ground: it is subdivided every 2.5 m and its seat top sits 0.45 m
+above the terrain mesh at every station, with its base dropped to the lowest
+ground under the section so no edge floats.
 
 Current output for a 2.4 km box centred on the amphitheatre:
 
@@ -212,9 +214,9 @@ come through correctly. The hillshade is instantly recognisable as Red Rocks.
 
 **The seating rows are not in the DEM.** One row rises 0.44 m; a DEM pixel spans
 1.19 m. Individual rows are 2.7× below the sampling floor, so terrain data can
-never give you benches. They are generated instead, by slicing the OSM
-`amenity=theatre` footprint into 70 cross-sections and distributing the official
-9,525 seats across them in proportion to row length.
+never give you benches. They are generated instead, by cutting the OSM
+`amenity=theatre` footprint into 70 concentric arcs about the stage and
+distributing the official 9,525 seats across them in proportion to row length.
 
 That is the honest boundary of free geodata: it gives you the *setting* exactly,
 and the *venue* only as a footprint to build from.
@@ -224,12 +226,23 @@ and the *venue* only as a footprint to build from.
 | | generated | official | error |
 |---|---|---|---|
 | Seats | 9,525 | 9,525 | 0 |
-| Rise, stage → top row | 30.23 m | 30.48 m | −0.25 m |
-| Rows | 68 | 70 | −2 |
+| Rise, stage → top row | 30.13 m | 30.48 m | −0.35 m |
+| Rows | 70 | 70 | 0 |
 | Seat pitch | 0.422 m (16.6 in) | 2.5 mi / 9,525 seats | — |
 
-The 2 missing rows are where the footprint is too narrow at the stage end to
-produce a cross-section; they are dropped rather than faked.
+**Why arcs, and why about that point.** Real rows are arcs about the stage, and
+a bench built from them can be level along its length. The other option, tracing
+the DEM contour at each row's elevation, was rejected: one row is 0.44 m and the
+DEM is 1.19 m per pixel, so contours that close together are alias noise, not
+rows. Arcs need only the footprint and which end is the stage. The stage end is
+the lower end of the footprint's long axis, and the arc centre sits 30 m
+beyond it (the stage platform is in front of the first row). 30 m is where the
+rows best match the terrain: the mean spread of ground elevation along a row
+is lowest and flat from 20 m to 60 m out, and row elevations rise
+monotonically from stage to top at 30 m and 40 m but not at 20 m or 60 m. Arc radii are spread from the
+nearest to the farthest point of the footprint that still gives a row at least
+5 m long, so all 70 rows exist (the straight slicer produced 68; its two
+missing rows were slivers at the stage end).
 
 Seat pitch is the strongest independent check: 2.5 miles of bench across 9,525
 seats gives 16.6 inches per seat, which matches Red Rocks' famously
@@ -266,10 +279,9 @@ Cache on local disk, sync the source and built packages to MEGA.
    tune the scan's placement constants by eye and decide whether it replaces the
    extruded monoliths visually, with the monoliths kept as collision.
 2. Tune `MI_Sandstone_Ground`: less exposure, thicker bands.
-3. Curve the benches: have the slicer produce arcs instead of straight chords.
-4. Stage shell, roof, and retaining walls. None of these exist in any free
+3. Stage shell, roof, and retaining walls. None of these exist in any free
    dataset.
-5. First-person traversal pass, then multiplayer.
+4. First-person traversal pass, then multiplayer.
 
 For a *fantasy replication* rather than a survey-accurate twin, the monoliths,
 tunnel, and stage shell are the pieces that carry the feel. Those are modelling
@@ -278,12 +290,13 @@ work, and no amount of geodata substitutes for them.
 ## Tests
 
 ```bash
-.venv/bin/python -m pytest tests -q   # 121 passed
+.venv/bin/python -m pytest tests -q   # 149 passed
 ```
 
 Covers the projection (round-trip, axis orientation, distance accuracy), DEM
 sampling and interpolation, the Unreal Z scale formula, heightmap encoding, OSM
-parsing and feature classification, the seating bowl, monolith geometry, the OBJ
+parsing and feature classification, the seating bowl (arc rows, stage centre), curved and ground-following benches
+(mitres, watertightness, terrain-mesh match), monolith geometry, the OBJ
 exports (terrain grid, benches, winding, and a valid UV on every face), and the
 CLI build. No network in tests.
 

@@ -12,7 +12,7 @@ from .benches import export_benches_obj, row_polylines, terrain_base_elevation
 from .landscape import export_landscape
 from .monoliths import build_monoliths, monolith_to_obj
 from .osm import fetch_osm
-from .terrain_mesh import export_terrain_obj, summary as terrain_summary
+from .terrain_mesh import TerrainSurface, export_terrain_obj, summary as terrain_summary
 from .venue import build_venue, summary as venue_summary
 
 # Centre of the Red Rocks Amphitheatre seating bowl.
@@ -75,9 +75,13 @@ def build(args: argparse.Namespace) -> int:
         print("\nbuilding benches ...")
         # Benches share the terrain mesh's Z datum, so use the same grid it was
         # resampled at; a different grid shifts the minimum elevation.
-        base = terrain_base_elevation(dem, grid=args.terrain_grid or 377)
+        grid = args.terrain_grid or 377
+        base = terrain_base_elevation(dem, grid=grid)
         lines = row_polylines(venue, osm.way_coords(venue_way), projection)
-        benches = export_benches_obj(venue.rows, lines, out_dir / "Benches.obj", base)
+        # Sit each bench on the terrain mesh as exported, not the finer DEM.
+        benches = export_benches_obj(
+            venue.rows, lines, out_dir / "Benches.obj", base, ground=TerrainSurface(dem, grid)
+        )
         print(f"  {benches.benches} benches, {benches.triangles} triangles -> {benches.path.name}")
 
     print("\nextruding monoliths ...")
