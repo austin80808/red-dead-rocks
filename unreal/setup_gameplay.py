@@ -25,7 +25,8 @@ What it does, each step logged to /tmp/redrocks_gameplay.log as "ok" or "FAIL":
   5. Sets the level's game mode to the FirstPerson template's, so Play spawns a
      walking first-person character (WASD, mouse, space to jump).
   6. Raises the sky light so shaded ground isn't black at eye level.
-  7. Places the attribution as text in the world, beside the spawn, so the
+  7. Turns off collision on the ml0w scan chunks: they are visual only.
+  8. Places the attribution as text in the world, beside the spawn, so the
      CC BY 4.0 (ml0w scan) and ODbL (OpenStreetMap) credits show in-game.
 """
 
@@ -142,6 +143,34 @@ def _unmirror(name):
     for actor in actors:
         actor.set_actor_scale3d(unreal.Vector(*UNMIRROR))
     return len(actors)
+
+
+SCAN_PREFIX = "Scan_ml0w"
+
+
+def _scan_visual_only():
+    """The scan is for looks; the generated meshes are the walkable surfaces.
+
+    Its chunks sit up to a few metres off the DEM terrain, so with collision
+    they block the PlayerStart (Unreal then drops it and spawns the pawn at a
+    fallback spot) and make invisible ledges.
+    """
+    chunks = [a for a in _actors() if a.get_actor_label().startswith(SCAN_PREFIX)
+              and isinstance(a, unreal.StaticMeshActor)]
+    for actor in chunks:
+        actor.static_mesh_component.set_collision_profile_name("NoCollision")
+        actor.set_actor_enable_collision(False)
+    return len(chunks)
+
+
+def _save_level():
+    """Save and fail loudly: a read-only .umap (Git LFS 'lockable' files are
+    read-only until locked) makes save_current_level return False silently."""
+    if not unreal.get_editor_subsystem(unreal.LevelEditorSubsystem).save_current_level():
+        raise RuntimeError(
+            "could not save %s; is Content/RedRocks/Lvl_RedRocks.umap read-only "
+            "(git lfs lock it, or close the editor holding it)?" % LEVEL_PATH
+        )
 
 
 def _complex_collision(name):
@@ -340,8 +369,8 @@ def main():
     _step("game mode FirstPerson", _game_mode)
     _step("sky light %.1f for first person" % SKY_LIGHT_INTENSITY, _first_person_light)
 
-    unreal.get_editor_subsystem(unreal.LevelEditorSubsystem).save_current_level()
-    log.append("saved %s" % LEVEL_PATH)
+    _step("scan is visual only (no collision)", _scan_visual_only)
+    _step("save %s" % LEVEL_PATH, _save_level)
 
 
 if hasattr(unreal, "EditorAssetLibrary"):
