@@ -20,6 +20,7 @@ def test_step_order(rl):
     assert [s for s, _ in rl.STEPS] == [
         "import_redrocks.py", "setup_lighting.py", "configure_level.py",
         "fix_camera.py", "setup_materials.py", "import_scan.py",
+        "setup_gameplay.py",
     ]
 
 
@@ -94,7 +95,7 @@ def test_stops_at_first_failure(rl):
     res, ran, _ = _drive(rl, logs)
     assert ran == ["import_redrocks.py", "setup_lighting.py", "configure_level.py"]
     assert [r["status"] for r in res] == [
-        rl.OK, rl.OK, rl.FAILED, rl.SKIPPED, rl.SKIPPED, rl.SKIPPED]
+        rl.OK, rl.OK, rl.FAILED] + [rl.SKIPPED] * (len(rl.STEPS) - 3)
     assert not rl.succeeded(res)
     assert "STOPPED at configure_level.py" in rl.format_summary(res)
 
@@ -118,9 +119,64 @@ def test_script_exception_and_systemexit_fail(rl):
 def test_summary_fits_one_screen(rl):
     res, _, _ = _drive(rl, {n: "fine" for n, _ in rl.STEPS})
     text = rl.format_summary(res)
-    assert len(text.splitlines()) <= 20 and "All 6 steps OK" in text
+    assert len(text.splitlines()) <= 20 and ("All %d steps OK" % len(rl.STEPS)) in text
     assert all(log in text for _, log in rl.STEPS)
 
 
 def test_no_auto_run_without_unreal(rl):
     assert rl._IN_UNREAL is False
+
+
+def _load_gameplay():
+    """Import unreal/setup_gameplay.py with a stub `unreal` that has no editor API."""
+    import importlib.util
+    import sys
+    import types
+    from pathlib import Path
+
+    stub = types.ModuleType("unreal")
+    saved = sys.modules.get("unreal")
+    sys.modules["unreal"] = stub
+    try:
+        path = Path(__file__).resolve().parent.parent / "unreal" / "setup_gameplay.py"
+        spec = importlib.util.spec_from_file_location("setup_gameplay_under_test", path)
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        return mod
+    finally:
+        if saved is None:
+            del sys.modules["unreal"]
+        else:
+            sys.modules["unreal"] = saved
+
+
+def test_gameplay_spawn_is_on_the_deck_facing_up_the_bowl():
+    gp = _load_gameplay()
+    stage = {
+        "axis_east_north": [1.0, 0.0],
+        "front_edge_east_m": 10.0,
+        "front_edge_north_m": 20.0,
+        "deck_top_elevation_m": 1800.0,
+    }
+    (x, y, z), yaw = gp.spawn_transform(stage, 1750.0)
+    assert (x, y) == (500.0, 2000.0)  # 5 m back from the edge, onto the deck
+    assert z == 5000.0 + gp.EYE_LIFT_CM
+    assert yaw == 0.0  # facing along the axis, up the bowl
+
+
+def test_gameplay_credits_include_scan_and_osm():
+    gp = _load_gameplay()
+    text = gp.credits_text({"attribution": ["Map data (c) OpenStreetMap contributors, ODbL 1.0"]})
+    assert "ml0w" in text and "CC BY 4.0" in text
+    assert "OpenStreetMap" in text
+
+
+def test_gameplay_spawn_prefers_the_manifest_spawn_block():
+    gp = _load_gameplay()
+    manifest = {
+        "terrain_mesh": {"min_elevation_m": 1750.0},
+        "spawn": {"east_m": 1.0, "north_m": 2.0, "ground_elevation_m": 1801.0, "yaw_deg": 45.0},
+    }
+    (x, y, z), yaw = gp.spawn_from_manifest(manifest)
+    assert (x, y, yaw) == (100.0, 200.0, 45.0)
+    assert z == 5100.0 + gp.EYE_LIFT_CM

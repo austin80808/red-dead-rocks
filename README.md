@@ -190,6 +190,22 @@ such in `redrocks.stage.DIMENSIONS` (`kind` is `published`, `derived` or
 | Stage width × depth | 24.4 × 21.3 m | estimate | not published; depth is the 62 ft truss span plus ~8 ft |
 | Shell, retaining wall, walkway sizes | see `stage.py` | estimate | not measured |
 
+## Play it
+
+Open the project, make sure `Lvl_RedRocks` is the open level, and press **Play** (green ▶).
+You spawn on the stage deck facing up the bowl, with the credits beside you.
+WASD to walk, mouse to look, Space to jump (you have to jump each bench row; there are no aisle stairs yet).
+
+To check it without touching the keyboard:
+
+```bash
+"/Users/Shared/Epic Games/UE_5.8/Engine/Binaries/Mac/UnrealEditor.app/Contents/MacOS/UnrealEditor" \
+  "$HOME/Documents/Unreal Projects/RedRocks/RedRocks.uproject" \
+  -ExecCmds="py /Users/austin/dev/redrocks-ue/unreal/playtest.py"
+```
+
+It writes `/tmp/redrocks_playtest.log` and two screenshots under `Saved/Screenshots/`.
+
 ## Importing into Unreal
 
 The scripts in `unreal/` run headless against the project:
@@ -216,13 +232,16 @@ a time, in this order; each writes a log to `/tmp/redrocks_*.log`:
 
 | Script | Does |
 |---|---|
-| `rebuild_level.py` | **entry point:** runs the six scripts below in order, stops at the first failure |
+| `rebuild_level.py` | **entry point:** runs the seven scripts below in order, stops at the first failure |
 | `import_redrocks.py` | imports the terrain, rocks and benches OBJs to `/Game/RedRocks` and places them in `Lvl_RedRocks`. **Clears every actor in the level first.** |
 | `setup_lighting.py` | adds sun, sky atmosphere, sky light, height fog, PlayerStart |
 | `configure_level.py` | fixed-exposure post-process volume and a framing camera |
 | `fix_camera.py` | lifts the camera above the 645 m ridge, removes test actors |
 | `setup_materials.py` | `M_Sandstone` with 30° strata bands; rock and ground instances; bench material |
 | `import_scan.py` | imports the ml0w scan with Nanite and credits it; run after `import_redrocks.py` |
+| `setup_gameplay.py` | imports Stage, Roads, Paths, Parking; complex collision on every walkable mesh; PlayerStart on the stage deck facing up the bowl; FirstPerson game mode; in-world credits. Runs last |
+| `verify_walkable.py` | headless checks: game mode, one PlayerStart, triangle counts kept, credits present; renders the spawn and bowl views |
+| `playtest.py` | **the real test:** launches Play In Editor, lets the player land, walks and jumps up the bowl for 12 s, screenshots, quits. Needs the editor GUI (`-ExecCmds="py …"`) |
 | `render_preview.py` | renders the level to `Saved/redrocks_preview.png` |
 | `diagnose.py` | lists actors, mesh triangle counts and the startup map |
 
@@ -258,6 +277,17 @@ Each of these cost real time:
 - **OBJs need a UV channel.** Without `vt` lines, the OBJ importer fails an
   ensure and keeps only a fraction of the triangles (a 282,752-triangle terrain
   came back with 3,716). Every exported OBJ now carries UVs.
+- **The OBJ importer mirrors north and south.** Interchange negates Y, so an
+  OBJ vertex at north = +12071 cm lands at y = -12071. Every OBJ actor gets a
+  Y scale of -1 (`import_redrocks.py`, `setup_gameplay.py`); without it the
+  terrain, benches and stage are flipped against the rocks and the PlayerStart,
+  and the player spawns on the benches instead of the stage.
+- **`-ExecutePythonScript` quits the editor when the script returns.** For
+  anything that has to run over several frames (Play In Editor), launch with
+  `-ExecCmds="py <script>"` instead.
+- **A PlayerStart buried in geometry is ignored.** Unreal drops a start whose
+  capsule overlaps blocking geometry and spawns the pawn at the origin, under
+  the terrain. The spawn height comes from manifest.json's `spawn` block.
 - **`spawn_actor_from_object` does nothing in a headless commandlet.** Spawn a
   `StaticMeshActor` with `spawn_actor_from_class` and set its mesh instead.
 - **A minimized editor looks frozen.** macOS throttles it to a few frames per
