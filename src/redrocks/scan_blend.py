@@ -14,9 +14,11 @@ This module fixes the geometry from the terrain's side:
   on top, and the walkable terrain follows what the player sees.
 * **Outside the footprint** it eases back to the DEM over ``FALLOFF_M``, so the
   scan's edge meets terrain at its own height instead of a step.
-* **The benches and stage are left alone** (``keep_out``): they are generated
-  against the DEM (and the player spawns on the deck), so the terrain under
-  them stays the DEM, easing into the scan blend over a few metres.
+* **The benches, stage and spawn sit on the scan**, not on the terrain: the
+  scan's ground (``ground_surface``, a plane fitted through the scan points
+  around each 1 m cell) is what ``ScanGround`` hands them, so a bench's base
+  is on the scan and its seat 0.45 m above it. The terrain is under the scan
+  everywhere, the bowl included, so nothing of it shows between the rows.
 
 The scan side of the seam (its ragged edge dithering out over ``FADE_M``) is
 the material in ``unreal/import_scan.py``, driven by the fade mask that
@@ -60,17 +62,16 @@ CLOSE_M = 6.0
 # gone where the terrain still matches it exactly and the colour change is
 # spread over ~90 m in total. Read by tools/scan_heights.py for the fade mask.
 FADE_M = 30.0
-# Keep-out: the benches and stage blockout are built on the DEM (each bench's
-# bottom is the lowest DEM under it; the deck is a 1.5 m slab), so the terrain
-# under them stays the DEM. Within KEEP_OUT_M of their footprints nothing
-# moves; the scan blend returns over the next KEEP_OUT_TAPER_M. Both are short
-# on purpose: just north of the bowl the DEM's rock ridge stands 10 m or more
-# above the scan, and every metre of taper there is a strip of terrain showing
-# through the scan. 1 m covers the 5 % gaps between bench rows and the corridor
-# from the deck to row 1 (the play-test's walk), 6 m keeps that edge a slope a
-# player can climb rather than a cliff.
-KEEP_OUT_M = 1.0
-KEEP_OUT_TAPER_M = 6.0
+# The scan's ground (ground_surface), which the benches, stage and spawn sit
+# on: 1 m cells, a plane through the points around each. Points more than
+# GROUND_ABOVE_M over the lowest point near a cell are not ground (the stage
+# roof is 12 m up; the bowl's rake over a 3 m neighbourhood's diagonal is
+# 1.6 m, so 2.5 m keeps all of the slope). The second fit keeps the points
+# within GROUND_KEEP_M of the first plane (the scan's scatter on the bowl is
+# about 0.04 m).
+GROUND_CELL_M = 1.0
+GROUND_ABOVE_M = 2.5
+GROUND_KEEP_M = 0.3
 # -----------------------------------------------------------------------------
 
 
@@ -227,6 +228,105 @@ def extend(values: np.ndarray, iterations: int) -> np.ndarray:
             break
         v[grow] = total[grow] / count[grow]
     return v
+
+
+def ground_surface(east, north, elevation, cell: float = GROUND_CELL_M,
+                   above_m: float = GROUND_ABOVE_M, keep_m: float = GROUND_KEEP_M) -> ScanHeights:
+    """The scan's ground on a ``cell`` grid: a plane fitted to the points near each cell.
+
+    ``ScanHeights.from_points`` keeps each cell's lowest point, which is right
+    for keeping the terrain under the scan but sits low on a slope: on the
+    bowl's 20 degree rake the lowest of a 2 m cell's points is ~0.37 m under
+    the surface at its centre. This fits a plane to the points in each cell's
+    3 x 3 neighbourhood and evaluates it at the centre, so a slope reads at its
+    true height. Points more than ``above_m`` over the neighbourhood's lowest
+    point (a roof, a tree) are left out, then the fit is redone with only the
+    points within ``keep_m`` of the first plane, so what is left is the ground.
+    Cells with fewer than three points around them are NaN.
+    """
+    east, north, elevation = (np.asarray(a, float) for a in (east, north, elevation))
+    x0 = np.floor(east.min() / cell) * cell
+    y0 = np.floor(north.min() / cell) * cell
+    nx = int((east.max() - x0) // cell) + 1
+    ny = int((north.max() - y0) // cell) + 1
+    ix = np.clip(((east - x0) // cell).astype(int), 0, nx - 1)
+    iy = np.clip(((north - y0) // cell).astype(int), 0, ny - 1)
+    # Offsets from each point's own cell centre; a neighbour's centre is a
+    # whole number of cells away, which the box sum below accounts for.
+    u = east - (x0 + (ix + 0.5) * cell)
+    v = north - (y0 + (iy + 0.5) * cell)
+
+    low = np.full((ny, nx), np.inf)
+    np.minimum.at(low, (iy, ix), elevation)
+    low_near = low.copy()
+    for dy in (-1, 0, 1):
+        for dx in (-1, 0, 1):
+            low_near = np.minimum(low_near, _shift(low, dy, dx, np.inf))
+    keep = elevation <= low_near[iy, ix] + above_m
+
+    def fit(mask):
+        # Plane z = a + b x + c y about each cell centre, from the moments of
+        # the points in its 3 x 3 neighbourhood. A point one cell east of the
+        # centre has x = u + cell, so shift each moment by the offset.
+        sums = np.zeros((9, ny, nx))
+        for dy in (-1, 0, 1):
+            for dx in (-1, 0, 1):
+                # Points in cell (i, j) contribute to the centre of (i - dy, j - dx).
+                x = u[mask] + dx * cell
+                y = v[mask] + dy * cell
+                z = elevation[mask]
+                ti, tj = iy[mask] - dy, ix[mask] - dx
+                ok = (ti >= 0) & (ti < ny) & (tj >= 0) & (tj < nx)
+                for k, w in enumerate((np.ones_like(x), x, y, x * x, x * y, y * y, z, x * z, y * z)):
+                    np.add.at(sums[k], (ti[ok], tj[ok]), w[ok])
+        n, sx, sy, sxx, sxy, syy, sz, sxz, syz = sums
+        m = np.stack([np.stack([n, sx, sy], -1), np.stack([sx, sxx, sxy], -1), np.stack([sy, sxy, syy], -1)], -2)
+        rhs = np.stack([sz, sxz, syz], -1)
+        good = n >= 3
+        det = np.zeros((ny, nx))
+        det[good] = np.linalg.det(m[good])
+        solvable = good & (np.abs(det) > 1e-9 * np.maximum(n, 1) ** 3 * cell ** 4)
+        coef = np.full((ny, nx, 3), np.nan)
+        coef[solvable] = np.linalg.solve(m[solvable], rhs[solvable][..., None])[..., 0]
+        # Too few points, or all on a line: the neighbourhood mean.
+        flat = good & ~solvable
+        coef[flat, 0] = sz[flat] / n[flat]
+        coef[flat, 1:] = 0.0
+        return coef
+
+    c = fit(keep)[iy, ix]
+    resid = elevation - (c[:, 0] + c[:, 1] * u + c[:, 2] * v)
+    ground = fit(keep & (np.abs(np.nan_to_num(resid, nan=np.inf)) <= keep_m))[..., 0]
+    return ScanHeights(heights=ground, x0=float(x0), y0=float(y0), cell=cell)
+
+
+class ScanGround:
+    """The scan's ground as ``ground(east, north)`` -> metres, for placing things on it.
+
+    Bilinear between the cell centres of a ``ground_surface`` raster; where any
+    of the four is missing (a hole in the scan, or off it) the ``fallback``
+    surface answers instead, usually the walkable terrain mesh.
+    """
+
+    def __init__(self, ground: ScanHeights, fallback) -> None:
+        self.ground = ground
+        self.fallback = fallback
+
+    def __call__(self, east: float, north: float) -> float:
+        g = self.ground
+        ny, nx = g.shape
+        fx = (east - g.x0) / g.cell - 0.5
+        fy = (north - g.y0) / g.cell - 0.5
+        if 0.0 <= fx <= nx - 1 and 0.0 <= fy <= ny - 1:
+            j = min(int(fx), nx - 2)
+            i = min(int(fy), ny - 2)
+            tx, ty = fx - j, fy - i
+            h = g.heights
+            v = (h[i, j] * (1 - tx) * (1 - ty) + h[i, j + 1] * tx * (1 - ty)
+                 + h[i + 1, j] * (1 - tx) * ty + h[i + 1, j + 1] * tx * ty)
+            if np.isfinite(v):
+                return float(v)
+        return float(self.fallback(east, north))
 
 
 def smoothstep(edge0: float, edge1: float, x):
@@ -389,12 +489,9 @@ def conform_dem(
     dem: Dem,
     scan: ScanHeights,
     grid: int = DEFAULT_GRID,
-    keep_out=None,
     margin_m: float = MARGIN_M,
     falloff_m: float = FALLOFF_M,
     close_m: float = CLOSE_M,
-    keep_out_m: float = KEEP_OUT_M,
-    keep_out_taper_m: float = KEEP_OUT_TAPER_M,
 ) -> Dem:
     """A copy of ``dem`` whose ``grid``-vertex terrain mesh sits just under the scan.
 
@@ -403,9 +500,8 @@ def conform_dem(
     rises within ``margin_m`` of any scan point. Across the ``falloff_m`` band
     outside it the surface is the smooth (harmonic) fill between the scan's
     edge and the DEM, so nothing at the edge (a rock fin, a gully) is dragged
-    outward. ``keep_out`` is an optional shapely geometry (local east/north
-    metres) where the DEM is kept: untouched within ``keep_out_m`` of it, fully
-    blended ``keep_out_taper_m`` further out.
+    outward. Nothing is exempt: the benches and stage stand on the scan
+    (``ScanGround``), so the terrain is under the scan there too.
     """
     xs, ys = _node_grid(dem, grid)
     # Pad far enough for the falloff and for every vertex of a triangle that
@@ -425,11 +521,6 @@ def conform_dem(
     surface = np.where(inside | band, surface, _dem_at(dem, ce, cn))
     surface = harmonic_fill(surface, fixed=~band)
     weight = np.where(inside | band, 1.0, 0.0)
-    if keep_out is not None:
-        import shapely
-
-        dist = shapely.distance(keep_out, shapely.points(ce.ravel(), cn.ravel())).reshape(ce.shape)
-        weight = weight * smoothstep(keep_out_m, keep_out_m + keep_out_taper_m, dist)
 
     # Target heights at the mesh vertices, then pushed under every scan point.
     ne, nn = np.meshgrid(xs, ys)

@@ -32,12 +32,13 @@ rebuilt, existing instances are reused. Log: /tmp/redrocks_materials.log.
 """
 
 import math
+import os
 
 import unreal
 
 GAME_DIR = "/Game/RedRocks"
 MAT_DIR = GAME_DIR + "/Materials"
-LOG_PATH = "/tmp/redrocks_materials.log"
+LOG_PATH = os.path.join(os.environ.get("REDROCKS_LOG_DIR", "/tmp"), "redrocks_materials.log")
 
 log = []
 

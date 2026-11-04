@@ -25,7 +25,7 @@ import os
 import unreal
 
 LEVEL_PATH = "/Game/RedRocks/Lvl_RedRocks"
-LOG_PATH = "/tmp/redrocks_configure.log"
+LOG_PATH = os.path.join(os.environ.get("REDROCKS_LOG_DIR", "/tmp"), "redrocks_configure.log")
 
 # Console variables the level depends on, written to [SystemSettings].
 RENDER_SETTINGS = [

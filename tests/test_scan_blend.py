@@ -5,15 +5,16 @@ from pathlib import Path
 
 import numpy as np
 import pytest
-import shapely
 
 from redrocks.dem import Dem, square_bbox
 from redrocks.scan_blend import (
+    ScanGround,
     ScanHeights,
     _node_grid,
     conform_dem,
     fade_alpha,
     footprint,
+    ground_surface,
     harmonic_fill,
     lower_envelope,
     mesh_height,
@@ -112,15 +113,81 @@ def test_conform_dem_sits_under_the_scan_and_returns_to_the_dem():
     assert mesh[band].min() >= 1900.0 - 1e-3 and mesh[band].max() <= 1909.0
 
 
-def test_keep_out_leaves_the_dem_alone():
-    dem = flat_dem()
-    keep = shapely.Point(0.0, 0.0).buffer(30.0)
-    out = conform_dem(dem, bumpy_scan(), grid=GRID, keep_out=keep, keep_out_m=1.0, keep_out_taper_m=6.0)
-    xs, ys = _node_grid(dem, GRID)
-    east, north = np.meshgrid(xs, ys)
-    mesh = resample_to_grid(out, GRID)
-    assert np.allclose(mesh[np.hypot(east, north) < 30.0], 1900.0)
-    assert mesh[(np.hypot(east, north) > 50) & (np.hypot(east, north) < 90)].min() > 1901.0
+def test_conform_dem_has_no_keep_out():
+    """The benches and stage stand on the scan now, so no terrain is exempt."""
+    import inspect
+
+    assert "keep_out" not in inspect.signature(conform_dem).parameters
+
+
+def sloped_points(seed=0, n_per_m2=11.0, roof=True):
+    """Scan-like points on a 20 degree plane, with a roof 12 m over part of it."""
+    rng = np.random.default_rng(seed)
+    n = int(60 * 60 * n_per_m2)
+    e = rng.uniform(-30.0, 30.0, n)
+    north = rng.uniform(-30.0, 30.0, n)
+    z = 1900.0 + 0.37 * e + 0.1 * north + rng.normal(0.0, 0.03, n)
+    if roof:
+        r = (np.abs(e) < 8) & (np.abs(north) < 8) & (rng.uniform(size=n) < 0.6)
+        z[r] += 12.0
+    return e, north, z
+
+
+def test_ground_surface_follows_a_slope_where_the_floor_sits_low():
+    e, n, z = sloped_points(roof=False)
+    g = ground_surface(e, n, z)
+    ce, cn = g.centres()
+    true = 1900.0 + 0.37 * ce + 0.1 * cn
+    inner = (np.abs(ce) < 28) & (np.abs(cn) < 28)
+    err = g.heights[inner] - true[inner]
+    assert np.abs(err).max() < 0.05
+    # The floor raster (lowest point per cell) reads a slope well under its surface.
+    floor = ScanHeights.from_points(e, n, z, cell=2.0)
+    fe, fn = floor.centres()
+    sag = floor.heights - (1900.0 + 0.37 * fe + 0.1 * fn)
+    assert np.median(sag) < -0.25
+
+
+def test_ground_surface_leaves_out_a_roof_over_the_ground():
+    e, n, z = sloped_points()
+    g = ground_surface(e, n, z)
+    ce, cn = g.centres()
+    under = (np.abs(ce) < 6) & (np.abs(cn) < 6)
+    assert np.abs(g.heights[under] - (1900.0 + 0.37 * ce[under] + 0.1 * cn[under])).max() < 0.05
+
+
+def test_ground_surface_is_nan_without_points():
+    g = ground_surface([0.2, 0.4, 0.6], [0.2, 0.7, 0.4], [5.0, 5.0, 5.0])
+    assert g.heights.shape == (1, 1) and g.heights[0, 0] == pytest.approx(5.0)
+    e, n, z = sloped_points(roof=False)
+    keep = (e < -10) | (e > 10)
+    g = ground_surface(e[keep], n[keep], z[keep])
+    ce, _ = g.centres()
+    assert np.isnan(g.heights[np.abs(ce) < 8]).all()
+
+
+def test_scan_ground_samples_the_raster_and_falls_back_off_it():
+    e, n, z = sloped_points(roof=False)
+    keep = (e < -10) | (e > 10)
+    ground = ScanGround(ground_surface(e[keep], n[keep], z[keep]), fallback=lambda x, y: -1.0)
+    assert ground(20.3, 4.7) == pytest.approx(1900.0 + 0.37 * 20.3 + 0.1 * 4.7, abs=0.05)
+    assert ground(0.0, 0.0) == -1.0  # the hole in the middle
+    assert ground(500.0, 0.0) == -1.0  # off the raster
+
+
+def test_committed_ground_raster_matches_the_floor_raster():
+    """scan_ground.npz is the same scan as scan_heights.npz: never under its floor by much."""
+    floor = ScanHeights.load(ROOT / "assets" / "scan" / "scan_heights.npz")
+    ground = ScanHeights.load(ROOT / "assets" / "scan" / "scan_ground.npz")
+    assert ground.cell == 1.0
+    ge, gn = ground.centres()
+    ok = np.isfinite(ground.heights)
+    f = ScanGround(floor, fallback=lambda x, y: np.nan)
+    sample = np.flatnonzero(ok.ravel())[::997]
+    diff = np.array([ground.heights.ravel()[i] - f(ge.ravel()[i], gn.ravel()[i]) for i in sample])
+    diff = diff[np.isfinite(diff)]
+    assert len(diff) > 100
+    assert np.median(diff) > 0.0  # a plane through the points sits over their lowest
 
 
 def test_cli_blends_only_with_a_scan_raster(monkeypatch, tmp_path):

@@ -15,6 +15,11 @@ Runs, in order, in this one Unreal Python interpreter:
 and stops at the first step whose /tmp/redrocks_*.log reports a failure, then
 prints a one-screen summary (step, status, duration, log path).
 
+Environment overrides, for a second project copy built from another checkout:
+REDROCKS_OUT_DIR (the `redrocks build` output the steps import, default
+/Users/austin/dev/redrocks-ue/out) and REDROCKS_LOG_DIR (where every step's
+log goes, default /tmp).
+
 Headless, editor closed:
     UnrealEditor-Cmd RedRocks.uproject -run=pythonscript \
         -script=/Users/austin/dev/redrocks-ue/unreal/rebuild_level.py \
@@ -39,20 +44,29 @@ import runpy
 import sys
 import time
 
+# Every step writes its log here; REDROCKS_LOG_DIR keeps a second copy's
+# rebuild from reading (or deleting) another rebuild's logs.
+LOG_DIR = os.environ.get("REDROCKS_LOG_DIR", "/tmp")
+
+
+def _log(name):
+    return os.path.join(LOG_DIR, "redrocks_%s.log" % name)
+
+
 # (script file, log path) in the order they must run.
 STEPS = [
-    ("import_redrocks.py", "/tmp/redrocks_import.log"),
-    ("setup_lighting.py", "/tmp/redrocks_lighting.log"),
-    ("configure_level.py", "/tmp/redrocks_configure.log"),
-    ("fix_camera.py", "/tmp/redrocks_camera.log"),
-    ("setup_materials.py", "/tmp/redrocks_materials.log"),
-    ("setup_environment.py", "/tmp/redrocks_environment.log"),
-    ("import_scan.py", "/tmp/redrocks_scan.log"),
-    ("setup_gameplay.py", "/tmp/redrocks_gameplay.log"),
-    ("setup_credits.py", "/tmp/redrocks_credits.log"),
+    ("import_redrocks.py", _log("import")),
+    ("setup_lighting.py", _log("lighting")),
+    ("configure_level.py", _log("configure")),
+    ("fix_camera.py", _log("camera")),
+    ("setup_materials.py", _log("materials")),
+    ("setup_environment.py", _log("environment")),
+    ("import_scan.py", _log("scan")),
+    ("setup_gameplay.py", _log("gameplay")),
+    ("setup_credits.py", _log("credits")),
 ]
 
-SUMMARY_LOG = "/tmp/redrocks_rebuild.log"
+SUMMARY_LOG = _log("rebuild")
 
 OK, FAILED, SKIPPED = "OK", "FAILED", "SKIPPED"
 

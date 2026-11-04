@@ -1,6 +1,7 @@
 """Offline tests for unreal/rebuild_level.py: step list and log parsing."""
 
 import importlib.util
+import os
 from pathlib import Path
 
 import pytest
@@ -28,7 +29,19 @@ def test_steps_exist_and_logs_match_scripts(rl):
     """Each step's log path must be the one the script really writes."""
     for name, log in rl.STEPS:
         src = (UNREAL / name).read_text()
-        assert '"%s"' % log in src, "%s does not write %s" % (name, log)
+        assert os.path.dirname(log) == rl.LOG_DIR
+        expected = 'os.path.join(os.environ.get("REDROCKS_LOG_DIR", "/tmp"), "%s")' % os.path.basename(log)
+        assert expected in src, "%s does not write %s" % (name, log)
+
+
+def test_out_dir_and_log_dir_follow_the_environment():
+    """REDROCKS_OUT_DIR / REDROCKS_LOG_DIR point a second project copy elsewhere."""
+    for name in ("import_redrocks.py", "setup_environment.py", "setup_gameplay.py",
+                 "setup_credits.py", "verify_walkable.py"):
+        src = (UNREAL / name).read_text()
+        assert 'OUT_DIR = os.environ.get("REDROCKS_OUT_DIR", "/Users/austin/dev/redrocks-ue/out")' in src, name
+    for name in ("playtest.py", "playtest_credits.py"):
+        assert "REDROCKS_LOG_DIR" in (UNREAL / name).read_text(), name
 
 
 @pytest.mark.parametrize("text", [

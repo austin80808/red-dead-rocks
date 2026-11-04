@@ -196,11 +196,19 @@ def _poly(frame_o, a, l, pts) -> np.ndarray:
     return np.array([frame_o + x * l + y * a for x, y in pts])
 
 
-DECK_CLEARANCE_M = 0.05  # deck top above the highest terrain under it
-DECK_SAMPLE_M = 1.0  # terrain sample spacing over the deck footprint
-# Only the front of the deck has to clear the terrain: the rear is cut into the
+DECK_CLEARANCE_M = 0.05  # deck top above the ground under it
+DECK_SAMPLE_M = 1.0  # ground sample spacing over the deck footprint
+# Only the front of the deck has to clear the ground: the rear is cut into the
 # hillside, which is what the retaining wall behind the shell holds back.
 DECK_CLEAR_FRACTION = 0.5
+# The deck clears this fraction of the ground samples under its front, not all
+# of them: on the ml0w scan the real stage's wing walls and column bases stand
+# a few metres proud along the deck's sides (the blockout's own walls and
+# columns are there instead), and lifting the deck onto them would float it a
+# metre or more over the scanned deck everywhere else. On a smooth DEM the
+# highest few per cent are within centimetres of the highest.
+DECK_CLEAR_QUANTILE = 0.75
+WALKWAY_CLEARANCE_M = 0.05  # walkway top above the ground under it
 
 
 def deck_top_elevation(
@@ -208,23 +216,46 @@ def deck_top_elevation(
 ) -> float:
     """Deck top elevation (m above sea level).
 
-    Row 1's elevation minus ``STAGE_DROP_M``, raised if needed so the front
-    ``DECK_CLEAR_FRACTION`` of the deck clears the terrain under it: the DEM bulges at the stage end, and a deck
-    below the terrain is invisible and buries the player's spawn.
+    Without ``ground``: row 1's elevation minus ``STAGE_DROP_M``. With it, row
+    1's tread is the ground under row 1's centre (where its bench stands), the
+    deck is ``STAGE_DROP_M`` below that, raised if needed so it clears
+    ``DECK_CLEAR_QUANTILE`` of the ground under the front
+    ``DECK_CLEAR_FRACTION`` of the deck: a deck below the ground is invisible
+    and buries the player's spawn.
     """
-    top = rows[0].elevation_m - STAGE_DROP_M
     if ground is None:
-        return top
+        return rows[0].elevation_m - STAGE_DROP_M
+    top = ground(rows[0].centre_east, rows[0].centre_north) - STAGE_DROP_M
     a = stage_axis(rows)
     l = np.array([a[1], -a[0]])
     origin = np.array([rows[0].centre_east, rows[0].centre_north]) - a * STAGE_FRONT_SETBACK_M
     hw = STAGE_WIDTH_M / 2.0
-    highest = max(
+    under = [
         ground(*(origin + x * l + y * a))
         for x in np.arange(-hw, hw + 1e-9, DECK_SAMPLE_M)
         for y in np.arange(-STAGE_DEPTH_M * DECK_CLEAR_FRACTION, 1e-9, DECK_SAMPLE_M)
-    )
-    return max(top, highest + DECK_CLEARANCE_M)
+    ]
+    return max(top, float(np.quantile(under, DECK_CLEAR_QUANTILE)) + DECK_CLEARANCE_M)
+
+
+def _walkway_heights(plan: np.ndarray, top_m: float, ground) -> tuple[float, float]:
+    """(bottom, top) of the walkway slab, absolute metres.
+
+    Without ``ground`` it is ``walkway_thickness`` thick with its top at
+    ``top_m`` (the last row's elevation). With it, the top clears
+    ``DECK_CLEAR_QUANTILE`` of the ground under the slab and the bottom
+    reaches the lowest ground there, so the slab neither floats nor buries.
+    """
+    if ground is None:
+        return top_m - dim("walkway_thickness"), top_m
+    p0, p1, _, p3 = plan
+    under = [
+        ground(*(p0 + s * (p1 - p0) + t * (p3 - p0)))
+        for s in np.linspace(0.0, 1.0, max(2, int(np.hypot(*(p1 - p0)) / DECK_SAMPLE_M) + 1))
+        for t in np.linspace(0.0, 1.0, max(2, int(np.hypot(*(p3 - p0)) / DECK_SAMPLE_M) + 1))
+    ]
+    top = float(np.quantile(under, DECK_CLEAR_QUANTILE)) + WALKWAY_CLEARANCE_M
+    return min(top - dim("walkway_thickness"), min(under)), top
 
 
 def stage_parts(
@@ -235,8 +266,10 @@ def stage_parts(
 ) -> list[Part]:
     """Lay out every blockout part from the seating-bowl rows.
 
-    ``ground(east, north)`` (metres) is the terrain the deck must clear; without
-    it the deck sits ``STAGE_DROP_M`` below row 1 regardless of the terrain.
+    ``ground(east, north)`` (metres) is the ground the benches stand on (the
+    ml0w scan's, or the terrain's); the deck and the walkway sit on it. Without
+    it the deck sits ``STAGE_DROP_M`` below row 1's elevation and the walkway
+    at the last row's, regardless of the terrain.
     """
     if len(rows) != len(polylines):
         raise ValueError(f"{len(rows)} rows but {len(polylines)} polylines")
@@ -302,9 +335,9 @@ def stage_parts(
     bench_half = 0.45  # half of benches.SEAT_DEPTH_M
     n0 = bench_half + dim("walkway_gap")
     n1 = n0 + dim("walkway_width")
-    wz1 = last.elevation_m - base_elevation_m
     walk = np.array([p0 + n * n0, p1 + n * n0, p1 + n * n1, p0 + n * n1])
-    parts.append(Part("walkway", walk, wz1 - dim("walkway_thickness"), wz1))
+    wz0, wz1 = _walkway_heights(walk, last.elevation_m, ground)
+    parts.append(Part("walkway", walk, wz0 - base_elevation_m, wz1 - base_elevation_m))
     return parts
 
 
@@ -386,8 +419,9 @@ def export_stage_obj(
         out_path: where to write ``Stage.obj``.
         base_elevation_m: Z=0 elevation, the terrain minimum
             (``benches.terrain_base_elevation``).
-        ground: terrain height function the deck must clear (e.g.
-            ``terrain_mesh.TerrainSurface``); optional.
+        ground: the ground the benches stand on, which the deck and walkway
+            sit on (``scan_blend.ScanGround`` or ``terrain_mesh.TerrainSurface``);
+            optional, see ``stage_parts``.
     """
     parts = stage_parts(rows, polylines, base_elevation_m, ground)
 
@@ -441,7 +475,7 @@ def export_stage_obj(
         triangles=n_tris,
         base_elevation_m=base_elevation_m,
         deck_top_elevation_m=deck_top_elevation(rows, ground),
-        walkway_elevation_m=rows[-1].elevation_m,
+        walkway_elevation_m=next(p.z1 for p in parts if p.name == "walkway") + base_elevation_m,
         front_edge_east=float(origin[0]),
         front_edge_north=float(origin[1]),
         axis=(float(a[0]), float(a[1])),

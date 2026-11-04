@@ -2,9 +2,13 @@
 
 Writes, from the scan USD and the placement constants in unreal/import_scan.py:
 
-  assets/scan/scan_heights.npz   the scan's top surface, 2 m cells, absolute
-                                 elevation (redrocks.scan_blend.ScanHeights);
-                                 `redrocks build` conforms the terrain to it.
+  assets/scan/scan_heights.npz   the scan's floor (lowest point), 2 m cells,
+                                 absolute elevation (redrocks.scan_blend.ScanHeights);
+                                 `redrocks build` keeps the terrain under it.
+  assets/scan/scan_ground.npz    the scan's ground, 1 m cells: a plane through
+                                 the points around each cell, roofs and trees
+                                 left out (scan_blend.ground_surface); the
+                                 benches, stage and player spawn stand on it.
   assets/scan/scan_fade.png      the scan's opacity in plan view: 0 at its
                                  footprint edge, 1 from FADE_M inside (row 0 =
                                  north). import_scan.py imports it and the scan
@@ -42,7 +46,9 @@ from PIL import Image
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "src"))
 
-from redrocks.scan_blend import CELL_M, CLOSE_M, FADE_M, ScanHeights, fade_alpha, footprint  # noqa: E402
+from redrocks.scan_blend import (  # noqa: E402
+    CELL_M, CLOSE_M, FADE_M, ScanHeights, fade_alpha, footprint, ground_surface,
+)
 
 IMPORT_SCAN = ROOT / "unreal" / "import_scan.py"
 SCAN = ROOT / "assets" / "scan" / "usdz_extract" / "scene.usdc"
@@ -129,11 +135,15 @@ def main(argv=None) -> int:
     scan = ScanHeights.from_points(east, north, z + base, CELL_M).padded(2 * CELL_M)
     args.out_dir.mkdir(parents=True, exist_ok=True)
     scan.save(args.out_dir / "scan_heights.npz")
+    ground = ground_surface(east, north, z + base)
+    ground.save(args.out_dir / "scan_ground.npz")
     png, js = write_fade(scan, args.out_dir)
     inside = footprint(scan)
     print("scan points %d, raster %dx%d at %.1f m, footprint %.0f m^2"
           % (len(pts), scan.shape[1], scan.shape[0], scan.cell, inside.sum() * scan.cell ** 2))
-    print("wrote %s, %s, %s" % (args.out_dir / "scan_heights.npz", png, js))
+    print("ground raster %dx%d at %.1f m, %d cells with ground"
+          % (ground.shape[1], ground.shape[0], ground.cell, np.isfinite(ground.heights).sum()))
+    print("wrote %s, %s, %s, %s" % (args.out_dir / "scan_heights.npz", args.out_dir / "scan_ground.npz", png, js))
 
     if args.png:
         import matplotlib

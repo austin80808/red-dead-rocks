@@ -24,10 +24,11 @@ Every rig actor is replaced on each run, so re-running updates its settings.
 Log: /tmp/redrocks_lighting.log ("ok"/"FAIL" lines).
 """
 
+import os
 import unreal
 
 LEVEL_PATH = "/Game/RedRocks/Lvl_RedRocks"
-LOG_PATH = "/tmp/redrocks_lighting.log"
+LOG_PATH = os.path.join(os.environ.get("REDROCKS_LOG_DIR", "/tmp"), "redrocks_lighting.log")
 
 # ---- Sun ---------------------------------------------------------------------
 # Red Rocks is at 39.67 N. Early on a summer morning the sun sits in the ENE, a
