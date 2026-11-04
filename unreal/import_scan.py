@@ -14,13 +14,12 @@ driven by the same unreal.AssetImportTask used for the OBJs, which works in a
 commandlet with automated=True. Requires the USD Core / Interchange plugins to
 be enabled in RedRocks.uproject.
 
-Axis and unit conversion: Interchange's USD translator reads the stage upAxis
-and converts Y-up to Z-up itself, so no import option is set. It also applies
-metersPerUnit (0.01 in this file), but the scan's raw units are really metres,
-so the mesh may arrive 100x too small. Rather than trust either behaviour, the
-script measures the imported mesh and scales the actor so its longest side is
-EXPECTED_LONGEST_M. If the up-axis was NOT converted, set ACTOR_ROTATION below
-(roll=90 style, keywords) to correct it on the actor.
+Axis and units: Interchange converts the stage's Y-up to Z-up itself and splits
+the scan into 31 chunk meshes that share one frame. The USD has no real-world
+units, so scale, yaw and position are fitted against the terrain by
+tools/fit_scan.py (constants below). Re-placing reuses the imported chunks, so
+it is light enough to run in the open editor:
+    py "/Users/austin/dev/redrocks-ue/unreal/import_scan.py"
 
 Textures are imported explicitly (baseColor, normal, occlusion) and wired into
 a small material, so the result does not depend on how Interchange resolves the
@@ -28,6 +27,7 @@ USD material. The roughness and metallic maps in the scan are constant 333-byte
 JPEGs, so they become scalar values.
 """
 
+import math
 import os
 
 import unreal
@@ -40,22 +40,19 @@ LEVEL_PATH = "/Game/RedRocks/Lvl_RedRocks"
 ACTOR_LABEL = "Scan_ml0w"
 CREDIT = "Red Rocks scan: ml0w (CC BY 4.0)"
 
-# ---- Placement: FIRST GUESS, tune by eye in the editor. ---------------------
-# The scan's georeferencing is unknown. The venue sits at the manifest origin
-# (0, 0) in the terrain frame, so the scan's bounding-box centre is put on the
-# origin, then nudged by SCAN_OFFSET_CM. The scan's lowest point is put on the
-# bowl floor: the monolith base elevation (1932.408 m, the same datum
-# import_redrocks.py uses for the rocks) minus the terrain minimum
-# (1753.858 m), in cm, since the terrain mesh has its lowest point at Z = 0.
-BOWL_FLOOR_Z_CM = (1932.408 - 1753.858) * 100.0  # 17855 cm
-SCAN_OFFSET_CM = (0.0, 0.0, 0.0)  # extra x, y, z nudge after centring
-SCAN_YAW_DEG = 0.0  # spin about the vertical to line the scan up with the bowl
-# Raise roll to 90 only if the importer left the scan Y-up (see docstring).
-ACTOR_ROTATION = unreal.Rotator(pitch=0.0, yaw=SCAN_YAW_DEG, roll=0.0)
-# Longest side of the scan: 163.3 m (ATTRIBUTION.md). 1 raw unit = 1 m, so the
-# actor is scaled until the mesh is this long in cm (= 100 cm per raw unit).
-EXPECTED_LONGEST_M = 163.3
-NOMINAL_SCALE = 100.0  # used only if the measured size is unusable
+# ---- Placement, from tools/fit_scan.py --------------------------------------
+# The USD carries no real-world units (Sketchfab normalised them) and the
+# extents in ATTRIBUTION.md don't match the file, so scale, yaw and position
+# come from fitting the scan's heights to the 3DEP terrain. Re-run
+# unreal/export_scan_points.py and tools/fit_scan.py to refresh these. The fit
+# is not conclusive (detrended correlation ~0.70); check it by eye.
+FIT_SCALE = 31.1814  # cm per scan unit
+FIT_YAW_DEG = 292.00
+FIT_MIRROR_X = 1
+FIT_SCAN_CENTRE = (15.967, 21.806)  # scan units, removed before rotating
+FIT_OFFSET_CM = (-7000.0, 40000.0, 21459.2)
+# Re-import the USD only when asked; re-placing reuses the existing chunks.
+REIMPORT = False
 # -----------------------------------------------------------------------------
 
 log = []
@@ -215,8 +212,13 @@ def main():
 
     _ensure_dir(ASSET_DIR)
 
-    paths = _import_task(SCAN_FILE, ASSET_DIR)
-    log.append("imported scan -> %s" % paths)
+    chunk_dir = ASSET_DIR + "/scene/StaticMeshes"
+    if REIMPORT or not unreal.EditorAssetLibrary.does_directory_exist(chunk_dir):
+        paths = _import_task(SCAN_FILE, ASSET_DIR)
+        log.append("imported scan (%d assets)" % len(paths))
+    else:
+        paths = list(unreal.EditorAssetLibrary.list_assets(chunk_dir))
+        log.append("reusing %d imported chunks (REIMPORT = False)" % len(paths))
     meshes = _find_scan_meshes(paths)
     if not meshes:
         log.append(
@@ -226,10 +228,15 @@ def main():
         return
     log.append("scan chunks: %d" % len(meshes))
 
-    for mesh, mesh_path in meshes:
-        _enable_nanite(mesh)
-        unreal.EditorAssetLibrary.save_asset(mesh_path)
-    material = _build_material(_import_textures())
+    if REIMPORT or len(meshes) != len(paths) or not unreal.EditorAssetLibrary.does_asset_exist(
+        ASSET_DIR + "/M_Scan_ml0w"
+    ):
+        for mesh, mesh_path in meshes:
+            _enable_nanite(mesh)
+            unreal.EditorAssetLibrary.save_asset(mesh_path)
+        material = _build_material(_import_textures())
+    else:
+        material = unreal.EditorAssetLibrary.load_asset(ASSET_DIR + "/M_Scan_ml0w")
 
     if not unreal.EditorAssetLibrary.does_asset_exist(LEVEL_PATH):
         log.append("ABORT: %s missing; run import_redrocks.py first" % LEVEL_PATH)
@@ -256,7 +263,6 @@ def main():
             comp.set_material(slot, material)
         actor.set_actor_label("%s_%02d" % (ACTOR_LABEL, i))
         actor.set_mobility(unreal.ComponentMobility.STATIC)
-        actor.set_actor_rotation(ACTOR_ROTATION, False)
         # The credit travels with every chunk: tags plus a shared folder.
         actor.set_editor_property(
             "tags", [unreal.Name("CC-BY-4.0"), unreal.Name("author:ml0w"), unreal.Name(CREDIT)]
@@ -267,39 +273,32 @@ def main():
         log.append("ABORT: no scan actors spawned")
         return
 
-    # Measure the whole scan at scale 1, then scale so its longest side is the
-    # known length. Every actor sits at the origin, so scaling each one about
-    # its own pivot scales the group about the origin.
-    lo, hi = _union_bounds(actors)
-    size = (hi.x - lo.x, hi.y - lo.y, hi.z - lo.z)
-    log.append("imported size cm (x,y,z)=(%.1f, %.1f, %.1f)" % size)
-    longest = max(size)
-    if longest > 0.0:
-        scale = EXPECTED_LONGEST_M * 100.0 / longest
-    else:
-        scale = NOMINAL_SCALE
-        log.append("bounds empty, using nominal scale")
+    # Every chunk shares the scan's frame, so all get the same transform:
+    # world = R(yaw) . diag(mirror * s, s, s) . (p - centre) + offset, which as
+    # an actor transform is scale (mirror*s, s, s), the yaw, and a location of
+    # offset - R . S . centre.
+    s = FIT_SCALE
+    yaw = math.radians(FIT_YAW_DEG)
+    cx = FIT_MIRROR_X * s * FIT_SCAN_CENTRE[0]
+    cy = s * FIT_SCAN_CENTRE[1]
+    location = unreal.Vector(
+        FIT_OFFSET_CM[0] - (math.cos(yaw) * cx - math.sin(yaw) * cy),
+        FIT_OFFSET_CM[1] - (math.sin(yaw) * cx + math.cos(yaw) * cy),
+        FIT_OFFSET_CM[2],
+    )
     for actor in actors:
-        actor.set_actor_scale3d(unreal.Vector(scale, scale, scale))
-    log.append("scale factor %.4f (raw metres -> cm would be %.1f)" % (scale, NOMINAL_SCALE))
-
-    # Centre on the origin in XY and put the lowest point on the bowl floor.
+        actor.set_actor_scale3d(unreal.Vector(FIT_MIRROR_X * s, s, s))
+        actor.set_actor_rotation(unreal.Rotator(pitch=0.0, yaw=FIT_YAW_DEG, roll=0.0), False)
+        actor.set_actor_location(location, False, False)
     lo, hi = _union_bounds(actors)
     log.append(
-        "scaled size m (x,y,z)=(%.1f, %.1f, %.1f), expect a 78.9 x 163.3 x 52.1 shape"
-        % ((hi.x - lo.x) / 100.0, (hi.y - lo.y) / 100.0, (hi.z - lo.z) / 100.0)
+        "placed %d chunks at %s; size m (x,y,z)=(%.1f, %.1f, %.1f)"
+        % (len(actors), location, (hi.x - lo.x) / 100.0, (hi.y - lo.y) / 100.0, (hi.z - lo.z) / 100.0)
     )
-    offset = unreal.Vector(
-        -(lo.x + hi.x) / 2.0 + SCAN_OFFSET_CM[0],
-        -(lo.y + hi.y) / 2.0 + SCAN_OFFSET_CM[1],
-        BOWL_FLOOR_Z_CM - lo.z + SCAN_OFFSET_CM[2],
-    )
-    for actor in actors:
-        actor.set_actor_location(actor.get_actor_location() + offset, False, False)
-    log.append("placed %d chunks, offset %s" % (len(actors), offset))
+    credit_z = hi.z + 500.0
     try:
         credit = actor_subsystem.spawn_actor_from_class(
-            unreal.TextRenderActor, unreal.Vector(0.0, 0.0, BOWL_FLOOR_Z_CM + 300.0)
+            unreal.TextRenderActor, unreal.Vector(location.x, location.y, credit_z)
         )
         credit.text_render.set_text(CREDIT)
         credit.text_render.set_editor_property("world_size", 120.0)

@@ -16,11 +16,17 @@
 
 ## Geometry
 
-- Extent: **78.9 × 163.3 × 52.1 m** (raw units are metres)
-- `upAxis = "Y"` — **must be rotated to Z-up for Unreal**
-- `metersPerUnit = 0.01` in the USD header, but the raw extents only make sense
-  as metres. Treat the declared unit as unreliable and scale by 1.0, then verify
-  against the 120 m bowl width.
+- 31 mesh prims sharing one frame, `upAxis = "Y"`, `metersPerUnit = 0.01`, with
+  a 2.02 scale on `/scene/Meshes`. World extent **1050 × 300 × 1093 units**
+  (x, up, z), read with `unreal/probe_scan.py`. An earlier note here said
+  78.9 × 163.3 × 52.1 m; nothing in the file has that size.
+- The units are Sketchfab-normalised, not real-world. It covers the Visitor
+  Center side of the park (roads, parking, buildings, outcrops), not just the
+  bowl.
+- Real scale and placement come from fitting its heights to the 3DEP terrain
+  (`tools/fit_scan.py`): about 0.31 m per unit, so roughly 340 m across before
+  the import's own scaling; it lands about 400 m north of the bowl. The fit's
+  detrended correlation is ~0.70, so treat it as good, not surveyed.
 
 ## Why this matters
 
