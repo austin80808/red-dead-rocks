@@ -42,7 +42,7 @@ import re
 import unreal
 
 REPO_DIR = "/Users/austin/dev/redrocks-ue"
-OUT_DIR = "/Users/austin/dev/redrocks-ue/out"
+OUT_DIR = os.environ.get("REDROCKS_OUT_DIR", "/Users/austin/dev/redrocks-ue/out")
 SCAN_ATTRIBUTION = os.path.join(REPO_DIR, "assets", "scan", "ATTRIBUTION.md")
 ROCKS_ATTRIBUTION = os.path.join(REPO_DIR, "assets", "rocks", "ATTRIBUTION.md")
 LEVEL_PATH = "/Game/RedRocks/Lvl_RedRocks"

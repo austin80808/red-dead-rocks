@@ -154,39 +154,3 @@ def test_skirt_starts_on_the_terrain_edge_and_faces_up(env):
 
 def test_far_profile_rises_to_the_west(env):
     assert env.far_height(-1.0, 0.0) > env.far_height(0.0, 1.0) >= env.far_height(1.0, 0.0)
-
-
-def test_terrain_grid_interpolates_and_measures_slope(env):
-    grid = env.TerrainGrid(_grid(n=5, size=100.0))  # z = 0.1 x + 0.01 y
-    assert grid.height(10.0, 20.0) == pytest.approx(1.2)
-    assert grid.normal_z(0.0, 0.0) == pytest.approx(1 / math.sqrt(1 + 0.01 + 0.0001))
-    assert grid.contains(50.0, -50.0) and not grid.contains(51.0, 0.0)
-
-
-def test_value_noise_is_smooth_and_bounded(env):
-    vals = [env.value_noise(x * 10.0, 3.0, 100.0, 7) for x in range(200)]
-    assert all(0.0 <= v <= 1.0 for v in vals)
-    assert max(abs(a - b) for a, b in zip(vals, vals[1:])) < 0.2
-    assert env.value_noise(5.0, 5.0, 100.0, 7) == env.value_noise(5.0, 5.0, 100.0, 7)
-
-
-def test_scrub_avoids_scan_roads_and_cliffs(env):
-    size = 300000.0
-    flat = env.TerrainGrid(_flat_grid(size))
-    blocked = env.occupied_cells([(50000.0, 50000.0, 0.0)], env.PARK_CELL_CM, dilate=3)
-    bushes = env.scrub_transforms(flat, blocked)
-    assert bushes, "a flat open grid should grow scrub"
-    for x, y, z, yaw, sx, sy, sz in bushes:
-        assert abs(x) <= size / 2 + 300 and abs(y) <= size / 2 + 300  # a lobe may lean out
-        assert math.hypot(x - env.SCAN_CENTRE_CM[0], y - env.SCAN_CENTRE_CM[1]) >= env.SCAN_CLEAR_CM * 0.95
-        cell = (int(math.floor(x / env.PARK_CELL_CM)), int(math.floor(y / env.PARK_CELL_CM)))
-        assert cell not in env.occupied_cells([(50000.0, 50000.0, 0.0)], env.PARK_CELL_CM, dilate=2)
-        assert 0.5 < sx < 6.0 and 0.3 < sz < 6.0
-    assert env.scrub_transforms(flat, blocked) == bushes  # seeded: same every rebuild
-    cliff = env.TerrainGrid([(x, y, x * 2.0) for x, y, _ in _flat_grid(size)])
-    assert env.scrub_transforms(cliff, set()) == []
-
-
-def _flat_grid(size, n=31):
-    return [(-size / 2 + size * i / (n - 1), -size / 2 + size * j / (n - 1), 0.0)
-            for j in range(n) for i in range(n)]

@@ -273,6 +273,24 @@ def _scan_blended_dem(args, dem, venue, lines, base: float, grid: int):
     return blended, info
 
 
+def vegetation(args: argparse.Namespace) -> int:
+    """Grow the tree and shrub models and place them on a built terrain."""
+    from . import vegetation as veg
+
+    out_dir = Path(args.out)
+    terrain = out_dir / "RedRocks_Terrain.obj"
+    if not terrain.is_file():
+        print(f"no {terrain}; run `redrocks build --out {out_dir}` first")
+        return 1
+    info = veg.export(out_dir / "vegetation", terrain_obj=terrain, avoid_dir=out_dir, seed=args.seed)
+    tris = sum(p["triangles"] for m in info["models"] for p in m["parts"].values())
+    print(f"{len(info['models'])} models, {tris:,} triangles, {len(info['atlases'])} leaf atlases")
+    for species, count in info["counts"].items():
+        print(f"  {species:10s} {count:6d}")
+    print(f"wrote {out_dir / 'vegetation'}")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="redrocks", description=__doc__)
     sub = parser.add_subparsers(dest="command", required=True)
@@ -295,6 +313,13 @@ def main(argv: list[str] | None = None) -> int:
         "conformed to it (issue #17). Pass '' to keep the bare DEM.",
     )
     build_cmd.set_defaults(func=build)
+
+    veg_cmd = sub.add_parser(
+        "vegetation", help="grow junipers, ponderosa and scrub and place them on --out's terrain"
+    )
+    veg_cmd.add_argument("--out", default="out", help="directory holding RedRocks_Terrain.obj")
+    veg_cmd.add_argument("--seed", type=int, default=1941, help="placement seed")
+    veg_cmd.set_defaults(func=vegetation)
 
     args = parser.parse_args(argv)
     return args.func(args)

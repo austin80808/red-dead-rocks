@@ -48,7 +48,8 @@ to their average colour with distance instead of shimmering. Benches are
 weathered redwood planks on dusty concrete risers; the stage is concrete; roads,
 lots and paths are asphalt and gravel with dusty edges. A generated terrain skirt
 carries the hills out to the horizon (no more flat blue plane past the 2.4 km
-terrain), and about 5,000 juniper-sized scrub clumps dot the open hillsides.
+terrain), and about 24,000 procedural junipers, ponderosa pines and scrub oak /
+mountain mahogany cover the hillsides (see Vegetation).
 `configure_level.py` writes the render settings this needs into the project's
 `Config/DefaultEngine.ini` (restart the editor after the first rebuild).
 
@@ -258,7 +259,7 @@ change, then `redrocks build` and `rebuild_level.py`.
 
 ![Aerial: the bowl between Creation Rock and Ship Rock with the ml0w scan in place, then the scan on its own](docs/media/redrocks_aerial_scan.gif)
 
-*From above: the ml0w scan's Ship Rock and Creation Rock blended into the generated terrain, with scrub, roads and parking. Regenerate both with `tools/make_play_gifs.sh` after a play-test.*
+*From above: the ml0w scan's Ship Rock and Creation Rock blended into the generated terrain, with vegetation, roads and parking. Regenerate both with `tools/make_play_gifs.sh` after a play-test.*
 
 Open the project, make sure `Lvl_RedRocks` is the open level, and press **Play** (green ▶).
 You spawn on the stage deck facing up the bowl, with the credits beside you.
@@ -301,7 +302,7 @@ PROJ="$HOME/Documents/Unreal Projects/RedRocks/RedRocks.uproject"
 ```
 
 **To rebuild the whole level, run one script.** `rebuild_level.py` runs the
-nine steps below in order (`import_redrocks.py` through `setup_credits.py`), clears
+ten steps below in order (`import_redrocks.py` through `setup_credits.py`), clears
 each step's old log first, stops at the first `ERROR`/`ABORT`/`FAIL` line in its
 `/tmp/redrocks_*.log` (or a missing log), and prints a summary of step, status,
 duration and log path (also saved to `/tmp/redrocks_rebuild.log`):
@@ -316,18 +317,20 @@ a time, in this order; each writes a log to `/tmp/redrocks_*.log`:
 
 | Script | Does |
 |---|---|
-| `rebuild_level.py` | **entry point:** runs the eight scripts below in order, stops at the first failure |
+| `rebuild_level.py` | **entry point:** runs the ten scripts below in order, stops at the first failure |
 | `import_redrocks.py` | imports the terrain, rocks and benches OBJs to `/Game/RedRocks` and places them in `Lvl_RedRocks`. **Clears every actor in the level first.** |
 | `setup_lighting.py` | low morning sun (120 klx, ENE, 24° up, behind the spawn), sky atmosphere, real-time sky light, height fog, volumetric clouds, PlayerStart. Replaces the rig on every run |
 | `configure_level.py` | writes Lumen / distance fields / VSM / eye adaptation / TSR into `Config/DefaultEngine.ini` `[SystemSettings]`; post-process volume with Lumen, auto exposure (EV100 11-14.2) and a light grade; framing camera |
 | `fix_camera.py` | lifts the camera above the 645 m ridge, removes test actors |
-| `setup_materials.py` | procedural materials: `M_Sandstone` (30° strata that fade with distance, soil, grass, slope rock) with rock and ground instances; `M_Benches` (redwood planks, concrete risers); `M_Concrete`, `M_Asphalt`, `M_Lot`, `M_Gravel`, `M_Scrub` |
-| `setup_environment.py` | terrain skirt from the DEM edge out to 120 km so the world has a horizon; ~5,000 scrub clumps as one instanced mesh, off rock, roads and the scan |
+| `setup_materials.py` | procedural materials: `M_Sandstone` (30° strata that fade with distance, soil, grass, slope rock) with rock and ground instances; `M_Benches` (redwood planks, concrete risers); `M_Concrete`, `M_Asphalt`, `M_Lot`, `M_Gravel` |
+| `setup_environment.py` | terrain skirt from the DEM edge out to 120 km so the world has a horizon |
+| `setup_vegetation.py` | imports `out/vegetation/` (from `redrocks vegetation`): leaf atlases, bark/leaf/crown materials, 16 Nanite tree and shrub models, and every instance into one `Vegetation` actor; tree trunks block, canopies and shrubs don't |
 | `import_scan.py` | imports the ml0w scan with Nanite and credits it; its material fades the scan out at its edge (see Scan edge blend); run after `import_redrocks.py` |
 | `setup_gameplay.py` | imports Stage, Roads, Paths, Parking; complex collision on every walkable mesh and on the scan (the hidden extruded rocks get none); PlayerStart on the stage deck facing up the bowl; FirstPerson game mode; in-world credits. Runs last |
 | `setup_credits.py` | the press-**C** credits screen: input action `IA_Credits` (C, in `IMC_Default`), Widget Blueprint `WBP_Credits`, Actor Blueprint `BP_CreditsMenu` placed in the level. Text from `assets/*/ATTRIBUTION.md` and the manifest. Runs after `setup_gameplay.py` |
 | `verify_walkable.py` | headless checks: game mode, one PlayerStart, triangle counts kept, credits present; renders the spawn and bowl views |
 | `playtest.py` | **the real test:** launches Play In Editor, lets the player land, walks and jumps up the bowl for 12 s, screenshots, quits. Needs the editor GUI (`-ExecCmds="py …"`) |
+| `shoot_vegetation.py` | Play In Editor, flies to the bowl-top, hillside (a juniper and a pine) and aerial views, screenshots each and logs FPS. Needs the editor GUI |
 | `playtest_credits.py` | Play In Editor, checks the hint, presses C (open), C (close), screenshots each (`Shot showui`), quits. Needs the editor GUI |
 | `render_preview.py` | renders the level to `Saved/redrocks_preview.png` |
 | `diagnose.py` | lists actors, mesh triangle counts and the startup map |
@@ -500,8 +503,8 @@ Cache on local disk, sync the source and built packages to MEGA.
 1. Run `import_redrocks.py` (benches) and `import_scan.py` in the level, then
    tune the scan's placement constants by eye and decide whether it replaces the
    extruded monoliths visually, with the monoliths kept as collision.
-2. Real trees and boulders (Poly Haven ponderosa/juniper, `assets/rocks`) in
-   place of the sphere-clump scrub.
+2. Boulders from `assets/rocks` on the hillsides (the trees are done: see
+   Vegetation).
 3. Import `Stage.obj` (see Stage blockout), then replace the blockout with detail.
    The stage and shell are not in any free dataset.
 4. First-person traversal pass, then multiplayer.

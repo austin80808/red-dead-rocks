@@ -30,7 +30,7 @@ import os
 import unreal
 
 LEVEL_PATH = "/Game/RedRocks/Lvl_RedRocks"
-OUT_DIR = "/Users/austin/dev/redrocks-ue/out"
+OUT_DIR = os.environ.get("REDROCKS_OUT_DIR", "/Users/austin/dev/redrocks-ue/out")
 LOG_PATH = "/tmp/redrocks_verify.log"
 GAME_MODE_NAME = "BP_FirstPersonGameMode"
 EYE_CM = 160.0

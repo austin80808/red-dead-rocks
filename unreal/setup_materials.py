@@ -23,7 +23,6 @@ no textures to import):
     M_Asphalt           roads: oxidised asphalt, worn patches, dusty edges
     M_Lot               parking: the same asphalt without road edges
     M_Gravel            paths: red decomposed-granite gravel, dusty edges
-    M_Scrub             juniper/scrub clumps (instanced by setup_environment.py)
 
 Then sets the StaticMesh assets' materials and saves them. setup_gameplay.py
 assigns the stage, road, path and parking materials after it imports those
@@ -435,24 +434,6 @@ def build_gravel(mat):
     g.output(col, 0.95)
 
 
-def build_scrub(mat):
-    """Juniper and scrub-oak clumps: dark olive, each bush its own shade."""
-    lib.delete_all_material_expressions(mat)
-    mat.set_editor_property("used_with_instanced_static_meshes", True)
-    g = Graph(mat)
-    wpos = g.world_pos()
-    leaves = g.noise(wpos, 60.0, levels=2)
-    per_bush = g.node("MaterialExpressionPerInstanceRandom")
-    col = g.lerp(g.color("#2E3A22"), g.color("#55583A"), per_bush)
-    col = g.mul(col, g.lerp(0.6, 1.15, leaves))
-    # Leafy clumps: tilt the normal with two noises so the smooth lobes break
-    # up into lit and shaded tufts instead of reading as balls.
-    nx = g.mul(g.sub(g.noise(wpos, 45.0, levels=2), 0.5), 2.2)
-    ny = g.mul(g.sub(g.noise(g.add(wpos, g.vec3(317.0, 911.0, 53.0)), 45.0, levels=2), 0.5), 2.2)
-    normal = g.append(g.append(nx, ny), 1.0)
-    g.output(col, 0.9, normal=normal)
-
-
 # --------------------------------------------------------------- asset helpers
 
 def _get_or_create(name, asset_class, factory):
@@ -527,7 +508,6 @@ SURFACES = [
     ("M_Asphalt", build_asphalt, "Roads"),
     ("M_Lot", build_lot, "Parking"),
     ("M_Gravel", build_gravel, "Paths"),
-    ("M_Scrub", build_scrub, None),  # setup_environment.py instances it
 ]
 
 

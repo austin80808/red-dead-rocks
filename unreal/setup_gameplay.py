@@ -38,7 +38,7 @@ import os
 
 import unreal
 
-OUT_DIR = "/Users/austin/dev/redrocks-ue/out"
+OUT_DIR = os.environ.get("REDROCKS_OUT_DIR", "/Users/austin/dev/redrocks-ue/out")
 ASSET_DIR = "/Game/RedRocks"
 MAT_DIR = "/Game/RedRocks/Materials"
 LEVEL_PATH = "/Game/RedRocks/Lvl_RedRocks"
