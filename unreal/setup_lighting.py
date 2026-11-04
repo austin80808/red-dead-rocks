@@ -30,11 +30,15 @@ LEVEL_PATH = "/Game/RedRocks/Lvl_RedRocks"
 LOG_PATH = "/tmp/redrocks_lighting.log"
 
 # ---- Sun ---------------------------------------------------------------------
-# Red Rocks is at 39.67 N. Late afternoon in summer the sun sits in the WNW, a
-# little over 20 degrees up. The light travels away from it, toward the ESE:
+# Red Rocks is at 39.67 N. Early on a summer morning the sun sits in the ENE, a
+# little over 20 degrees up (the Easter sunrise service is the venue's other
+# famous light). The player spawns on the stage facing WSW up the bowl, so a
+# morning sun is behind them and lights the rows and rock faces they see; an
+# afternoon sun (WNW) backlit the whole view into silhouette. The light travels
+# away from the sun:
 # compass bearing (sun azimuth + 180), which in Unreal's frame (X east, Y north,
 # yaw counter-clockwise from +X) is yaw = 90 - bearing.
-SUN_AZIMUTH_DEG = 290.0   # compass bearing of the sun, clockwise from north
+SUN_AZIMUTH_DEG = 75.0    # compass bearing of the sun, clockwise from north (ENE)
 SUN_ELEVATION_DEG = 24.0  # above the horizon: low and warm, but the bowl is still lit
 # Outside the atmosphere the sun gives about 120,000 lux; the SkyAtmosphere
 # takes off what the air absorbs, which at 24 degrees leaves a warm ~40-60 klx.

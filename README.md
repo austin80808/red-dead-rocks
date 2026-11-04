@@ -40,7 +40,7 @@ yet run in the level: the bench import and the ml0w scan import (see the script
 table). Stage blockout generated (not yet imported). The scan's placement is fitted by `tools/fit_scan.py` (scale within 8 % of 0.516 m/unit, then terrain heights plus stage and rock landmarks); see issue #14 for the residuals.
 
 **Look (#18):** physically lit with Lumen GI and reflections, a 120 klx
-late-afternoon sun low in the WNW through the SkyAtmosphere, a real-time sky
+early-morning sun low in the ENE (behind the player at spawn) through the SkyAtmosphere, a real-time sky
 light, volumetric clouds, height fog and histogram auto exposure clamped to
 EV100 11-14.2. The ground is procedural Fountain Formation sandstone: red soil
 and olive grass on gentle slopes, banded red rock on steep ones, bands that fade
@@ -254,11 +254,11 @@ change, then `redrocks build` and `rebuild_level.py`.
 
 ![Play In Editor: spawn on the stage, walk up the bowl, then look east, north, west and south](docs/media/redrocks_play_tour.gif)
 
-*Captured by `unreal/playtest.py` in the real project: the player spawns on the stage, walks 53 m and climbs 13 m up the bowl, then looks east, north, west and south.*
+*Captured by `unreal/playtest.py` in the real project: the player spawns on the stage, walks 53 m and climbs 13 m up the bowl, then looks east, north, west and south, under the early-morning sun.*
 
 ![Aerial: the bowl between Creation Rock and Ship Rock with the ml0w scan in place, then the scan on its own](docs/media/redrocks_aerial_scan.gif)
 
-*From above: the generated terrain, rocks, benches, roads and parking with the ml0w scan placed over the bowl, then the scan on its own. Regenerate both with `tools/make_play_gifs.sh` after a play-test.*
+*From above: the ml0w scan's Ship Rock and Creation Rock blended into the generated terrain, with scrub, roads and parking. Regenerate both with `tools/make_play_gifs.sh` after a play-test.*
 
 Open the project, make sure `Lvl_RedRocks` is the open level, and press **Play** (green ▶).
 You spawn on the stage deck facing up the bowl, with the credits beside you.
@@ -318,7 +318,7 @@ a time, in this order; each writes a log to `/tmp/redrocks_*.log`:
 |---|---|
 | `rebuild_level.py` | **entry point:** runs the eight scripts below in order, stops at the first failure |
 | `import_redrocks.py` | imports the terrain, rocks and benches OBJs to `/Game/RedRocks` and places them in `Lvl_RedRocks`. **Clears every actor in the level first.** |
-| `setup_lighting.py` | golden-hour sun (120 klx, WNW, 24° up), sky atmosphere, real-time sky light, height fog, volumetric clouds, PlayerStart. Replaces the rig on every run |
+| `setup_lighting.py` | low morning sun (120 klx, ENE, 24° up, behind the spawn), sky atmosphere, real-time sky light, height fog, volumetric clouds, PlayerStart. Replaces the rig on every run |
 | `configure_level.py` | writes Lumen / distance fields / VSM / eye adaptation / TSR into `Config/DefaultEngine.ini` `[SystemSettings]`; post-process volume with Lumen, auto exposure (EV100 11-14.2) and a light grade; framing camera |
 | `fix_camera.py` | lifts the camera above the 645 m ridge, removes test actors |
 | `setup_materials.py` | procedural materials: `M_Sandstone` (30° strata that fade with distance, soil, grass, slope rock) with rock and ground instances; `M_Benches` (redwood planks, concrete risers); `M_Concrete`, `M_Asphalt`, `M_Lot`, `M_Gravel`, `M_Scrub` |

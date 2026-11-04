@@ -25,6 +25,6 @@ gif() {  # gif <output name> <frame>...  (one frame every ~1.7 s, 960 px wide)
 
 gif redrocks_play_tour redrocks_play_spawn redrocks_play_walked \
   redrocks_play_look_000 redrocks_play_look_090 redrocks_play_look_180 redrocks_play_look_270
-if [ -f "$SHOTS/dbg_with_terrain.png" ] && [ -f "$SHOTS/dbg_scan_only.png" ]; then
-  gif redrocks_aerial_scan dbg_with_terrain dbg_scan_only
-fi
+aerial=()
+for f in dbg_with_terrain dbg_scan_only; do [ -f "$SHOTS/$f.png" ] && aerial+=("$f"); done
+if [ ${#aerial[@]} -gt 0 ]; then gif redrocks_aerial_scan "${aerial[@]}"; fi
