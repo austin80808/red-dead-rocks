@@ -127,7 +127,7 @@ sink into the mesh), then lifted by 3 cm (parking), 5 cm (roads) or 7 cm
 | path, steps | 1.5 |
 
 `*_link` uses its parent class, and a numeric `width=` tag overrides the table.
-Roads are the first six rows plus service and track; the rest are paths.
+Roads are motorway down to track; cycleway and below are paths.
 `tunnel=*` ways and closed `area=yes` ways are skipped; other `highway` values
 (construction, proposed ...) are ignored. Bridges are draped, with no deck.
 Every face has UVs: on ribbons U is distance along the way divided by its width
