@@ -25,9 +25,9 @@ What it does, each step logged to /tmp/redrocks_gameplay.log as "ok" or "FAIL":
   5. Sets the level's game mode to the FirstPerson template's, so Play spawns a
      walking first-person character (WASD, mouse, space to jump).
   6. Recaptures the sky light (intensity 1.0, physical).
-  7. Turns off collision on the ml0w scan chunks: they are visual only. When
-     the scan is present, hides the extruded rocks in game (#16); they keep
-     their collision, so they act as the scan rocks' walls.
+  7. When the ml0w scan is present: the scan chunks get complex collision and
+     the extruded rocks are hidden in game with no collision (#16), so what
+     blocks the player is the rock they see.
   8. Places the attribution as text in the world, beside the spawn, so the
      CC BY 4.0 (ml0w scan) and ODbL (OpenStreetMap) credits show in-game.
 """
@@ -154,19 +154,38 @@ def _unmirror(name):
 SCAN_PREFIX = "Scan_ml0w"
 
 
-def _scan_visual_only():
-    """The scan is for looks; the generated meshes are the walkable surfaces.
+def _scan_collision():
+    """The scan's rocks are what the player sees, so they are what blocks.
 
-    Its chunks sit up to a few metres off the DEM terrain, so with collision
-    they block the PlayerStart (Unreal then drops it and spawns the pawn at a
-    fallback spot) and make invisible ledges.
+    Every scan chunk gets complex-as-simple collision (its Nanite fallback
+    mesh), and the hidden extruded rocks lose theirs, so there are no invisible
+    walls where the extruded outlines differ from the scanned rock. The terrain
+    under the scan is blended 0.4 m below it (scan_blend.py), so walking onto
+    the scan is a small step up, not a ledge.
     """
     chunks = [a for a in _actors() if a.get_actor_label().startswith(SCAN_PREFIX)
               and isinstance(a, unreal.StaticMeshActor)]
+    meshes = {}
     for actor in chunks:
-        actor.static_mesh_component.set_collision_profile_name("NoCollision")
-        actor.set_actor_enable_collision(False)
-    return len(chunks)
+        mesh = actor.static_mesh_component.static_mesh
+        if mesh is not None:
+            meshes[mesh.get_path_name()] = mesh
+    for path, mesh in meshes.items():
+        body = mesh.get_editor_property("body_setup")
+        if body is None:
+            raise RuntimeError("%s has no body setup" % path)
+        body.set_editor_property("collision_trace_flag", unreal.CollisionTraceFlag.CTF_USE_COMPLEX_AS_SIMPLE)
+        mesh.set_editor_property("body_setup", body)
+        unreal.EditorAssetLibrary.save_asset(path.split(".")[0])
+    for actor in chunks:
+        actor.set_actor_enable_collision(True)
+        actor.static_mesh_component.set_collision_profile_name("BlockAll")
+    if chunks:
+        for name in EXTRUDED_ROCKS:
+            for actor in _by_label(name):
+                actor.static_mesh_component.set_collision_profile_name("NoCollision")
+                actor.set_actor_enable_collision(False)
+    return "%d chunks, %d meshes" % (len(chunks), len(meshes))
 
 
 EXTRUDED_ROCKS = ["Creation_Rock", "Ship_Rock"]
@@ -174,8 +193,7 @@ EXTRUDED_ROCKS = ["Creation_Rock", "Ship_Rock"]
 
 def _hide_extruded_rocks():
     """Issue #16: where the scan has the real rocks, hide the extruded ones in
-    game. They keep their collision, so they still stop the player at the
-    rock faces the scan shows (the scan itself has none)."""
+    game (_scan_collision also takes their collision away)."""
     scan = [a for a in _actors() if a.get_actor_label().startswith(SCAN_PREFIX)]
     if not scan:
         return "no scan in the level; extruded rocks stay visible"
@@ -393,7 +411,7 @@ def main():
     _step("game mode FirstPerson", _game_mode)
     _step("sky light %.1f for first person" % SKY_LIGHT_INTENSITY, _first_person_light)
 
-    _step("scan is visual only (no collision)", _scan_visual_only)
+    _step("scan rocks collide; extruded rocks do not", _scan_collision)
     _step("hide extruded rocks in game (collision kept)", _hide_extruded_rocks)
     _step("save %s" % LEVEL_PATH, _save_level)
 

@@ -324,7 +324,7 @@ a time, in this order; each writes a log to `/tmp/redrocks_*.log`:
 | `setup_materials.py` | procedural materials: `M_Sandstone` (30° strata that fade with distance, soil, grass, slope rock) with rock and ground instances; `M_Benches` (redwood planks, concrete risers); `M_Concrete`, `M_Asphalt`, `M_Lot`, `M_Gravel`, `M_Scrub` |
 | `setup_environment.py` | terrain skirt from the DEM edge out to 120 km so the world has a horizon; ~5,000 scrub clumps as one instanced mesh, off rock, roads and the scan |
 | `import_scan.py` | imports the ml0w scan with Nanite and credits it; its material fades the scan out at its edge (see Scan edge blend); run after `import_redrocks.py` |
-| `setup_gameplay.py` | imports Stage, Roads, Paths, Parking; complex collision on every walkable mesh; PlayerStart on the stage deck facing up the bowl; FirstPerson game mode; in-world credits. Runs last |
+| `setup_gameplay.py` | imports Stage, Roads, Paths, Parking; complex collision on every walkable mesh and on the scan (the hidden extruded rocks get none); PlayerStart on the stage deck facing up the bowl; FirstPerson game mode; in-world credits. Runs last |
 | `setup_credits.py` | the press-**C** credits screen: input action `IA_Credits` (C, in `IMC_Default`), Widget Blueprint `WBP_Credits`, Actor Blueprint `BP_CreditsMenu` placed in the level. Text from `assets/*/ATTRIBUTION.md` and the manifest. Runs after `setup_gameplay.py` |
 | `verify_walkable.py` | headless checks: game mode, one PlayerStart, triangle counts kept, credits present; renders the spawn and bowl views |
 | `playtest.py` | **the real test:** launches Play In Editor, lets the player land, walks and jumps up the bowl for 12 s, screenshots, quits. Needs the editor GUI (`-ExecCmds="py …"`) |
