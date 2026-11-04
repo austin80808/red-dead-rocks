@@ -351,11 +351,18 @@ def melt(now, pawn, world):
 
 
 def bowl_views(now, pawn, world):
-    """The amphitheatre: from the stage up the rows, from the top down to the stage, then under snow."""
-    if R.s.get("at") is None or now - R.s["at"] > 9.0:
-        if R.s.get("pending"):
-            _shot(world, R.s["pending"], ui=False)
-            R.s["pending"] = None
+    """The amphitheatre: from the stage up the rows, from the top down to the stage, then under snow.
+
+    A screenshot is taken at the end of the frame it is asked for, so the next
+    teleport waits 2 s after each shot.
+    """
+    at = R.s.get("at")
+    if R.s.get("pending") and now - at > 9.0:
+        _shot(world, R.s["pending"], ui=False)
+        R.s["pending"] = None
+        R.s["at"] = now
+        return False
+    if at is None or (not R.s.get("pending") and now - at > 2.0):
         if not R.s["views"]:
             weather = unreal.GameplayStatics.get_actor_of_class(world, unreal.RRWeather)
             if weather:
@@ -371,7 +378,7 @@ def bowl_views(now, pawn, world):
         R.s["pending"] = "bowl_%s%s" % (key, "_snow" if snow else "")
         R.s["at"] = now
         return False
-    if now - R.s["at"] > 6.0 and R.s.get("look"):
+    if R.s.get("look") and now - at > 6.0:
         dyaw, pitch = R.s["look"]
         pawn.script_look(pawn.get_actor_rotation().yaw + dyaw, pitch)
         R.s["look"] = None

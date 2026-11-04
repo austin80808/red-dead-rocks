@@ -159,6 +159,7 @@ def _snow_material(mat, mpc):
 
 
 FLAKE_PATH = MAT_DIR + "/M_Snowflake"
+FLAKE_NITS = 3500.0
 
 
 def _snowflake():
@@ -170,7 +171,9 @@ def _snowflake():
     mat.set_editor_property("shading_model", unreal.MaterialShadingModel.MSM_UNLIT)
     mat.set_editor_property("used_with_instanced_static_meshes", True)
     white = lib.create_material_expression(mat, unreal.MaterialExpressionConstant3Vector, -300, 0)
-    white.set_editor_property("constant", unreal.LinearColor(r=1.6, g=1.65, b=1.75, a=1.0))
+    # The level is physically exposed (EV100 11-14.2, configure_level.py), so an
+    # emissive of ~1 reads as black; daylight-white snow needs thousands.
+    white.set_editor_property("constant", unreal.LinearColor(r=FLAKE_NITS, g=FLAKE_NITS * 1.02, b=FLAKE_NITS * 1.06, a=1.0))
     lib.connect_material_property(white, "", unreal.MaterialProperty.MP_EMISSIVE_COLOR)
     lib.recompile_material(mat)
     unreal.EditorAssetLibrary.save_asset(FLAKE_PATH)

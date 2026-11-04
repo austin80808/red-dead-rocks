@@ -342,6 +342,19 @@ project), and everything below is placed from the map by `redrocks build`
 | **Sled when it snows** | Press N and it snows: flakes fall, the ground, benches, roads and trees whiten (every material reads `MPC_Weather`'s `Snow`), the sun dims and the fog closes in. Sleds on the sled hill (a 318 m run, 89 m drop, cleared of trees) only run well on snow. Carts drift on it. |
 | **Go places** | Number keys teleport: 1 stage, 2 top of the bowl, 3 the climb, 4 Creation Rock summit, 5 shopping carts, 6 sled hill, 7 the high ridge (2403 m, the longest wingsuit flight), 8 Morrison. H shows the controls, V swaps to a third-person camera, R respawns. |
 
+| Climb Creation Rock | Wingsuit off the summit |
+|---|---|
+| ![climb](docs/media/explore/climb.gif) | ![wingsuit](docs/media/explore/wingsuit.gif) |
+| **Shopping cart down Red Rocks Park Road** | **Sled when it snows** |
+| ![cart](docs/media/explore/cart.gif) | ![sled](docs/media/explore/sled.gif) |
+| **The amphitheatre, then N for snow** | **Morrison** |
+| ![amphitheatre](docs/media/explore/amphitheatre.gif) | ![Morrison](docs/media/explore/morrison.gif) |
+
+*All captured by `unreal/playtest_explore.py` (`FILM=1` for the motion frames). The
+clean run: climbed 49.9 m and pulled over the top, flew 353 m at up to 101 km/h and
+landed under the canopy, rode the cart 3,270 m into Morrison at up to 74 km/h, and
+sledded 259 m at up to 80 km/h.*
+
 The world is now 3.6 km across (it was 2.4 km), so downtown Morrison is in it:
 314 buildings, 315 roads, and about 100,000 plants.
 
