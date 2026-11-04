@@ -63,11 +63,13 @@ def test_sun_points_away_from_the_sun(lighting, azimuth, east, north):
     assert math.isclose(y / h, north, abs_tol=1e-9)
 
 
-def test_configured_sun_is_golden_hour_from_the_west(lighting):
+def test_configured_sun_is_low_and_behind_the_spawn(lighting):
+    """Morning sun in the east: the player spawns facing WSW up the bowl, so the
+    light must travel west (x < 0) to fall on what they see, not backlight it."""
     pitch, yaw = lighting.sun_rotation(lighting.SUN_AZIMUTH_DEG, lighting.SUN_ELEVATION_DEG)
     x, _, _ = _direction(pitch, yaw)
     assert 5.0 <= lighting.SUN_ELEVATION_DEG <= 30.0
-    assert x > 0  # light travels east: the sun is in the west
+    assert x < 0  # light travels west: the sun is in the east, behind the player
 
 
 INI = """[/Script/Engine.RendererSettings]
