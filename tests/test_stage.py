@@ -9,7 +9,7 @@ from redrocks.dem import Dem
 from redrocks.osm import OsmData, Way
 from redrocks.stage import (
     DIMENSIONS,
-    ROOF_TOP_ABOVE_DECK_M,
+    ROOF_GRID_ABOVE_DECK_M,
     STAGE_DEPTH_M,
     STAGE_DROP_M,
     STAGE_FRONT_SETBACK_M,
@@ -142,12 +142,33 @@ def test_stage_clear_of_first_bench(tmp_path):
     assert deck[:, 1].max() / 100 < rows[0].centre_north - SEAT_DEPTH_M / 2 - 1.0
 
 
-def test_roof_top_is_published_height_above_deck(tmp_path):
+def test_roof_sits_on_published_grid_height_above_deck(tmp_path):
     mesh, (verts, _, faces, _), rows = export(tmp_path)
     roof = part_verts(mesh, verts, faces, "roof")
     deck_top = (rows[0].elevation_m - BASE - STAGE_DROP_M) * 100
-    assert roof[:, 2].max() - deck_top == pytest.approx(ROOF_TOP_ABOVE_DECK_M * 100, abs=0.01)
-    assert ROOF_TOP_ABOVE_DECK_M == pytest.approx(12.24, abs=0.01)  # 40'2"
+    assert roof[:, 2].min() - deck_top == pytest.approx(ROOF_GRID_ABOVE_DECK_M * 100, abs=0.01)
+    assert roof[:, 2].max() - roof[:, 2].min() == pytest.approx(dim("roof_thickness") * 100, abs=0.01)
+    assert ROOF_GRID_ABOVE_DECK_M == pytest.approx(12.24, abs=0.01)  # 40'2"
+
+
+def test_roof_is_shorter_than_the_deck_and_starts_at_its_front(tmp_path):
+    mesh, (verts, _, faces, _), _ = export(tmp_path)
+    deck = part_verts(mesh, verts, faces, "deck")
+    roof = part_verts(mesh, verts, faces, "roof")
+    assert np.ptp(roof[:, 1]) == pytest.approx(dim("roof_depth") * 100, abs=0.1)
+    assert roof[:, 1].max() == pytest.approx(deck[:, 1].max(), abs=0.1)
+    assert np.ptp(roof[:, 0]) == pytest.approx(STAGE_WIDTH_M * 100, abs=0.1)
+    assert dim("roof_depth") < STAGE_DEPTH_M
+
+
+def test_columns_sit_under_the_roof(tmp_path):
+    mesh, (verts, _, faces, _), _ = export(tmp_path)
+    roof = part_verts(mesh, verts, faces, "roof")
+    for name in mesh.parts:
+        if name.startswith("column_"):
+            v = part_verts(mesh, verts, faces, name)
+            assert v[:, 1].min() > roof[:, 1].min()
+            assert v[:, 1].max() < roof[:, 1].max()
 
 
 def test_columns_span_deck_to_roof(tmp_path):
@@ -196,13 +217,28 @@ def test_every_dimension_has_a_source():
     names = [d.name for d in DIMENSIONS]
     assert len(names) == len(set(names))
     for d in DIMENSIONS:
-        assert d.kind in {"published", "derived", "estimate"}, d.name
+        assert d.kind in {"published", "derived", "measured", "estimate"}, d.name
         assert len(d.source) > 10, d.name
         assert d.value_m > 0, d.name
-    # Stage width/depth are not published anywhere we found; say so honestly.
-    assert next(d for d in DIMENSIONS if d.name == "stage_width").kind == "estimate"
+        if d.kind == "measured":
+            assert d.source.startswith("ml0w scan (CC BY 4.0), "), d.name
     assert dim("column_rear_station") == pytest.approx(62 * 0.3048)
     assert stage.dimensions_table().count("\n") == len(DIMENSIONS) + 1
+
+
+def test_scan_measured_dimensions():
+    kinds = {d.name: d.kind for d in DIMENSIONS}
+    for name in ("stage_width", "stage_depth", "roof_depth", "roof_thickness", "retaining_wall_height"):
+        assert kinds[name] == "measured", name
+    # Published figures stay published, and the scan's roof underside agrees with the grid height to 1%.
+    assert kinds["roof_grid_above_deck"] == "published"
+    assert dim("roof_grid_above_deck") == pytest.approx(12.33, rel=0.01)
+    # Things the scan could not fix stay honest estimates.
+    for name in ("column_size", "shell_wing_length", "walkway_width", "stage_front_setback"):
+        assert kinds[name] == "estimate", name
+    # The scan-sized stage still fits the bowl: deck deeper than the roof, wall behind it.
+    assert dim("roof_depth") < dim("stage_depth")
+    assert 20 < dim("stage_width") < 32 and 20 < dim("stage_depth") < 35
 
 
 def test_prism_supports_wedges_and_rejects_bad_input():
