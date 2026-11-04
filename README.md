@@ -48,7 +48,8 @@ to their average colour with distance instead of shimmering. Benches are
 weathered redwood planks on dusty concrete risers; the stage is concrete; roads,
 lots and paths are asphalt and gravel with dusty edges. A generated terrain skirt
 carries the hills out to the horizon (no more flat blue plane past the 2.4 km
-terrain), and about 5,000 juniper-sized scrub clumps dot the open hillsides.
+terrain), and about 45,000 procedural junipers, ponderosa pines and scrub oak /
+mountain mahogany cover the hillsides (see Vegetation).
 `configure_level.py` writes the render settings this needs into the project's
 `Config/DefaultEngine.ini` (restart the editor after the first rebuild).
 
@@ -80,6 +81,7 @@ Run:
 ```bash
 python3 -m venv .venv && .venv/bin/pip install -e .
 .venv/bin/redrocks build --out out
+.venv/bin/redrocks vegetation --out out   # trees and shrubs, reads out/'s terrain
 ```
 
 `redrocks build` writes everything above. `--terrain-grid` sets the terrain
@@ -274,6 +276,48 @@ gone, the rows sit on the scan's bowl, the top walkway on its plateau):
 | ![](docs/media/benches-on-scan/before_obl_top.jpg) | ![](docs/media/benches-on-scan/after_obl_top.jpg) |
 | ![](docs/media/benches-on-scan/before_spawn.jpg) | ![](docs/media/benches-on-scan/after_spawn.jpg) |
 
+## Vegetation
+
+The hillsides carry about 45,000 procedural plants: Rocky Mountain and one-seed
+juniper, ponderosa pine, Gambel (scrub) oak and mountain mahogany. Nothing is
+downloaded: `redrocks.vegetation` grows every model from a seed and paints its
+leaf textures with Pillow, and `redrocks vegetation --out out` writes them to
+`out/vegetation/` with `vegetation.json`, the list of instances.
+
+| Species | Model | Instances scale to | Looks like |
+|---|---|---|---|
+| Rocky Mountain juniper | `JuniperRM_0..2`, 5.0 m | 3-6 m | one gnarly trunk, dense irregular conical crown, blue-green |
+| One-seed juniper | `JuniperOS_0..2`, 3.6 m | 2-4.5 m | 2-4 stems from the base, broad rounded crown to the ground |
+| Ponderosa pine | `Ponderosa_0..3`, 18 m | 10-24 m | orange plated trunk clear for half its height, upturned branches, needle tufts |
+| Gambel oak | `Oak_0..2`, 1.6 m | 1-2 m | many thin stems, dense leafy dome, in clonal thickets |
+| Mountain mahogany | `Mahogany_0..2`, 1.9 m | 1.1-2 m | fewer stems, open grey-green, feathery seed plumes |
+
+Each model is three OBJs (cm, with UVs and normals on every face):
+**Trunk** (closed tapered tubes, watertight; the only part with collision, and
+only on trees), **Crown** (a lumpy core per foliage clump that gives the canopy
+mass at distance) and **Leaves** (crossed cards into a 2x2 atlas per species,
+their normals bent out from the crown so it shades as a volume).
+`unreal/setup_vegetation.py` imports them with Nanite (no hand-made LODs), builds
+`M_Veg_Bark` (world-space plates and fissures), `M_Veg_Leaves` (masked,
+two-sided, Two Sided Foliage) and `M_Veg_Crown`, and fills one instanced-mesh
+component per model part on a `Vegetation` actor.
+
+**Where they grow** (`redrocks.vegetation.place`, seeded, so every rebuild is
+the same): candidates every 6.5 m, kept in thickets by noise with open meadows
+between; ponderosa on the upper slopes and north-facing ground, junipers on the
+open rocky slopes, oak and mahogany lower down and on gentler ground. Nothing
+grows on cliffs (steeper than 33 degrees for shrubs, 37 for pines, 40 for junipers), in the scanned bowl, or on
+roads, paths, parking, benches and the stage (the masks the old scrub used).
+
+| Before (sphere-clump scrub) | After |
+|---|---|
+| ![](docs/media/vegetation/before_hillside.jpg) | ![](docs/media/vegetation/after_hillside.jpg) |
+| ![](docs/media/vegetation/before_aerial.jpg) | ![](docs/media/vegetation/after_aerial.jpg) |
+| ![](docs/media/vegetation/before_bowl_top.jpg) | ![](docs/media/vegetation/after_bowl_top.jpg) |
+
+Regenerate the shots with `unreal/shoot_vegetation.py` (needs the editor GUI;
+it also runs `ProfileGPU` at each view and logs the frame rate).
+
 ## Play it
 
 ![Play In Editor: spawn on the stage, walk up the bowl, then look east, north, west and south](docs/media/redrocks_play_tour.gif)
@@ -282,7 +326,7 @@ gone, the rows sit on the scan's bowl, the top walkway on its plateau):
 
 ![Aerial: the bowl between Creation Rock and Ship Rock with the ml0w scan in place, then the scan on its own](docs/media/redrocks_aerial_scan.gif)
 
-*From above: the ml0w scan's Ship Rock and Creation Rock blended into the generated terrain, with scrub, roads and parking. Regenerate both with `tools/make_play_gifs.sh` after a play-test.*
+*From above: the ml0w scan's Ship Rock and Creation Rock blended into the generated terrain, with vegetation, roads and parking. Regenerate both with `tools/make_play_gifs.sh` after a play-test.*
 
 Open the project, make sure `Lvl_RedRocks` is the open level, and press **Play** (green ▶).
 You spawn on the stage deck facing up the bowl, with the credits beside you.
@@ -325,7 +369,7 @@ PROJ="$HOME/Documents/Unreal Projects/RedRocks/RedRocks.uproject"
 ```
 
 **To rebuild the whole level, run one script.** `rebuild_level.py` runs the
-nine steps below in order (`import_redrocks.py` through `setup_credits.py`), clears
+ten steps below in order (`import_redrocks.py` through `setup_credits.py`), clears
 each step's old log first, stops at the first `ERROR`/`ABORT`/`FAIL` line in its
 `/tmp/redrocks_*.log` (or a missing log), and prints a summary of step, status,
 duration and log path (also saved to `/tmp/redrocks_rebuild.log`):
@@ -340,18 +384,20 @@ a time, in this order; each writes a log to `/tmp/redrocks_*.log`:
 
 | Script | Does |
 |---|---|
-| `rebuild_level.py` | **entry point:** runs the eight scripts below in order, stops at the first failure |
+| `rebuild_level.py` | **entry point:** runs the ten scripts below in order, stops at the first failure |
 | `import_redrocks.py` | imports the terrain, rocks and benches OBJs to `/Game/RedRocks` and places them in `Lvl_RedRocks`. **Clears every actor in the level first.** |
 | `setup_lighting.py` | low morning sun (120 klx, ENE, 24° up, behind the spawn), sky atmosphere, real-time sky light, height fog, volumetric clouds, PlayerStart. Replaces the rig on every run |
 | `configure_level.py` | writes Lumen / distance fields / VSM / eye adaptation / TSR into `Config/DefaultEngine.ini` `[SystemSettings]`; post-process volume with Lumen, auto exposure (EV100 11-14.2) and a light grade; framing camera |
 | `fix_camera.py` | lifts the camera above the 645 m ridge, removes test actors |
-| `setup_materials.py` | procedural materials: `M_Sandstone` (30° strata that fade with distance, soil, grass, slope rock) with rock and ground instances; `M_Benches` (redwood planks, concrete risers); `M_Concrete`, `M_Asphalt`, `M_Lot`, `M_Gravel`, `M_Scrub` |
-| `setup_environment.py` | terrain skirt from the DEM edge out to 120 km so the world has a horizon; ~5,000 scrub clumps as one instanced mesh, off rock, roads and the scan |
+| `setup_materials.py` | procedural materials: `M_Sandstone` (30° strata that fade with distance, soil, grass, slope rock) with rock and ground instances; `M_Benches` (redwood planks, concrete risers); `M_Concrete`, `M_Asphalt`, `M_Lot`, `M_Gravel` |
+| `setup_environment.py` | terrain skirt from the DEM edge out to 120 km so the world has a horizon |
+| `setup_vegetation.py` | imports `out/vegetation/` (from `redrocks vegetation`): leaf atlases, bark/leaf/crown materials, 16 Nanite tree and shrub models, and every instance into one `Vegetation` actor; tree trunks block, canopies and shrubs don't |
 | `import_scan.py` | imports the ml0w scan with Nanite and credits it; its material fades the scan out at its edge (see Scan edge blend); run after `import_redrocks.py` |
 | `setup_gameplay.py` | imports Stage, Roads, Paths, Parking; complex collision on every walkable mesh and on the scan (the hidden extruded rocks get none); PlayerStart on the stage deck facing up the bowl; FirstPerson game mode; in-world credits. Runs last |
 | `setup_credits.py` | the press-**C** credits screen: input action `IA_Credits` (C, in `IMC_Default`), Widget Blueprint `WBP_Credits`, Actor Blueprint `BP_CreditsMenu` placed in the level. Text from `assets/*/ATTRIBUTION.md` and the manifest. Runs after `setup_gameplay.py` |
 | `verify_walkable.py` | headless checks: game mode, one PlayerStart, triangle counts kept, credits present; renders the spawn and bowl views |
 | `playtest.py` | **the real test:** launches Play In Editor, lets the player land, walks and jumps up the bowl for 12 s, screenshots, quits. Needs the editor GUI (`-ExecCmds="py …"`) |
+| `shoot_vegetation.py` | Play In Editor, flies to the bowl-top, hillside (a juniper and a pine) and aerial views, screenshots each and logs FPS. Needs the editor GUI |
 | `playtest_credits.py` | Play In Editor, checks the hint, presses C (open), C (close), screenshots each (`Shot showui`), quits. Needs the editor GUI |
 | `render_preview.py` | renders the level to `Saved/redrocks_preview.png` |
 | `diagnose.py` | lists actors, mesh triangle counts and the startup map |
@@ -527,8 +573,8 @@ Cache on local disk, sync the source and built packages to MEGA.
 1. Run `import_redrocks.py` (benches) and `import_scan.py` in the level, then
    tune the scan's placement constants by eye and decide whether it replaces the
    extruded monoliths visually, with the monoliths kept as collision.
-2. Real trees and boulders (Poly Haven ponderosa/juniper, `assets/rocks`) in
-   place of the sphere-clump scrub.
+2. Boulders from `assets/rocks` on the hillsides (the trees are done: see
+   Vegetation).
 3. Import `Stage.obj` (see Stage blockout), then replace the blockout with detail.
    The stage and shell are not in any free dataset.
 4. First-person traversal pass, then multiplayer.

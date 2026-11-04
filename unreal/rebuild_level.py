@@ -7,7 +7,8 @@ Runs, in order, in this one Unreal Python interpreter:
     configure_level.py
     fix_camera.py
     setup_materials.py
-    setup_environment.py (terrain skirt to the horizon, scrub)
+    setup_environment.py (terrain skirt to the horizon)
+    setup_vegetation.py  (junipers, ponderosa and scrub from out/vegetation)
     import_scan.py
     setup_gameplay.py    (stage/park meshes, collision, player start, credits)
     setup_credits.py     (press-C credits overlay: input action, widget, actor)
@@ -61,6 +62,7 @@ STEPS = [
     ("fix_camera.py", _log("camera")),
     ("setup_materials.py", _log("materials")),
     ("setup_environment.py", _log("environment")),
+    ("setup_vegetation.py", _log("vegetation")),
     ("import_scan.py", _log("scan")),
     ("setup_gameplay.py", _log("gameplay")),
     ("setup_credits.py", _log("credits")),
