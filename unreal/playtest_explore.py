@@ -169,7 +169,8 @@ def _start_scenario(pawn, world, name):
             weather.set_night(True)
         R.s["views"] = [("bowl_top", 0.0, -12.0, True), ("stage", 0.0, 10.0, True)]
         R.s["prefix"] = "night"
-        R.steps = [("views", bowl_views), ("day", day_again)]
+        # Lumen's cached lighting takes 10-20 s to let go of the daylight.
+        R.steps = [("dark", R.wait(18.0)), ("views", bowl_views), ("day", day_again)]
     elif name == "bowl":
         R.s["views"] = [("stage", 0.0, 4.0, False), ("bowl_top", 0.0, -14.0, False), ("bowl_top", 0.0, -14.0, True)]
         R.steps = [("views", bowl_views)]
@@ -320,6 +321,17 @@ def ride_step(now, pawn, world):
         R.s["noted"].add(int(now - R.mark))
         note("t=%3ds x=%.0f y=%.0f z=%.0f %.0f km/h, %.0f m along, target %d/%d" % (
             now - R.mark, loc.x, loc.y, loc.z, speed, R.s["dist"], R.s["idx"], len(R.s["route"])))
+    if R.s["name"] == "tubing" and int(now - R.mark) % 20 == 0 and int(now - R.mark) not in R.s.setdefault("buried", set()):
+        R.s["buried"].add(int(now - R.mark))
+        top = unreal.Vector(loc.x, loc.y, loc.z + 5000.0)
+        hit = unreal.SystemLibrary.line_trace_single(world, top, unreal.Vector(loc.x, loc.y, loc.z - 5000.0),
+                                                     unreal.TraceTypeQuery.TRACE_TYPE_QUERY1, True, [pawn, ride],
+                                                     unreal.DrawDebugTrace.NONE, True)
+        t = hit.to_tuple() if hit is not None else ()
+        if t and t[0]:
+            what = next((v for v in t if isinstance(v, unreal.Actor)), None)
+            note("tube z=%.0f, first surface above it: %s at z=%.0f (%+.0f cm)" % (
+                loc.z, what.get_actor_label() if what else "?", t[4].z, t[4].z - loc.z))
     for at, name in ((6.0, "%s_start" % R.s["name"]), (40.0, "%s_mid" % R.s["name"])):
         if now - R.mark > at and name not in R.s.setdefault("shots", set()):
             R.s["shots"].add(name)

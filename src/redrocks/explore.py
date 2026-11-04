@@ -404,9 +404,15 @@ CREEK_EDGE_MARGIN_M = 40.0
 WATER_LIFT_M = 0.35
 
 
-def creek_route(osm: OsmData, to_xy, elevation, half_extent: float, name: str = CREEK_NAME) -> Route:
+def creek_route(osm: OsmData, to_xy, elevation, half_extent: float, name: str = CREEK_NAME,
+                level: str = "cover") -> Route:
     """The longest stretch of the named waterway inside the world, downstream order,
-    resampled every CREEK_STEP_M with a water level that never runs uphill."""
+    resampled every CREEK_STEP_M with a water level that never runs uphill.
+
+    ``level="cover"`` (the water): the highest ground at or below each point, so
+    the surface is never under the terrain mesh and never climbs.
+    ``level="floor"`` (the bed to carve): the lowest ground at or above it, so
+    every bump in the channel gets cut down to it."""
     best: list[tuple[float, float]] = []
     lim = half_extent - CREEK_EDGE_MARGIN_M
     for way in osm.ways:
@@ -431,12 +437,21 @@ def creek_route(osm: OsmData, to_xy, elevation, half_extent: float, name: str = 
     if elevation(*best[0]) < elevation(*best[-1]):
         best = best[::-1]
     fine = densify(Route([(x, y, 0.0) for x, y in best]), CREEK_STEP_M)
-    level = math.inf
-    pts = []
-    for x, y, _ in fine.points:
-        level = min(level, elevation(x, y))
-        pts.append((x, y, level))
-    return Route(pts)
+    ground = [elevation(x, y) for x, y, _ in fine.points]
+    if level == "floor":
+        acc = math.inf
+        zs = []
+        for g in ground:
+            acc = min(acc, g)
+            zs.append(acc)
+    else:
+        acc = -math.inf
+        zs = []
+        for g in reversed(ground):
+            acc = max(acc, g)
+            zs.append(acc)
+        zs.reverse()
+    return Route([(p[0], p[1], z) for p, z in zip(fine.points, zs)])
 
 
 def export_water_obj(route: Route, base_m: float, path, width_m: float = CREEK_WIDTH_M) -> int:

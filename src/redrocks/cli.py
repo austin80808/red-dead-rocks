@@ -93,7 +93,7 @@ def build(args: argparse.Namespace) -> int:
     walkable = TerrainSurface(ground_dem, grid)
     # Cut Bear Creek's bed into the ground so its water shows the whole way.
     frame = ParkSurface(ground_dem, grid)
-    creek = creek_route(osm, frame.to_xy, walkable, frame.half_x)
+    creek = creek_route(osm, frame.to_xy, walkable, frame.half_x, level="floor")
     if len(creek.points) > 1:
         carved = carve_creek(ground_dem, creek, frame.half_x, frame.half_y, floor_m=base)
         if abs(terrain_base_elevation(carved, grid=grid) - base) < 1e-3:

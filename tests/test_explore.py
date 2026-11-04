@@ -181,3 +181,13 @@ def test_carve_creek_cuts_a_bed_and_keeps_the_datum():
     assert carved.data[50, 5] == 1800.0 or carved.data[50, 5] >= carved.data[50, 50]
     assert carved.data[10, 50] == 1800.0  # 40 m off the creek: untouched
     assert carved.data.min() == 1700.0
+
+
+def test_creek_water_covers_the_ground_and_floor_cuts_it():
+    cover = explore.creek_route(_creek_osm(), _xy, _valley, half_extent=1000.0)
+    floor = explore.creek_route(_creek_osm(), _xy, _valley, half_extent=1000.0, level="floor")
+    for (x, y, zc), (_, _, zf) in zip(cover.points, floor.points):
+        assert zc >= _valley(x, y) - 1e-9  # water never under the ground
+        assert zf <= _valley(x, y) + 1e-9  # the bed is cut to or below it
+    for r in (cover, floor):
+        assert all(b[2] <= a[2] + 1e-9 for a, b in zip(r.points, r.points[1:]))
