@@ -1,0 +1,13 @@
+{
+  "about": "ml0w scan opacity in plan view, written by tools/scan_heights.py; u = (X - x0_cm) / width_cm, v = (y1_cm - Y) / height_cm in level cm (X east, Y north)",
+  "x0_cm": -29600.0,
+  "y1_cm": 30600.0,
+  "width_cm": 50800.0,
+  "height_cm": 51800.0,
+  "texels": [
+    254,
+    259
+  ],
+  "fade_m": 30.0,
+  "close_m": 6.0
+}
