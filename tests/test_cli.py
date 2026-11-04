@@ -53,7 +53,7 @@ def test_build_prints_terrain_summary(offline, tmp_path, capsys):
     assert "terrain  9x9" in capsys.readouterr().out
 
 
-def test_default_terrain_grid_is_377(monkeypatch):
+def test_default_terrain_grid_is_563(monkeypatch):
     captured = {}
 
     def fake_build(args):
@@ -62,7 +62,7 @@ def test_default_terrain_grid_is_377(monkeypatch):
 
     monkeypatch.setattr(cli, "build", fake_build)
     assert cli.main(["build"]) == 0
-    assert captured["grid"] == 377
+    assert captured["grid"] == 563
 
 
 def test_terrain_grid_zero_skips_mesh(offline, tmp_path):

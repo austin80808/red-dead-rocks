@@ -12,6 +12,8 @@ Runs, in order, in this one Unreal Python interpreter:
     import_scan.py
     setup_gameplay.py    (stage/park meshes, collision, player start, credits)
     setup_credits.py     (press-C credits overlay: input action, widget, actor)
+    setup_snow.py        (MPC_Weather; every material whitens with its Snow)
+    setup_explore.py     (carts, sleds, snow, teleport spots, RRGameMode)
 
 and stops at the first step whose /tmp/redrocks_*.log reports a failure, then
 prints a one-screen summary (step, status, duration, log path).
@@ -66,6 +68,8 @@ STEPS = [
     ("import_scan.py", _log("scan")),
     ("setup_gameplay.py", _log("gameplay")),
     ("setup_credits.py", _log("credits")),
+    ("setup_snow.py", _log("snow")),
+    ("setup_explore.py", _log("explore")),
 ]
 
 SUMMARY_LOG = _log("rebuild")
