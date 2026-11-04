@@ -22,6 +22,19 @@ terrain mesh, Creation Rock and Ship Rock at their real positions, a sun, sky
 atmosphere, sky light, height fog, a PlayerStart and a framing camera. It is the
 editor startup map and the game default map.
 
+The Unreal project is versioned separately in
+[red-dead-rocks-unreal](https://github.com/austin80808/red-dead-rocks-unreal)
+(private, assets in Git LFS). After a rebuild that you want to keep, commit
+there:
+
+```bash
+cd "$HOME/Documents/Unreal Projects/RedRocks"
+git add -A && git commit -m "Rebuild: <what changed>" && git push
+```
+
+To roll the level back, `git checkout <commit> -- Content/` with the editor
+closed.
+
 The sandstone material is applied to the terrain and both rocks. Written but not
 yet run in the level: the bench import and the ml0w scan import (see the script
 table). Not done: the stage, tuning the material (the ground reads pale and the
