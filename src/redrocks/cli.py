@@ -12,6 +12,7 @@ from .benches import export_benches_obj, row_polylines, terrain_base_elevation
 from .landscape import export_landscape
 from .monoliths import build_monoliths, monolith_to_obj
 from .osm import fetch_osm
+from .spawn import player_spawn
 from .stage import DIMENSIONS, export_stage_obj
 from .park import export_park
 from .terrain_mesh import TerrainSurface, export_terrain_obj, summary as terrain_summary
@@ -74,6 +75,7 @@ def build(args: argparse.Namespace) -> int:
 
     benches = None
     stage = None
+    spawn = None
     if venue is not None:
         print("\nbuilding benches ...")
         # Benches share the terrain mesh's Z datum, so use the same grid it was
@@ -90,6 +92,15 @@ def build(args: argparse.Namespace) -> int:
         print("\nblocking out the stage ...")
         stage = export_stage_obj(venue.rows, lines, out_dir / "Stage.obj", base)
         print(f"  {len(stage.parts)} parts, {stage.triangles} triangles -> {stage.path.name}")
+
+        spawn = player_spawn(
+            stage.front_edge_east, stage.front_edge_north, stage.axis,
+            stage.deck_top_elevation_m, TerrainSurface(dem, grid),
+        )
+        print(
+            f"  player spawn E{spawn.east_m:.1f} N{spawn.north_m:.1f} on {spawn.ground_m:.2f} m "
+            f"(deck {spawn.deck_top_m:.2f}, terrain {spawn.terrain_m:.2f}), yaw {spawn.yaw_deg:.1f}"
+        )
 
     print("\nextruding monoliths ...")
     monoliths = build_monoliths(osm, dem, projection, RED_ROCKS_LAT, RED_ROCKS_LON)
@@ -165,6 +176,15 @@ def build(args: argparse.Namespace) -> int:
             "benches": benches.benches,
             "triangles": benches.triangles,
             "base_elevation_m": round(benches.base_elevation_m, 3),
+        }
+    if spawn is not None:
+        manifest["spawn"] = {
+            "east_m": round(spawn.east_m, 3),
+            "north_m": round(spawn.north_m, 3),
+            "ground_elevation_m": round(spawn.ground_m, 3),
+            "deck_top_elevation_m": round(spawn.deck_top_m, 3),
+            "terrain_elevation_m": round(spawn.terrain_m, 3),
+            "yaw_deg": round(spawn.yaw_deg, 3),
         }
     if stage is not None:
         manifest["stage"] = {

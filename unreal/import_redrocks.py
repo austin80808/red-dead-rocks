@@ -114,6 +114,8 @@ def main():
             return
 
         actor.static_mesh_component.set_static_mesh(mesh)
+        # The OBJ importer negates Y; scale -1 restores north (see README gotchas).
+        actor.set_actor_scale3d(unreal.Vector(1.0, -1.0, 1.0))
         actor.set_actor_label(asset_name)
         actor.set_mobility(unreal.ComponentMobility.STATIC)
         log.append("placed %s at %s" % (asset_name, location))
