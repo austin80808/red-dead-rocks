@@ -37,7 +37,7 @@ closed.
 
 The sandstone material is applied to the terrain and both rocks. Written but not
 yet run in the level: the bench import and the ml0w scan import (see the script
-table). Not done: the stage, tuning the material (the ground reads pale and the
+table). Stage blockout generated (not yet imported). Not done: tuning the material (the ground reads pale and the
 fine bands shimmer at distance).
 
 ## What it produces
@@ -49,6 +49,7 @@ out/
   Creation_Rock.obj        north monolith, 91.4 m, watertight
   Ship_Rock.obj            south monolith, 61.0 m, watertight
   Benches.obj              68 bench rows, 816 triangles, terrain frame
+  Stage.obj                stage blockout, 13 parts, 148 triangles, terrain frame
   manifest.json            Z scale, bbox, origin, venue, monoliths, attribution
 ```
 
@@ -119,6 +120,38 @@ The 30° westward strata dip is **not** applied as a geometric shear. The
 monoliths are vertical columns; the dip is a property of the bedding and belongs
 in the material as diagonal banding. Shearing the mesh would fake a lean that
 does not exist.
+
+### Stage blockout
+
+`Stage.obj` is a blockout, not a model: boxes and wedges (vertical prisms with a
+convex plan) for the stage deck, roof, four columns, the shell (back wall and
+two splayed wings), the retaining wall behind the stage with a triangular return
+at each end, and the walkway along the top of the bowl. It is one watertight
+`Stage` object in the terrain's frame (cm, X east, Y north, Z up, terrain
+minimum at Z = 0), counter-clockwise outward, with a UV on every face, so it
+needs no transform in Unreal. `manifest.json` records the triangle range of each
+part and every dimension with its source.
+
+It is positioned from the data, not by hand. The stage axis runs from row 1's
+centre to the last row's centre. The deck top is row 1's DEM elevation minus the
+stage drop, its front edge sits 3 m downhill of row 1, and it extends away from
+the audience. The walkway runs along the last row's chord at that row's
+elevation. On the real build the deck top lands within about 1 m of the terrain
+there.
+
+**Only two figures are published; everything else is a rough estimate.** No
+source found gives the stage width or depth, so those are estimates, flagged as
+such in `redrocks.stage.DIMENSIONS` (`kind` is `published`, `derived` or
+`estimate`). Replace them if a tech pack or survey turns up.
+
+| Dimension | Value | Kind | Source |
+|---|---|---|---|
+| Roof top above deck | 12.24 m (40'2") | published | SkyDeck grid height, [IA Stage](https://www.iastage.com/red-rocks-amphitheater/) |
+| Truss 1 / truss 3 behind downstage edge | 3.66 m / 18.90 m | published / derived | 12 ft, then 25 ft apart, [IA Stage](https://www.iastage.com/red-rocks-amphitheater/) |
+| Columns | 4 | published | reduced from twelve, [Structure magazine](https://www.structuremag.org/article/new-stage-roof-rocks-iconic-venue/) |
+| Deck top | row 1 elevation minus 1.2 m | derived + estimate | OSM footprint and DEM via `venue.py`; the 1.2 m drop is an estimate |
+| Stage width × depth | 24.4 × 21.3 m | estimate | not published; depth is the 62 ft truss span plus ~8 ft |
+| Shell, retaining wall, walkway sizes | see `stage.py` | estimate | not measured |
 
 ## Importing into Unreal
 
@@ -267,8 +300,8 @@ Cache on local disk, sync the source and built packages to MEGA.
    extruded monoliths visually, with the monoliths kept as collision.
 2. Tune `MI_Sandstone_Ground`: less exposure, thicker bands.
 3. Curve the benches: have the slicer produce arcs instead of straight chords.
-4. Stage shell, roof, and retaining walls. None of these exist in any free
-   dataset.
+4. Import `Stage.obj` (see Stage blockout), then replace the blockout with detail.
+   The stage and shell are not in any free dataset.
 5. First-person traversal pass, then multiplayer.
 
 For a *fantasy replication* rather than a survey-accurate twin, the monoliths,
@@ -278,13 +311,13 @@ work, and no amount of geodata substitutes for them.
 ## Tests
 
 ```bash
-.venv/bin/python -m pytest tests -q   # 121 passed
+.venv/bin/python -m pytest tests -q   # 142 passed
 ```
 
 Covers the projection (round-trip, axis orientation, distance accuracy), DEM
 sampling and interpolation, the Unreal Z scale formula, heightmap encoding, OSM
 parsing and feature classification, the seating bowl, monolith geometry, the OBJ
-exports (terrain grid, benches, winding, and a valid UV on every face), and the
+exports (terrain grid, benches, stage blockout, winding, and a valid UV on every face), and the
 CLI build. No network in tests.
 
 The `unreal/` scripts are only checked offline: they must parse, and none may
