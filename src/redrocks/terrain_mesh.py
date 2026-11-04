@@ -60,6 +60,47 @@ def resample_to_grid(dem: Dem, grid: int) -> np.ndarray:
     return top * (1 - ty) + bottom * ty
 
 
+class TerrainSurface:
+    """The exported terrain mesh as a function: ``surface(east, north)`` -> metres.
+
+    Reproduces ``export_terrain_obj`` exactly, including its triangulation (each
+    cell is split along the diagonal from its north-west to its south-east
+    corner), so anything placed at ``surface(e, n)`` sits on the mesh as
+    imported rather than on the finer DEM. Queries outside the extent clamp to
+    the edge. Heights are absolute elevations, not mesh Z.
+    """
+
+    def __init__(self, dem: Dem, grid: int = DEFAULT_GRID) -> None:
+        if grid < 2:
+            raise ValueError("grid must be at least 2 to form any triangles")
+        self.heights = resample_to_grid(dem, grid)
+        lat, _ = dem.bbox.centre
+        m_per_deg_lon, m_per_deg_lat = metres_per_degree(lat)
+        self.half_x = dem.bbox.width_deg * m_per_deg_lon / 2.0
+        self.half_y = dem.bbox.height_deg * m_per_deg_lat / 2.0
+        self.grid = grid
+
+    @property
+    def base_elevation_m(self) -> float:
+        """Elevation of mesh Z = 0 (the lowest vertex)."""
+        return float(np.nanmin(self.heights))
+
+    def __call__(self, east: float, north: float) -> float:
+        n = self.grid
+        fc = (east + self.half_x) / (2.0 * self.half_x) * (n - 1)
+        fr = (self.half_y - north) / (2.0 * self.half_y) * (n - 1)
+        fc = min(max(fc, 0.0), n - 1.0)
+        fr = min(max(fr, 0.0), n - 1.0)
+        c = min(int(fc), n - 2)
+        r = min(int(fr), n - 2)
+        u, v = fc - c, fr - r  # u east, v south, within the cell
+        h = self.heights
+        a, b, d, e = h[r, c], h[r, c + 1], h[r + 1, c], h[r + 1, c + 1]
+        if v >= u:  # triangle a, d, e
+            return float(a + (d - a) * v + (e - d) * u)
+        return float(a + (b - a) * u + (e - b) * v)  # triangle a, e, b
+
+
 def export_terrain_obj(dem: Dem, out_path: Path, grid: int = DEFAULT_GRID) -> TerrainMesh:
     """Write the DEM as an OBJ terrain mesh centred on the origin.
 
