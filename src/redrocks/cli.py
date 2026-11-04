@@ -6,15 +6,20 @@ import argparse
 import json
 from pathlib import Path
 
+import numpy as np
+
 from .dem import BBox, fetch_dem, square_bbox
 from .geo import LocalProjection
-from .benches import export_benches_obj, row_polylines, terrain_base_elevation
+from .benches import SEAT_DEPTH_M, export_benches_obj, row_polylines, terrain_base_elevation
 from .landscape import export_landscape
 from .monoliths import build_monoliths, monolith_to_obj
 from .osm import fetch_osm
 from .spawn import player_spawn
-from .stage import DIMENSIONS, export_stage_obj
+from .stage import DIMENSIONS, export_stage_obj, stage_parts
 from .park import export_park
+from .scan_blend import (
+    FADE_M, FALLOFF_M, KEEP_OUT_M, KEEP_OUT_TAPER_M, MARGIN_M, ScanHeights, blend_summary, conform_dem,
+)
 from .terrain_mesh import TerrainSurface, export_terrain_obj, summary as terrain_summary
 from .venue import build_venue, summary as venue_summary
 
@@ -24,6 +29,9 @@ RED_ROCKS_LON = -105.20550
 
 # The park plus the surrounding hogback, so the venue sits in its real bowl.
 DEFAULT_SIDE_M = 2400.0
+
+# The ml0w scan's height raster (tools/scan_heights.py), relative to the checkout.
+DEFAULT_SCAN_HEIGHTS = Path("assets") / "scan" / "scan_heights.npz"
 
 
 def build(args: argparse.Namespace) -> int:
@@ -40,14 +48,6 @@ def build(args: argparse.Namespace) -> int:
     print("exporting landscape heightmap ...")
     landscape = export_landscape(dem, out_dir / "redrocks_heightmap.png", size=args.landscape_size)
     print(landscape.summary())
-
-    terrain = None
-    if args.terrain_grid:
-        print("exporting terrain mesh ...")
-        terrain = export_terrain_obj(dem, out_dir / "RedRocks_Terrain.obj", grid=args.terrain_grid)
-        print(terrain_summary(terrain))
-    else:
-        print("skipping terrain mesh (--terrain-grid 0)")
 
     print("fetching OSM ...")
     osm = fetch_osm(bbox)
@@ -73,16 +73,30 @@ def build(args: argparse.Namespace) -> int:
         )
         print(venue_summary(venue))
 
+    # Benches, stage and park share the terrain mesh's Z datum, so use the same
+    # grid it was resampled at; a different grid shifts the minimum elevation.
+    grid = args.terrain_grid or 377
+    base = terrain_base_elevation(dem, grid=grid)
+    lines = row_polylines(venue, osm.way_coords(venue_way), projection) if venue is not None else None
+
+    # Issue #17: pull the terrain onto the ml0w scan where the scan covers it.
+    # The bowl and stage keep the DEM (their meshes are built against it), and
+    # the monoliths and landscape heightmap stay on the DEM too.
+    ground_dem, scan_blend = _scan_blended_dem(args, dem, venue, lines, base, grid)
+
+    terrain = None
+    if args.terrain_grid:
+        print("\nexporting terrain mesh ...")
+        terrain = export_terrain_obj(ground_dem, out_dir / "RedRocks_Terrain.obj", grid=args.terrain_grid)
+        print(terrain_summary(terrain))
+    else:
+        print("skipping terrain mesh (--terrain-grid 0)")
+
     benches = None
     stage = None
     spawn = None
     if venue is not None:
         print("\nbuilding benches ...")
-        # Benches share the terrain mesh's Z datum, so use the same grid it was
-        # resampled at; a different grid shifts the minimum elevation.
-        grid = args.terrain_grid or 377
-        base = terrain_base_elevation(dem, grid=grid)
-        lines = row_polylines(venue, osm.way_coords(venue_way), projection)
         # Sit each bench on the terrain mesh as exported, not the finer DEM.
         benches = export_benches_obj(
             venue.rows, lines, out_dir / "Benches.obj", base, ground=TerrainSurface(dem, grid)
@@ -112,7 +126,7 @@ def build(args: argparse.Namespace) -> int:
         print(f"  -> {obj_path.name}")
 
     print("\nbuilding roads, paths and parking ...")
-    park = export_park(osm, dem, out_dir, grid=args.terrain_grid or 377)
+    park = export_park(osm, ground_dem, out_dir, grid=grid)
     for mesh in park.values():
         print(f"  {mesh.features} {mesh.name.lower()}, {mesh.triangles:,} triangles -> {mesh.path.name}")
 
@@ -164,6 +178,8 @@ def build(args: argparse.Namespace) -> int:
             "min_elevation_m": round(terrain.min_elevation_m, 3),
             "max_elevation_m": round(terrain.max_elevation_m, 3),
         }
+    if scan_blend is not None:
+        manifest["scan_blend"] = scan_blend
     if venue is not None:
         manifest["venue"] = {
             "rows": len(venue.rows),
@@ -219,6 +235,44 @@ def build(args: argparse.Namespace) -> int:
     return 0
 
 
+def _venue_keep_out(venue, lines, base: float, grid: int, dem):
+    """Footprint of every bench row and stage blockout part, local metres."""
+    import shapely
+    from shapely.geometry import LineString, Polygon
+
+    shapes = [LineString(np.asarray(line, float)).buffer(SEAT_DEPTH_M) for line in lines if len(line) > 1]
+    shapes += [Polygon(part.plan) for part in stage_parts(venue.rows, lines, base, TerrainSurface(dem, grid))]
+    return shapely.union_all(shapes)
+
+
+def _scan_blended_dem(args, dem, venue, lines, base: float, grid: int):
+    """(dem for the terrain and park, manifest block or None)."""
+    path = getattr(args, "scan_heights", None)
+    if not path or not Path(path).is_file():
+        print(f"\nno scan heights at {path}; terrain stays on the DEM (tools/scan_heights.py writes them)")
+        return dem, None
+    print(f"\nblending the terrain into the ml0w scan ({path}) ...")
+    scan = ScanHeights.load(Path(path))
+    keep_out = _venue_keep_out(venue, lines, base, grid, dem) if venue is not None else None
+    blended = conform_dem(dem, scan, grid=grid, keep_out=keep_out)
+    # The Z datum of every OBJ is the 377-grid minimum; the blend must not move it.
+    if abs(terrain_base_elevation(blended, grid=grid) - base) > 1e-3:
+        raise RuntimeError("scan blend moved the terrain minimum; the OBJs would disagree on Z")
+    info = {
+        "scan_heights": Path(path).name,
+        "margin_m": MARGIN_M,
+        "falloff_m": FALLOFF_M,
+        "fade_m": FADE_M,
+        "keep_out": "benches and stage" if keep_out is not None else None,
+        "keep_out_m": KEEP_OUT_M,
+        "keep_out_taper_m": KEEP_OUT_TAPER_M,
+        **blend_summary(dem, blended),
+    }
+    print(f"  changed {info['changed_area_m2']:,.0f} m^2; " + ", ".join(
+        f"{k} {v}" for k, v in info.items() if k.startswith(("raised", "lowered", "delta"))))
+    return blended, info
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="redrocks", description=__doc__)
     sub = parser.add_subparsers(dest="command", required=True)
@@ -233,6 +287,12 @@ def main(argv: list[str] | None = None) -> int:
         type=int,
         default=377,
         help="terrain mesh vertices per side (0 skips RedRocks_Terrain.obj)",
+    )
+    build_cmd.add_argument(
+        "--scan-heights",
+        default=str(DEFAULT_SCAN_HEIGHTS),
+        help="ml0w scan height raster from tools/scan_heights.py; the terrain is "
+        "conformed to it (issue #17). Pass '' to keep the bare DEM.",
     )
     build_cmd.set_defaults(func=build)
 
