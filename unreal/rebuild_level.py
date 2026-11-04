@@ -7,6 +7,7 @@ Runs, in order, in this one Unreal Python interpreter:
     configure_level.py
     fix_camera.py
     setup_materials.py
+    setup_environment.py (terrain skirt to the horizon, scrub)
     import_scan.py
     setup_gameplay.py    (stage/park meshes, collision, player start, credits)
 
@@ -44,6 +45,7 @@ STEPS = [
     ("configure_level.py", "/tmp/redrocks_configure.log"),
     ("fix_camera.py", "/tmp/redrocks_camera.log"),
     ("setup_materials.py", "/tmp/redrocks_materials.log"),
+    ("setup_environment.py", "/tmp/redrocks_environment.log"),
     ("import_scan.py", "/tmp/redrocks_scan.log"),
     ("setup_gameplay.py", "/tmp/redrocks_gameplay.log"),
 ]
