@@ -18,7 +18,7 @@ georeferencing, seating-bowl generation, monolith meshes, tests.
 
 **In Unreal:** the project is at `~/Documents/Unreal Projects/RedRocks`
 (UE 5.8, Apple Silicon). Its level `/Game/RedRocks/Lvl_RedRocks` holds the
-terrain mesh, Creation Rock and Ship Rock at their real positions, a sun, sky
+terrain mesh, Creation Rock and Ship Rock at their real positions, a golden-hour sun, sky
 atmosphere, sky light, height fog, a PlayerStart and a framing camera. It is the
 editor startup map and the game default map.
 
@@ -37,8 +37,20 @@ closed.
 
 The sandstone material is applied to the terrain and both rocks. Written but not
 yet run in the level: the bench import and the ml0w scan import (see the script
-table). Stage blockout generated (not yet imported). The scan's placement is fitted by `tools/fit_scan.py` (scale within 8 % of 0.516 m/unit, then terrain heights plus stage and rock landmarks); see issue #14 for the residuals. Not done: tuning the material (the ground reads pale and the
-fine bands shimmer at distance).
+table). Stage blockout generated (not yet imported). The scan's placement is fitted by `tools/fit_scan.py` (scale within 8 % of 0.516 m/unit, then terrain heights plus stage and rock landmarks); see issue #14 for the residuals.
+
+**Look (#18):** physically lit with Lumen GI and reflections, a 120 klx
+late-afternoon sun low in the WNW through the SkyAtmosphere, a real-time sky
+light, volumetric clouds, height fog and histogram auto exposure clamped to
+EV100 11-14.2. The ground is procedural Fountain Formation sandstone: red soil
+and olive grass on gentle slopes, banded red rock on steep ones, bands that fade
+to their average colour with distance instead of shimmering. Benches are
+weathered redwood planks on dusty concrete risers; the stage is concrete; roads,
+lots and paths are asphalt and gravel with dusty edges. A generated terrain skirt
+carries the hills out to the horizon (no more flat blue plane past the 2.4 km
+terrain), and about 5,000 juniper-sized scrub clumps dot the open hillsides.
+`configure_level.py` writes the render settings this needs into the project's
+`Config/DefaultEngine.ini` (restart the editor after the first rebuild).
 
 ## What it produces
 
@@ -241,7 +253,7 @@ PROJ="$HOME/Documents/Unreal Projects/RedRocks/RedRocks.uproject"
 ```
 
 **To rebuild the whole level, run one script.** `rebuild_level.py` runs the
-six steps below in order (`import_redrocks.py` through `import_scan.py`), clears
+eight steps below in order (`import_redrocks.py` through `setup_gameplay.py`), clears
 each step's old log first, stops at the first `ERROR`/`ABORT`/`FAIL` line in its
 `/tmp/redrocks_*.log` (or a missing log), and prints a summary of step, status,
 duration and log path (also saved to `/tmp/redrocks_rebuild.log`):
@@ -256,12 +268,13 @@ a time, in this order; each writes a log to `/tmp/redrocks_*.log`:
 
 | Script | Does |
 |---|---|
-| `rebuild_level.py` | **entry point:** runs the seven scripts below in order, stops at the first failure |
+| `rebuild_level.py` | **entry point:** runs the eight scripts below in order, stops at the first failure |
 | `import_redrocks.py` | imports the terrain, rocks and benches OBJs to `/Game/RedRocks` and places them in `Lvl_RedRocks`. **Clears every actor in the level first.** |
-| `setup_lighting.py` | adds sun, sky atmosphere, sky light, height fog, PlayerStart |
-| `configure_level.py` | fixed-exposure post-process volume and a framing camera |
+| `setup_lighting.py` | golden-hour sun (120 klx, WNW, 24° up), sky atmosphere, real-time sky light, height fog, volumetric clouds, PlayerStart. Replaces the rig on every run |
+| `configure_level.py` | writes Lumen / distance fields / VSM / eye adaptation / TSR into `Config/DefaultEngine.ini` `[SystemSettings]`; post-process volume with Lumen, auto exposure (EV100 11-14.2) and a light grade; framing camera |
 | `fix_camera.py` | lifts the camera above the 645 m ridge, removes test actors |
-| `setup_materials.py` | `M_Sandstone` with 30° strata bands; rock and ground instances; bench material |
+| `setup_materials.py` | procedural materials: `M_Sandstone` (30° strata that fade with distance, soil, grass, slope rock) with rock and ground instances; `M_Benches` (redwood planks, concrete risers); `M_Concrete`, `M_Asphalt`, `M_Lot`, `M_Gravel`, `M_Scrub` |
+| `setup_environment.py` | terrain skirt from the DEM edge out to 120 km so the world has a horizon; ~5,000 scrub clumps as one instanced mesh, off rock, roads and the scan |
 | `import_scan.py` | imports the ml0w scan with Nanite and credits it; run after `import_redrocks.py` |
 | `setup_gameplay.py` | imports Stage, Roads, Paths, Parking; complex collision on every walkable mesh; PlayerStart on the stage deck facing up the bowl; FirstPerson game mode; in-world credits. Runs last |
 | `verify_walkable.py` | headless checks: game mode, one PlayerStart, triangle counts kept, credits present; renders the spawn and bowl views |
@@ -314,6 +327,17 @@ Each of these cost real time:
   the terrain. The spawn height comes from manifest.json's `spawn` block.
 - **`spawn_actor_from_object` does nothing in a headless commandlet.** Spawn a
   `StaticMeshActor` with `spawn_actor_from_class` and set its mesh instead.
+- **The project config can switch Lumen off behind the level's back.** A
+  `[SystemSettings]` block in `Config/DefaultEngine.ini` (Lumen, distance
+  fields, VSM and eye adaptation all `0`) overrides every post-process volume;
+  that is why the old level needed a 6 lux sun with a +12 exposure bias.
+  `configure_level.py` now owns those lines. They load at start-up only.
+- **The Noise material node's input is called `World Position`**, not
+  `Position`, when wiring it from Python; ask
+  `MaterialEditingLibrary.get_material_expression_input_names` when a
+  connect returns False.
+- **`/tmp/redrocks_*.log` is shared** by every project copy on the machine. Two
+  rebuilds at once overwrite each other's logs; run one at a time.
 - **A minimized editor looks frozen.** macOS throttles it to a few frames per
   second and it ignores input until it's brought forward and finishes compiling
   shaders.
@@ -413,7 +437,8 @@ Cache on local disk, sync the source and built packages to MEGA.
 1. Run `import_redrocks.py` (benches) and `import_scan.py` in the level, then
    tune the scan's placement constants by eye and decide whether it replaces the
    extruded monoliths visually, with the monoliths kept as collision.
-2. Tune `MI_Sandstone_Ground`: less exposure, thicker bands.
+2. Real trees and boulders (Poly Haven ponderosa/juniper, `assets/rocks`) in
+   place of the sphere-clump scrub.
 3. Import `Stage.obj` (see Stage blockout), then replace the blockout with detail.
    The stage and shell are not in any free dataset.
 4. First-person traversal pass, then multiplayer.
