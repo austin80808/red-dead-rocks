@@ -886,7 +886,7 @@ def place(ground: Ground, blocked: set, models: dict, seed: int = SEED) -> dict:
         else:
             sp = "Mahogany" if rng.uniform() < 0.25 + 0.5 * rocky[k] else "Oak"
             # Scrub oak grows in clonal thickets: a few stems around the spot.
-            for _ in range(int(rng.integers(1, 5)) if sp == "Oak" else int(rng.integers(1, 3))):
+            for _ in range(int(rng.integers(1, 4)) if sp == "Oak" else int(rng.integers(1, 3))):
                 px = x[k] + rng.normal(scale=180.0)
                 py = y[k] + rng.normal(scale=180.0)
                 if not bool(ground.contains(np.array([px]), np.array([py]))[0]):

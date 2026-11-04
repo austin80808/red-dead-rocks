@@ -21,7 +21,8 @@ What it does, each step logged to $REDROCKS_LOG_DIR (default /tmp)/redrocks_vege
   4. Replaces the old sphere-clump "Scrub" actor with one "Vegetation" actor
      holding an instanced-mesh component per model part, filled from
      vegetation.json. Trunks block (BlockAll), everything else is NoCollision.
-     Leaf cards stay out of distance-field lighting; shrubs cull past 2 km.
+     Leaf cards stay out of distance-field lighting; shrub leaves cast no
+     shadow (their crown cores do) and shrubs cull past 1.2 km.
   5. Saves the level, failing loudly if a save returns False.
 """
 
@@ -40,7 +41,7 @@ OLD_LABELS = ["Scrub", "Vegetation"]
 LOG_PATH = os.path.join(os.environ.get("REDROCKS_LOG_DIR", "/tmp"), "redrocks_vegetation.log")
 
 TREES = ("JuniperRM", "JuniperOS", "Ponderosa")  # these trunks block the player
-SHRUB_CULL_CM = 200000.0
+SHRUB_CULL_CM = 120000.0
 
 # Bark per species group: (light, dark, plate size cm, vertical stretch, contrast)
 BARK = {
@@ -439,6 +440,9 @@ def _place(info, meshes):
             if part == "Leaves":
                 comp.set_editor_property("affect_distance_field_lighting", False)
             if species_of(model["name"]) not in TREES:
+                # Masked shrub leaves in virtual shadow maps cost a lot for little;
+                # their opaque crown cores still cast the shadow.
+                comp.set_editor_property("cast_shadow", part != "Leaves")
                 comp.set_editor_property("instance_end_cull_distance", int(SHRUB_CULL_CM))
                 comp.set_editor_property("instance_start_cull_distance", int(SHRUB_CULL_CM * 0.8))
             comp.add_instances(transforms, False, True)

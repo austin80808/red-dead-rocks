@@ -48,7 +48,7 @@ to their average colour with distance instead of shimmering. Benches are
 weathered redwood planks on dusty concrete risers; the stage is concrete; roads,
 lots and paths are asphalt and gravel with dusty edges. A generated terrain skirt
 carries the hills out to the horizon (no more flat blue plane past the 2.4 km
-terrain), and about 24,000 procedural junipers, ponderosa pines and scrub oak /
+terrain), and about 45,000 procedural junipers, ponderosa pines and scrub oak /
 mountain mahogany cover the hillsides (see Vegetation).
 `configure_level.py` writes the render settings this needs into the project's
 `Config/DefaultEngine.ini` (restart the editor after the first rebuild).
@@ -81,6 +81,7 @@ Run:
 ```bash
 python3 -m venv .venv && .venv/bin/pip install -e .
 .venv/bin/redrocks build --out out
+.venv/bin/redrocks vegetation --out out   # trees and shrubs, reads out/'s terrain
 ```
 
 `redrocks build` writes everything above. `--terrain-grid` sets the terrain
@@ -274,6 +275,48 @@ gone, the rows sit on the scan's bowl, the top walkway on its plateau):
 | ![](docs/media/benches-on-scan/before_mid_across.jpg) | ![](docs/media/benches-on-scan/after_mid_across.jpg) |
 | ![](docs/media/benches-on-scan/before_obl_top.jpg) | ![](docs/media/benches-on-scan/after_obl_top.jpg) |
 | ![](docs/media/benches-on-scan/before_spawn.jpg) | ![](docs/media/benches-on-scan/after_spawn.jpg) |
+
+## Vegetation
+
+The hillsides carry about 45,000 procedural plants: Rocky Mountain and one-seed
+juniper, ponderosa pine, Gambel (scrub) oak and mountain mahogany. Nothing is
+downloaded: `redrocks.vegetation` grows every model from a seed and paints its
+leaf textures with Pillow, and `redrocks vegetation --out out` writes them to
+`out/vegetation/` with `vegetation.json`, the list of instances.
+
+| Species | Model | Instances scale to | Looks like |
+|---|---|---|---|
+| Rocky Mountain juniper | `JuniperRM_0..2`, 5.0 m | 3-6 m | one gnarly trunk, dense irregular conical crown, blue-green |
+| One-seed juniper | `JuniperOS_0..2`, 3.6 m | 2-4.5 m | 2-4 stems from the base, broad rounded crown to the ground |
+| Ponderosa pine | `Ponderosa_0..3`, 18 m | 10-24 m | orange plated trunk clear for half its height, upturned branches, needle tufts |
+| Gambel oak | `Oak_0..2`, 1.6 m | 1-2 m | many thin stems, dense leafy dome, in clonal thickets |
+| Mountain mahogany | `Mahogany_0..2`, 1.9 m | 1.1-2 m | fewer stems, open grey-green, feathery seed plumes |
+
+Each model is three OBJs (cm, with UVs and normals on every face):
+**Trunk** (closed tapered tubes, watertight; the only part with collision, and
+only on trees), **Crown** (a lumpy core per foliage clump that gives the canopy
+mass at distance) and **Leaves** (crossed cards into a 2x2 atlas per species,
+their normals bent out from the crown so it shades as a volume).
+`unreal/setup_vegetation.py` imports them with Nanite (no hand-made LODs), builds
+`M_Veg_Bark` (world-space plates and fissures), `M_Veg_Leaves` (masked,
+two-sided, Two Sided Foliage) and `M_Veg_Crown`, and fills one instanced-mesh
+component per model part on a `Vegetation` actor.
+
+**Where they grow** (`redrocks.vegetation.place`, seeded, so every rebuild is
+the same): candidates every 6.5 m, kept in thickets by noise with open meadows
+between; ponderosa on the upper slopes and north-facing ground, junipers on the
+open rocky slopes, oak and mahogany lower down and on gentler ground. Nothing
+grows on cliffs (steeper than 33 degrees for shrubs, 37 for pines, 40 for junipers), in the scanned bowl, or on
+roads, paths, parking, benches and the stage (the masks the old scrub used).
+
+| Before (sphere-clump scrub) | After |
+|---|---|
+| ![](docs/media/vegetation/before_hillside.jpg) | ![](docs/media/vegetation/after_hillside.jpg) |
+| ![](docs/media/vegetation/before_aerial.jpg) | ![](docs/media/vegetation/after_aerial.jpg) |
+| ![](docs/media/vegetation/before_bowl_top.jpg) | ![](docs/media/vegetation/after_bowl_top.jpg) |
+
+Regenerate the shots with `unreal/shoot_vegetation.py` (needs the editor GUI;
+it also runs `ProfileGPU` at each view and logs the frame rate).
 
 ## Play it
 

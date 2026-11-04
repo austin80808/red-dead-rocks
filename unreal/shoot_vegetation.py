@@ -16,7 +16,9 @@ Views (each held 7 s so auto exposure settles; FPS is the mean over the last 3 s
   hillside  a juniper and a ponderosa a few metres apart, from 20 m, eye level
             (picked from out/vegetation/vegetation.json)
   aerial    (0, -45000, 45000) cm, pitch -42, yaw 90
-The pawn flies with gravity and collision off. Screenshots:
+The pawn flies with gravity and collision off. REDROCKS_HIDE_VEGETATION=1
+hides the Vegetation actor for a baseline. At each shot ProfileGPU writes the
+view's GPU frame breakdown to the editor log. Screenshots:
 <project>/Saved/Screenshots/MacEditor/<prefix>veg_<view>.png (HighResShot 1600x900).
 Log: $REDROCKS_LOG_DIR (default /tmp)/redrocks_vegetation_shots.log.
 """
@@ -48,10 +50,24 @@ def _manifest():
         return json.load(fh)
 
 
+def _load_instances(path):
+    with open(path) as fh:
+        return json.load(fh)["instances"]
+
+
+def _clear(inst, x, y, radius_cm):
+    """True when no plant stands within radius_cm of (x, y)."""
+    for rows in inst.values():
+        for r in rows:
+            if abs(r[0] - x) < radius_cm and abs(r[1] - y) < radius_cm:
+                if math.hypot(r[0] - x, r[1] - y) < radius_cm:
+                    return False
+    return True
+
+
 def _pick_pair(path):
     """(juniper xyz, pine xyz): the closest juniper 6-20 m from a pine."""
-    with open(path) as fh:
-        inst = json.load(fh)["instances"]
+    inst = _load_instances(path)
     cells = {}
     for name, rows in inst.items():
         if name.startswith("Juniper"):
@@ -102,11 +118,33 @@ def _views(world, pawn):
         mx, my = (jx + px) / 2, (jy + py) / 2
         dx, dy = px - jx, py - jy
         d = math.hypot(dx, dy) or 1.0
-        cx, cy = mx - dy / d * 2200.0, my + dx / d * 2200.0
-        cz = (_ground(world, cx, cy, [pawn]) or 0.0) + EYE_CM
-        gz = _ground(world, mx, my, [pawn]) or cz
+        # Stand 14-30 m off to one side, where no plant is in the way and the
+        # ground does not hide the pair (a sight line to 3 m above them).
+        inst = _load_instances(veg)
+        gz = _ground(world, mx, my, [pawn]) or 0.0
+        cx = cy = cz = None
+        for dist in (1600.0, 2000.0, 2400.0, 2800.0, 1300.0):
+            for side in (1.0, -1.0):
+                tx, ty = mx - side * dy / d * dist, my + side * dx / d * dist
+                tz = (_ground(world, tx, ty, [pawn]) or 0.0) + EYE_CM
+                if not _clear(inst, tx, ty, 500.0):
+                    continue
+                hit = unreal.SystemLibrary.line_trace_single(
+                    world, unreal.Vector(tx, ty, tz), unreal.Vector(mx, my, gz + 300.0),
+                    unreal.TraceTypeQuery.TRACE_TYPE_QUERY1, True, [pawn],
+                    unreal.DrawDebugTrace.NONE, True)
+                hit = hit.to_tuple() if hit is not None else ()
+                if hit and hit[0]:
+                    continue
+                cx, cy, cz = tx, ty, tz
+                break
+            if cx is not None:
+                break
+        if cx is None:
+            cx, cy = mx - dy / d * 2000.0, my + dx / d * 2000.0
+            cz = (_ground(world, cx, cy, [pawn]) or 0.0) + EYE_CM
         look = math.degrees(math.atan2(my - cy, mx - cx))
-        pitch = math.degrees(math.atan2(gz + 500.0 - cz, math.hypot(mx - cx, my - cy)))
+        pitch = math.degrees(math.atan2(gz + 450.0 - cz, math.hypot(mx - cx, my - cy)))
         views.append(("hillside", (cx, cy, cz), {"pitch": pitch, "yaw": look, "roll": 0.0}))
         log.append("      hillside pair: juniper (%.0f, %.0f), pine (%.0f, %.0f)" % (jx, jy, px, py))
     views.append(("aerial", (0.0, -45000.0, 45000.0), {"pitch": -42.0, "yaw": 90.0, "roll": 0.0}))
@@ -169,6 +207,12 @@ def tick(delta):
                     move.set_editor_property("gravity_scale", 0.0)
                     move.set_movement_mode(unreal.MovementMode.MOVE_FLYING)
                 pawn.set_actor_enable_collision(False)
+                if os.environ.get("REDROCKS_HIDE_VEGETATION"):
+                    # Baseline for the perf note: the same views without the plants.
+                    for actor in unreal.GameplayStatics.get_all_actors_of_class(world, unreal.Actor):
+                        if actor.get_actor_label() == "Vegetation":
+                            actor.set_actor_hidden_in_game(True)
+                            log.append("      vegetation hidden (baseline run)")
                 state.update(phase="view", mark=now, views=_views(world, pawn), view=0, deltas=[])
             return
         if phase == "view":
@@ -186,6 +230,9 @@ def tick(delta):
                 fps = len(ds) / sum(ds)
                 worst = 1.0 / max(ds)
                 name = PREFIX + "veg_" + view[0]
+                # GPU time for this view goes to the editor log (search "ProfileGPU"):
+                # frame rate alone is meaningless while macOS throttles a background editor.
+                unreal.SystemLibrary.execute_console_command(world, "ProfileGPU")
                 unreal.SystemLibrary.execute_console_command(world, "HighResShot 1600x900 filename=%s" % name)
                 log.append("ok    view %-9s fps %.1f (worst frame %.1f fps, %d frames) -> %s.png"
                            % (view[0], fps, worst, len(ds), name))
