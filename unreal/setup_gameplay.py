@@ -17,14 +17,14 @@ What it does, each step logged to /tmp/redrocks_gameplay.log as "ok" or "FAIL":
   3. Sets "use complex as simple" collision on the terrain, rocks, benches,
      stage and park meshes, so the player walks on the real triangles instead
      of falling through or tripping on a convex hull.
-  3. Gives roads, paths and parking plain materials (asphalt, gravel, concrete)
-     and the stage a concrete one.
+  3. Gives roads, paths, parking and the stage their materials (asphalt,
+     gravel, lot asphalt, concrete; built by setup_materials.py).
   4. Moves the PlayerStart onto the stage, 5 m behind the downstage edge,
      facing up the bowl, at the height of manifest.json's spawn block (the
      higher of the deck and the terrain under the player).
   5. Sets the level's game mode to the FirstPerson template's, so Play spawns a
      walking first-person character (WASD, mouse, space to jump).
-  6. Raises the sky light so shaded ground isn't black at eye level.
+  6. Recaptures the sky light (intensity 1.0, physical).
   7. Turns off collision on the ml0w scan chunks: they are visual only. When
      the scan is present, hides the extruded rocks in game (#16); they keep
      their collision, so they act as the scan rocks' walls.
@@ -51,23 +51,27 @@ NEW_MESHES = ["Stage", "Roads", "Paths", "Parking"]
 COLLIDE = ["RedRocks_Terrain", "Creation_Rock", "Ship_Rock", "Benches"] + NEW_MESHES
 
 # Plain materials: name -> (sRGB hex, roughness), and which mesh gets which.
+# setup_materials.py builds these as procedural materials (asphalt, gravel,
+# concrete, parking lot) and runs first; the flat colours here are only a
+# fallback for running this script on its own.
 PLAIN = {
-    "M_Asphalt": ("2b2b2d", 0.85),
-    "M_Gravel": ("9c8a74", 0.95),
-    "M_Concrete": ("a7a39c", 0.8),
+    "M_Asphalt": ("4a4845", 0.85),
+    "M_Lot": ("57544f", 0.85),
+    "M_Gravel": ("9b6a4b", 0.95),
+    "M_Concrete": ("a8a196", 0.85),
 }
 MESH_MATERIAL = {
     "Roads": "M_Asphalt",
     "Paths": "M_Gravel",
-    "Parking": "M_Concrete",
+    "Parking": "M_Lot",
     "Stage": "M_Concrete",
 }
 
 SPAWN_BACK_M = 5.0  # how far behind the downstage edge the player starts
-# setup_lighting.py tunes for the aerial camera: a 6 lux sun under a fixed +12
-# exposure bias. Seen from the ground, anything in shade is lit only by the sky
-# light and reads as black, so first person needs a much stronger sky light.
-SKY_LIGHT_INTENSITY = 4.0
+# The sky light stays physical (1.0, as setup_lighting.py sets it): with Lumen
+# GI on (configure_level.py) shade gets the sky and the red ground's bounce,
+# so first person no longer needs the old 4x boost. This step only recaptures.
+SKY_LIGHT_INTENSITY = 1.0
 EYE_LIFT_CM = 130.0  # PlayerStart above the ground; capsule half-height 96 + gap
 
 SCAN_CREDIT = (
