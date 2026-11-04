@@ -68,7 +68,9 @@ def main():
 
     _ensure_dir(ASSET_DIR)
 
-    names = ["RedRocks_Terrain", "Creation_Rock", "Ship_Rock"]
+    # Every monolith in the manifest (Creation, Ship and, when OSM has it, Stage Rock).
+    rocks = [r["name"].split(" (")[0].replace(" ", "_") for r in manifest["monoliths"]]
+    names = ["RedRocks_Terrain"] + rocks
     benches_present = os.path.exists(os.path.join(OUT_DIR, "Benches.obj"))
     if benches_present:
         names.append("Benches")

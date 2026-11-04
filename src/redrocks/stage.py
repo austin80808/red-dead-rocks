@@ -77,9 +77,16 @@ class Dimension:
 
 # SkyDeck I-beam grid at 40'2" above the stage floor (IA Stage). The roof slab sits on it.
 ROOF_GRID_ABOVE_DECK_M = (40 + 2 / 12.0) * FT
+# Y-columns fork at 36'10" above the stage floor (IA Stage) before meeting the 40'2" grid.
+Y_COLUMN_FORK_ABOVE_DECK_M = (36 + 10 / 12.0) * FT
 
 # Roof truss stations: 12 ft behind the downstage edge, then 25 ft apart, three trusses.
+_TRUSS_2_FROM_FRONT_M = (12 + 25) * FT
 _TRUSS_3_FROM_FRONT_M = (12 + 25 + 25) * FT
+
+# Two steps per seating row at the row ends keep each rise around 22 cm (< UE MaxStepHeight).
+STEPS_PER_ROW = 2
+SKYDECK_BEAM_COUNT = 3
 
 _SCAN = "ml0w scan (CC BY 4.0), "
 
@@ -114,12 +121,26 @@ DIMENSIONS: tuple[Dimension, ...] = (
               "Rough estimate, not measured: round/splayed column base about 3 ft across, modelled square."),
     Dimension("column_front_station", 12 * FT, "published",
               "Truss 1 is ~12 ft behind the downstage roof edge (IA Stage); front columns sit there."),
+    Dimension("truss_mid_station", _TRUSS_2_FROM_FRONT_M, "derived",
+              "Truss 2: 12 + 25 ft behind the downstage roof edge (IA Stage: three trusses 25 ft apart)."),
     Dimension("column_rear_station", _TRUSS_3_FROM_FRONT_M, "derived",
               "Truss 3: 12 + 25 + 25 ft behind the downstage roof edge (IA Stage); rear columns sit there."),
+    Dimension("y_column_fork_above_deck", Y_COLUMN_FORK_ABOVE_DECK_M, "published",
+              "Y-columns meet at 36'10\" above the stage floor (IA Stage) before splaying to the 40'2\" grid."),
+    Dimension("y_arm_spread", 2.2, "estimate",
+              "Estimate: fore-and-aft spread of the Y-column arms from the 36'10\" fork up to the roof truss."),
+    Dimension("truss_depth", 0.9, "estimate",
+              "Estimate: structural depth of the three primary roof trusses below the SkyDeck grid."),
+    Dimension("truss_width", 0.45, "estimate",
+              "Estimate: chord width of the primary roof trusses and SkyDeck purlin beams."),
     Dimension("shell_thickness", 0.6, "estimate", "Estimate: back wall of the shell. The scan shows one rear face, not a separate shell."),
     Dimension("shell_wing_length", 8.0, "estimate", "Rough estimate, not measured: splayed side walls (not resolved in the scan)."),
     Dimension("shell_wing_height", 6.0, "estimate", "Rough estimate, not measured."),
     Dimension("shell_wing_splay_degrees", 15.0, "estimate", "Estimate: outward splay of the side walls."),
+    Dimension("shell_canopy_depth", 2.4, "estimate",
+              "Estimate: acoustic hood projecting forward from the top of the rear stage shell."),
+    Dimension("shell_canopy_thickness", 0.5, "estimate",
+              "Estimate: slab thickness of the rear stage shell acoustic hood."),
     Dimension("retaining_wall_gap", 2.1, "measured",
               _SCAN + "rear face of the wall minus where the flat deck ends: 4 units x 0.516 m. Low confidence "
               "(+-1 m); close to the old 2 m estimate."),
@@ -131,11 +152,29 @@ DIMENSIONS: tuple[Dimension, ...] = (
     Dimension("retaining_wall_buried", 2.0, "estimate", "Estimate: depth below the deck so the wall meets terrain."),
     Dimension("retaining_wall_overhang", 3.0, "estimate", "Estimate: wall extends this far past each side of the stage."),
     Dimension("retaining_gusset_length", 6.0, "estimate", "Estimate: triangular return at each wall end."),
+    Dimension("foh_width", 6.0, "derived",
+              "FOH sound/lighting booth width in the lower bowl, from OSM way 229359709 (~6.0 x 6.1 m)."),
+    Dimension("foh_depth", 3.2, "estimate",
+              "Estimate: front-to-back depth of the FOH mix booth platform in the lower seating bowl."),
+    Dimension("foh_wall_height", 1.05, "estimate",
+              "Estimate: parapet wall height enclosing the FOH mix booth."),
+    Dimension("foh_wall_thickness", 0.25, "estimate",
+              "Estimate: concrete parapet thickness around the FOH mix booth."),
+    Dimension("stair_width", 1.8, "estimate",
+              "Estimate: width of the stone/concrete side aisle stairs at the two ends of the bench rows."),
+    Dimension("stair_tread_depth", 0.45, "estimate",
+              "Estimate: front-to-back tread depth of each half-row step on the bowl side stairs."),
+    Dimension("stair_wall_thickness", 0.35, "estimate",
+              "Estimate: thickness of the stepped stone cheek walls flanking the outer edges of the bowl stairs."),
+    Dimension("stair_wall_height", 0.40, "estimate",
+              "Estimate: curb height of the outer cheek wall above each row's upper stair tread."),
     Dimension("walkway_width", 4.0, "estimate",
               "Rough estimate, not measured: top-of-bowl promenade. The scan shows a flat plateau behind the top "
               "row with no edge that fixes a walkway width."),
     Dimension("walkway_thickness", 0.4, "estimate", "Blockout slab thickness."),
     Dimension("walkway_gap", 0.5, "estimate", "Estimate: clearance between the last bench and the walkway."),
+    Dimension("walkway_parapet_height", 0.85, "estimate",
+              "Estimate: low perimeter retaining/parapet wall along the rear edge of the top promenade."),
 )
 
 _D = {d.name: d for d in DIMENSIONS}
@@ -290,20 +329,66 @@ def stage_parts(
     parts.append(Part("deck", _rect(origin, a, l, -hw, hw, -D, 0.0), deck_bot, deck_top))
     parts.append(Part("roof", _rect(origin, a, l, -hw, hw, -RD, 0.0), roof_bot, roof_top))
 
-    # Four columns, in from each side, under trusses 1 and 3.
+    # Four columns, in from each side, under trusses 1 and 3, plus their 36'10" Y-column forks.
     cs = dim("column_size")
+    fork_z = deck_top + dim("y_column_fork_above_deck")
+    arm_spread = dim("y_arm_spread")
     for sx in (-1, 1):
+        side = "e" if sx > 0 else "w"
         for station in (dim("column_front_station"), dim("column_rear_station")):
+            pos = "front" if station == dim("column_front_station") else "rear"
             cx = sx * (hw - cs)
             y = -station
             parts.append(Part(
-                f"column_{'e' if sx > 0 else 'w'}_{'front' if station == dim('column_front_station') else 'rear'}",
+                f"column_{side}_{pos}",
                 _rect(origin, a, l, cx - cs / 2, cx + cs / 2, y - cs / 2, y + cs / 2),
                 deck_top, roof_bot))
+            # Y-column splayed arms above the 36'10" fork meeting the 40'2" SkyDeck grid.
+            parts.append(Part(
+                f"y_arm_{side}_{pos}_fore",
+                _rect(origin, a, l, cx - cs * 0.4, cx + cs * 0.4, y + cs / 2 + 0.05, y + cs / 2 + arm_spread * 0.5),
+                fork_z, roof_bot))
+            parts.append(Part(
+                f"y_arm_{side}_{pos}_aft",
+                _rect(origin, a, l, cx - cs * 0.4, cx + cs * 0.4, y - cs / 2 - arm_spread * 0.5, y - cs / 2 - 0.05),
+                fork_z, roof_bot))
 
-    # Shell: back wall plus a splayed wing wall on each side (parallelogram wedge in plan).
+    # Three primary roof trusses (12 ft, 37 ft, 62 ft behind downstage edge) and SkyDeck purlin beams.
+    td = dim("truss_depth")
+    tw = dim("truss_width")
+    truss_span = hw - 1.6 * cs
+    truss_stations = (
+        ("truss_1", dim("column_front_station")),
+        ("truss_2", dim("truss_mid_station")),
+        ("truss_3", dim("column_rear_station")),
+    )
+    for tname, tstat in truss_stations:
+        parts.append(Part(
+            tname,
+            _rect(origin, a, l, -truss_span, truss_span, -tstat - tw / 2, -tstat + tw / 2),
+            roof_bot - td, roof_bot))
+
+    # Longitudinal SkyDeck I-beam purlins running between the trusses.
+    s1, s2, s3 = (st for _, st in truss_stations)
+    for bi, bx in enumerate((-truss_span * 0.6, 0.0, truss_span * 0.6), start=1):
+        parts.append(Part(
+            f"skydeck_beam_{bi}_front",
+            _rect(origin, a, l, bx - tw / 2, bx + tw / 2, -s2 + tw / 2 + 0.05, -s1 - tw / 2 - 0.05),
+            roof_bot - td * 0.55, roof_bot))
+        parts.append(Part(
+            f"skydeck_beam_{bi}_rear",
+            _rect(origin, a, l, bx - tw / 2, bx + tw / 2, -s3 + tw / 2 + 0.05, -s2 - tw / 2 - 0.05),
+            roof_bot - td * 0.55, roof_bot))
+
+    # Shell: back wall, overhead acoustic reflector canopy, splayed outer wing walls, and inner baffles.
     t = dim("shell_thickness")
     parts.append(Part("shell_back", _rect(origin, a, l, -hw, hw, -D, -D + t), deck_top, roof_bot))
+    canopy_d = dim("shell_canopy_depth")
+    canopy_t = dim("shell_canopy_thickness")
+    parts.append(Part(
+        "shell_canopy",
+        _rect(origin, a, l, -hw * 0.85, hw * 0.85, -D + t, -D + t + canopy_d),
+        roof_bot - td - canopy_t - 0.2, roof_bot - td - 0.2))
     wl = dim("shell_wing_length")
     off = wl * math.tan(math.radians(dim("shell_wing_splay_degrees")))
     wh = dim("shell_wing_height")
@@ -311,6 +396,13 @@ def stage_parts(
         pts = [(sx * hw, -D + t), (sx * (hw + t), -D + t),
                (sx * (hw + t + off), -D + t + wl), (sx * (hw + off), -D + t + wl)]
         parts.append(Part(f"shell_wing_{nm}", _poly(origin, a, l, pts), deck_top, deck_top + wh))
+        # Inner stepped acoustic baffle wall inside the shell wing.
+        b_wl = wl * 0.65
+        b_off = b_wl * math.tan(math.radians(dim("shell_wing_splay_degrees") * 0.75))
+        bx0 = hw * 0.78
+        b_pts = [(sx * bx0, -D + t + 0.4), (sx * (bx0 + t), -D + t + 0.4),
+                 (sx * (bx0 + t + b_off), -D + t + 0.4 + b_wl), (sx * (bx0 + b_off), -D + t + 0.4 + b_wl)]
+        parts.append(Part(f"shell_baffle_{nm}", _poly(origin, a, l, b_pts), deck_top, deck_top + wh * 0.8))
 
     # Retaining wall behind the shell, with a triangular return at each end.
     rw_y1 = -D - dim("retaining_wall_gap")
@@ -324,7 +416,95 @@ def stage_parts(
         pts = [(sx * rw_hw, rw_y0), (sx * rw_hw, rw_y1), (sx * (rw_hw + g), rw_y1)]
         parts.append(Part(f"retaining_gusset_{nm}", _poly(origin, a, l, pts), rz0, rz1))
 
-    # Top-of-bowl walkway behind the last row, along its chord.
+    # Downstage side access stairs bridging the stage deck corners toward Row 1's side aisles.
+    stair_w = dim("stair_width")
+    tread_d = dim("stair_tread_depth")
+    row1_z = first.elevation_m - base_elevation_m
+    for sx, nm in ((1, "e"), (-1, "w")):
+        for step_idx in (1, 2):
+            frac = step_idx / 2.0
+            sz1 = deck_top + frac * max(0.35, (row1_z + 0.45) - deck_top)
+            sz0 = min(deck_bot, sz1 - 0.6)
+            sy0 = (step_idx - 1) * tread_d
+            sy1 = step_idx * tread_d
+            parts.append(Part(
+                f"stage_step_{nm}_{step_idx}",
+                _rect(origin, a, l, sx * (hw - stair_w), sx * hw, sy0, sy1),
+                sz0, sz1))
+
+    # Front-of-House (FOH) sound & lighting booth in the lower bowl (around Row 8, per OSM way 229359709).
+    if len(rows) >= 8:
+        foh_row = rows[min(7, len(rows) - 1)]
+        foh_c = np.array([foh_row.centre_east, foh_row.centre_north])
+        foh_hw = dim("foh_width") / 2.0
+        foh_d = dim("foh_depth")
+        foh_wt = dim("foh_wall_thickness")
+        foh_wh = dim("foh_wall_height")
+        foh_ground = (
+            float(ground(foh_row.centre_east, foh_row.centre_north))
+            if ground is not None else foh_row.elevation_m
+        ) - base_elevation_m
+        foh_top = foh_ground + 0.50
+        foh_bot = foh_ground - 0.80
+        parts.append(Part("foh_platform", _rect(foh_c, a, l, -foh_hw, foh_hw, -foh_d / 2, foh_d / 2), foh_bot, foh_top))
+        parts.append(Part(
+            "foh_wall_front",
+            _rect(foh_c, a, l, -foh_hw, foh_hw, -foh_d / 2, -foh_d / 2 + foh_wt),
+            foh_top, foh_top + foh_wh))
+        for sx, nm in ((1, "e"), (-1, "w")):
+            x0 = sx * (foh_hw - foh_wt) if sx > 0 else -foh_hw
+            x1 = sx * foh_hw if sx > 0 else -foh_hw + foh_wt
+            parts.append(Part(
+                f"foh_wall_{nm}",
+                _rect(foh_c, a, l, x0, x1, -foh_d / 2 + foh_wt + 0.02, foh_d / 2),
+                foh_top, foh_top + foh_wh))
+
+    # End-of-row side aisle stairs & stepped outer cheek walls on both ends of every seating row.
+    bench_half = 0.45  # half of benches.SEAT_DEPTH_M
+    bench_h = 0.45     # benches.SEAT_HEIGHT_M
+    wall_t = dim("stair_wall_thickness")
+    wall_h = dim("stair_wall_height")
+    stair_gap = 0.12
+    for idx, (row, line) in enumerate(zip(rows, polylines)):
+        pts = np.asarray(line, dtype=float)[:, :2]
+        if len(pts) < 2:
+            continue
+        # Two ends of the bench row: start (pts[0], outward along pts[0]-pts[1]) and end (pts[-1], outward along pts[-1]-pts[-2]).
+        ends = (
+            ("start", pts[0], pts[0] - pts[1]),
+            ("end", pts[-1], pts[-1] - pts[-2]),
+        )
+        for side_tag, p_end, out_vec in ends:
+            olen = float(np.hypot(*out_vec))
+            u_out = out_vec / olen if olen > 1e-6 else (-l if side_tag == "start" else l)
+            n_up = np.array([-u_out[1], u_out[0]])
+            if n_up @ a < 0:
+                n_up = -n_up
+            end_ground = (
+                float(ground(float(p_end[0]), float(p_end[1])))
+                if ground is not None else row.elevation_m
+            ) - base_elevation_m
+            z_base = end_ground - 0.60
+            # Two steps per row (each ~22.5 cm rise) so a character walks up smoothly without jumping.
+            for step_k in range(1, STEPS_PER_ROW + 1):
+                y0 = -bench_half + (step_k - 1) * tread_d
+                y1 = -bench_half + step_k * tread_d
+                z_step_top = end_ground + (step_k / STEPS_PER_ROW) * bench_h
+                parts.append(Part(
+                    f"stair_{side_tag}_r{row.index}_s{step_k}",
+                    _rect(p_end, n_up, u_out, stair_gap, stair_gap + stair_w, y0, y1),
+                    z_base, z_step_top))
+            # Stepped stone cheek/planter wall flanking the outer edge of this row's stair treads.
+            parts.append(Part(
+                f"stair_wall_{side_tag}_r{row.index}",
+                _rect(
+                    p_end, n_up, u_out,
+                    stair_gap + stair_w + 0.02, stair_gap + stair_w + 0.02 + wall_t,
+                    -bench_half, -bench_half + STEPS_PER_ROW * tread_d,
+                ),
+                z_base, end_ground + bench_h + wall_h))
+
+    # Top-of-bowl walkway behind the last row, along its chord, plus a rear parapet wall.
     chord = np.asarray(polylines[-1], dtype=float)[:, :2]
     p0, p1 = chord[0], chord[-1]
     c = p1 - p0
@@ -332,12 +512,18 @@ def stage_parts(
     n = np.array([-c[1], c[0]])
     if n @ a < 0:
         n = -n
-    bench_half = 0.45  # half of benches.SEAT_DEPTH_M
     n0 = bench_half + dim("walkway_gap")
     n1 = n0 + dim("walkway_width")
     walk = np.array([p0 + n * n0, p1 + n * n0, p1 + n * n1, p0 + n * n1])
     wz0, wz1 = _walkway_heights(walk, last.elevation_m, ground)
     parts.append(Part("walkway", walk, wz0 - base_elevation_m, wz1 - base_elevation_m))
+    parapet_t = dim("stair_wall_thickness")
+    parapet_h = dim("walkway_parapet_height")
+    parapet = np.array([
+        p0 + n * (n1 - parapet_t), p1 + n * (n1 - parapet_t),
+        p1 + n * n1, p0 + n * n1,
+    ])
+    parts.append(Part("walkway_parapet", parapet, wz1 - base_elevation_m, wz1 - base_elevation_m + parapet_h))
     return parts
 
 
