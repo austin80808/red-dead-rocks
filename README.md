@@ -192,6 +192,14 @@ such in `redrocks.stage.DIMENSIONS` (`kind` is `published`, `derived` or
 
 ## Play it
 
+![Play In Editor: spawn on the stage, walk up the bowl, then look east, north, west and south](docs/media/redrocks_play_tour.gif)
+
+*Captured by `unreal/playtest.py` in the real project: the player spawns on the stage, walks 53 m and climbs 13 m up the bowl, then looks east, north, west and south.*
+
+![Aerial: the bowl between Creation Rock and Ship Rock with the ml0w scan in place, then the scan on its own](docs/media/redrocks_aerial_scan.gif)
+
+*From above: the generated terrain, rocks, benches, roads and parking with the ml0w scan placed over the bowl, then the scan on its own. Regenerate both with `tools/make_play_gifs.sh` after a play-test.*
+
 Open the project, make sure `Lvl_RedRocks` is the open level, and press **Play** (green ▶).
 You spawn on the stage deck facing up the bowl, with the credits beside you.
 WASD to walk, mouse to look, Space to jump (you have to jump each bench row; there are no aisle stairs yet).
