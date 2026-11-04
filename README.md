@@ -50,6 +50,8 @@ out/
   Ship_Rock.obj            south monolith, 61.0 m, watertight
   Benches.obj              68 bench rows, 816 triangles, terrain frame
   Stage.obj                stage blockout, 13 parts, 148 triangles, terrain frame
+  Roads.obj, Paths.obj     OSM highways as draped ribbons (21,118 / 23,000 triangles)
+  Parking.obj              24 OSM parking lots as terrain-following patches (22,788 triangles)
   manifest.json            Z scale, bbox, origin, venue, monoliths, attribution
 ```
 
@@ -98,6 +100,39 @@ Landscape LOD); the mesh can be swapped for a Landscape later.
 Axes are X east, Y north, Z up, in centimetres, centred on the origin, with the
 lowest point at Z = 0. Faces wind counter-clockwise seen from above, so normals
 point up.
+
+### Roads, paths and parking
+
+`park.py` turns the OSM `highway=*` and `amenity=parking` ways into three more
+OBJs in the terrain's frame (cm, X east, Y north, Z up, Z=0 at the terrain
+minimum): `Roads.obj`, `Paths.obj` and `Parking.obj`. A file is skipped when the
+data has nothing for it, and each present one is recorded under `park` in
+`manifest.json`.
+
+Ribbons are swept along each way, sampled every 2 m and draped on the *same
+triangles* as `RedRocks_Terrain.obj` (cell-diagonal aware, so no float over or
+sink into the mesh), then lifted by 3 cm (parking), 5 cm (roads) or 7 cm
+(paths) so layers don't z-fight. Widths by `highway=*`, in metres:
+
+| Class | Width |
+|---|---|
+| motorway, trunk | 10 |
+| primary | 8 |
+| secondary | 7 |
+| tertiary, unclassified, residential | 6 |
+| living_street | 4.5 |
+| service (parking aisle 3) | 4 |
+| track | 3.5 |
+| cycleway | 2.5 |
+| footway, pedestrian, bridleway | 2 |
+| path, steps | 1.5 |
+
+`*_link` uses its parent class, and a numeric `width=` tag overrides the table.
+Roads are motorway down to track; cycleway and below are paths.
+`tunnel=*` ways and closed `area=yes` ways are skipped; other `highway` values
+(construction, proposed ...) are ignored. Bridges are draped, with no deck.
+Every face has UVs: on ribbons U is distance along the way divided by its width
+(square texels) and V runs 0 to 1 across; on parking, planar metres / 10.
 
 ### Monoliths
 
@@ -163,10 +198,23 @@ PROJ="$HOME/Documents/Unreal Projects/RedRocks/RedRocks.uproject"
 "$UE" "$PROJ" -run=pythonscript -script=unreal/import_redrocks.py -unattended -nosplash -stdout
 ```
 
-Run them in this order; each writes a log to `/tmp/redrocks_*.log`:
+**To rebuild the whole level, run one script.** `rebuild_level.py` runs the
+six steps below in order (`import_redrocks.py` through `import_scan.py`), clears
+each step's old log first, stops at the first `ERROR`/`ABORT`/`FAIL` line in its
+`/tmp/redrocks_*.log` (or a missing log), and prints a summary of step, status,
+duration and log path (also saved to `/tmp/redrocks_rebuild.log`):
+
+```bash
+"$UE" "$PROJ" -run=pythonscript -script="$PWD/unreal/rebuild_level.py" -unattended -nosplash -stdout
+```
+
+or, in an open editor, `py "/Users/austin/dev/redrocks-ue/unreal/rebuild_level.py"`.
+It **wipes every actor in the level** (step 1). The scripts can still run one at
+a time, in this order; each writes a log to `/tmp/redrocks_*.log`:
 
 | Script | Does |
 |---|---|
+| `rebuild_level.py` | **entry point:** runs the six scripts below in order, stops at the first failure |
 | `import_redrocks.py` | imports the terrain, rocks and benches OBJs to `/Game/RedRocks` and places them in `Lvl_RedRocks`. **Clears every actor in the level first.** |
 | `setup_lighting.py` | adds sun, sky atmosphere, sky light, height fog, PlayerStart |
 | `configure_level.py` | fixed-exposure post-process volume and a framing camera |
@@ -316,9 +364,11 @@ work, and no amount of geodata substitutes for them.
 
 Covers the projection (round-trip, axis orientation, distance accuracy), DEM
 sampling and interpolation, the Unreal Z scale formula, heightmap encoding, OSM
-parsing and feature classification, the seating bowl, monolith geometry, the OBJ
+parsing and feature classification, the seating bowl, monolith geometry, roads/paths/parking, the OBJ
 exports (terrain grid, benches, stage blockout, winding, and a valid UV on every face), and the
 CLI build. No network in tests.
 
 The `unreal/` scripts are only checked offline: they must parse, and none may
-pass `unreal.Rotator` angles positionally. Running them needs the editor.
+pass `unreal.Rotator` angles positionally. `rebuild_level.py`'s step order and
+log parsing are unit-tested too (`tests/test_rebuild_level.py`). Running the
+scripts needs the editor.

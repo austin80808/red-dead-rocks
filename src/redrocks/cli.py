@@ -13,6 +13,7 @@ from .landscape import export_landscape
 from .monoliths import build_monoliths, monolith_to_obj
 from .osm import fetch_osm
 from .stage import DIMENSIONS, export_stage_obj
+from .park import export_park
 from .terrain_mesh import export_terrain_obj, summary as terrain_summary
 from .venue import build_venue, summary as venue_summary
 
@@ -93,6 +94,11 @@ def build(args: argparse.Namespace) -> int:
         obj_path = monolith_to_obj(rock, out_dir / f"{rock.name.split(' (')[0].replace(' ', '_')}.obj")
         print(f"  -> {obj_path.name}")
 
+    print("\nbuilding roads, paths and parking ...")
+    park = export_park(osm, dem, out_dir, grid=args.terrain_grid or 377)
+    for mesh in park.values():
+        print(f"  {mesh.features} {mesh.name.lower()}, {mesh.triangles:,} triangles -> {mesh.path.name}")
+
     manifest = {
         "venue": "Red Rocks Amphitheatre",
         "origin": {"lat": RED_ROCKS_LAT, "lon": RED_ROCKS_LON},
@@ -171,6 +177,16 @@ def build(args: argparse.Namespace) -> int:
                 {"name": d.name, "value_m": round(d.value_m, 4), "kind": d.kind, "source": d.source}
                 for d in DIMENSIONS
             ],
+        }
+    if park:
+        manifest["park"] = {
+            key: {
+                "obj": m.path.name,
+                "features": m.features,
+                "vertices": m.vertices,
+                "triangles": m.triangles,
+            }
+            for key, m in park.items()
         }
     (out_dir / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n")
     print(f"\nwrote {out_dir}/manifest.json")
