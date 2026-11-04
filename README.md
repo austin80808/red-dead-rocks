@@ -218,6 +218,38 @@ Re-run the measurement (needs `usd-core` in a venv, not a project dependency):
 It also writes a top-down height map and an axis cross-section with the
 blockout outlines drawn over the scan.
 
+## Scan edge blend
+
+The ml0w scan and the 3DEP terrain differ by a median of about 4 m, and by
+15 m or more around the rock fins, so the terrain used to bury a third of the
+scan and the scan's ragged edge floated as shelves. Two halves fix it (#17):
+
+* **Terrain** (`redrocks.scan_blend`, run by `redrocks build`): inside the
+  scan's footprint the terrain mesh's vertices take the scan's own floor, 0.4 m
+  lower, then drop wherever a triangle would still rise into the scan, so the
+  scan always draws on top and the walkable ground follows it. Over 60 m outside
+  the footprint a smooth (harmonic) fill takes the ground back to the DEM. Roads,
+  paths and parking drape on the blended ground; the benches and stage keep the
+  DEM under them (1 m keep-out, 6 m taper), as do the monoliths and the heightmap.
+* **Scan material** (`unreal/import_scan.py`): `M_Scan_ml0w` is masked. A plan-view
+  fade mask (0 at the footprint edge, 1 from 30 m in) broken up by world noise
+  thins the scan into patches toward its edge, DitherTemporalAA softens them,
+  and the last of it is tinted to the ground colour read from
+  `MI_Sandstone_Ground`. Near-black texels in the scan's albedo are lifted toward
+  shaded sandstone.
+
+`tools/scan_heights.py` writes the inputs for both, `assets/scan/scan_heights.npz`
+(scan floor, 2 m cells) and `assets/scan/scan_fade.png` + `.json` (the mask and
+where it sits). Re-run it whenever the `FIT_*` constants in `import_scan.py`
+change, then `redrocks build` and `rebuild_level.py`.
+
+| Before | After |
+|---|---|
+| ![](docs/media/scan-blend/before_low_bowl.jpg) | ![](docs/media/scan-blend/after_low_bowl.jpg) |
+| ![](docs/media/scan-blend/before_edge_w.jpg) | ![](docs/media/scan-blend/after_edge_w.jpg) |
+| ![](docs/media/scan-blend/before_edge_ne.jpg) | ![](docs/media/scan-blend/after_edge_ne.jpg) |
+| ![](docs/media/scan-blend/before_obl_n.jpg) | ![](docs/media/scan-blend/after_obl_n.jpg) |
+
 ## Play it
 
 ![Play In Editor: spawn on the stage, walk up the bowl, then look east, north, west and south](docs/media/redrocks_play_tour.gif)
@@ -291,7 +323,7 @@ a time, in this order; each writes a log to `/tmp/redrocks_*.log`:
 | `fix_camera.py` | lifts the camera above the 645 m ridge, removes test actors |
 | `setup_materials.py` | procedural materials: `M_Sandstone` (30° strata that fade with distance, soil, grass, slope rock) with rock and ground instances; `M_Benches` (redwood planks, concrete risers); `M_Concrete`, `M_Asphalt`, `M_Lot`, `M_Gravel`, `M_Scrub` |
 | `setup_environment.py` | terrain skirt from the DEM edge out to 120 km so the world has a horizon; ~5,000 scrub clumps as one instanced mesh, off rock, roads and the scan |
-| `import_scan.py` | imports the ml0w scan with Nanite and credits it; run after `import_redrocks.py` |
+| `import_scan.py` | imports the ml0w scan with Nanite and credits it; its material fades the scan out at its edge (see Scan edge blend); run after `import_redrocks.py` |
 | `setup_gameplay.py` | imports Stage, Roads, Paths, Parking; complex collision on every walkable mesh; PlayerStart on the stage deck facing up the bowl; FirstPerson game mode; in-world credits. Runs last |
 | `setup_credits.py` | the press-**C** credits screen: input action `IA_Credits` (C, in `IMC_Default`), Widget Blueprint `WBP_Credits`, Actor Blueprint `BP_CreditsMenu` placed in the level. Text from `assets/*/ATTRIBUTION.md` and the manifest. Runs after `setup_gameplay.py` |
 | `verify_walkable.py` | headless checks: game mode, one PlayerStart, triangle counts kept, credits present; renders the spawn and bowl views |

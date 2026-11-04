@@ -322,9 +322,10 @@ def harmonic_fill(values: np.ndarray, fixed: np.ndarray, tol: float = 0.005, max
         left = _shift(v, 0, 1, np.nan)
         right = _shift(v, 0, -1, np.nan)
         stack = np.stack([up, down, left, right])
-        mean = np.nanmean(np.where(np.isnan(stack), np.nan, stack), axis=0)
-        new = np.where(free & ~np.isnan(mean), mean, v)
-        change = np.nanmax(np.abs(new - v)[free]) if free.any() else 0.0
+        count = (~np.isnan(stack)).sum(axis=0)
+        mean = np.where(count > 0, np.nansum(stack, axis=0) / np.maximum(count, 1), np.nan)
+        new = np.where(free & (count > 0), mean, v)
+        change = float(np.nanmax(np.abs(new - v)[free], initial=0.0))
         v = new
         if change < tol:
             break

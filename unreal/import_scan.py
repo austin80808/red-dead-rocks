@@ -78,9 +78,24 @@ EDGE_SHARPNESS = 4.0
 # keeps a trace of the photo's light and dark so the last patches are not flat.
 EDGE_TINT = 0.85
 GROUND_MI = "/Game/RedRocks/Materials/MI_Sandstone_Ground"
-# Linear RGB of MI_Sandstone_Ground's band/dust mix when it was written
-# (#B96A45/#D8B088 averaged, 45 % toward #CDA27E), used only if it is missing.
-GROUND_COLOUR_FALLBACK = (0.597, 0.322, 0.178)
+ROCK_MI = "/Game/RedRocks/Materials/MI_Sandstone_Rock"
+# _ground_colour() of the look pass (#41) ground, used only if it is missing:
+# soil #7E4530 25 % toward dust #B27D58, 40 % grass #5F6236/#8E8058.
+GROUND_COLOUR_FALLBACK = (0.238, 0.125, 0.055)
+# Rock band mix of #A2482A and #C98A5E (40 % buff), used only if it is missing.
+ROCK_COLOUR_FALLBACK = (0.450, 0.141, 0.059)
+# Near-black albedo lift. The scan's baseColor has its 10th percentile at
+# linear luminance 0.007 (baked shadow and holes in the photogrammetry), which
+# reads as black under the look pass's lighting. Texels darker than DARK_LUM
+# (0.025, about the 20th percentile) blend toward shaded sandstone, by up to
+# DARK_LIFT at luminance 0. The target is the rock colour at DARK_SHADE of its
+# brightness and DARK_DESAT toward grey, so lifted texels stay in the scan's
+# shadow range and do not turn tree shade and asphalt rust-red (a first pass
+# at 0.06 / 0.85 / 0.45 with no desaturation did exactly that).
+DARK_LUM = 0.025
+DARK_LIFT = 0.75
+DARK_SHADE = 0.35
+DARK_DESAT = 0.4
 # Masked clip for the dithered fade: the engine default, which the
 # DitherTemporalAA function is built around (alpha 0 clips every pixel).
 FADE_CLIP = 0.3333
@@ -198,32 +213,63 @@ def _fade_placement():
         return json.load(fh)
 
 
+def _mi_vectors(path, names):
+    """{name: (r, g, b)} linear vector parameters of a material instance, or None."""
+    lib = unreal.MaterialEditingLibrary
+    if not unreal.EditorAssetLibrary.does_asset_exist(path):
+        return None
+    mi = unreal.EditorAssetLibrary.load_asset(path)
+    try:
+        out = {}
+        for n in names:
+            c = lib.get_material_instance_vector_parameter_value(mi, n)
+            out[n] = (c.r, c.g, c.b)
+        if not any(sum(v) > 0.0 for v in out.values()):
+            return None
+        return out
+    except Exception as exc:
+        log.append("could not read %s from %s: %r" % (names, path, exc))
+        return None
+
+
+def _mix(a, b, t):
+    return tuple(x + (y - x) * t for x, y in zip(a, b))
+
+
 def _ground_colour():
     """Linear RGB the terrain reads as, to tint the scan toward at its edge.
 
-    Read from MI_Sandstone_Ground (setup_materials.py, run before this step):
-    the base/buff band average washed with dust, which is what that graph shows
-    away from steep slopes. Falls back to GROUND_COLOUR_FALLBACK if the
-    instance or its parameters are missing.
+    From MI_Sandstone_Ground's own parameters (setup_materials.py runs before
+    this step): its soil (SoilColor washed 25 % toward DustColor) and its grass
+    (GrassColor/DryGrassColor halfway), mixed 60/40, which is about how much of
+    the flat ground that graph covers with grass at GrassAmount 0.6. Falls back
+    to GROUND_COLOUR_FALLBACK if the instance or its parameters are missing.
     """
-    lib = unreal.MaterialEditingLibrary
-    mi = None
-    if unreal.EditorAssetLibrary.does_asset_exist(GROUND_MI):
-        mi = unreal.EditorAssetLibrary.load_asset(GROUND_MI)
-    try:
-        base = lib.get_material_instance_vector_parameter_value(mi, "BaseColor")
-        buff = lib.get_material_instance_vector_parameter_value(mi, "BuffColor")
-        dust = lib.get_material_instance_vector_parameter_value(mi, "DustColor")
-        amount = lib.get_material_instance_scalar_parameter_value(mi, "DustAmount")
-        band = [(x + y) / 2.0 for x, y in ((base.r, buff.r), (base.g, buff.g), (base.b, buff.b))]
-        rgb = [b_ + (d - b_) * amount for b_, d in zip(band, (dust.r, dust.g, dust.b))]
-        if sum(rgb) <= 0.0:
-            raise ValueError("all-black ground parameters")
-        log.append("edge tint from %s: (%.3f, %.3f, %.3f) linear" % (GROUND_MI, rgb[0], rgb[1], rgb[2]))
-        return rgb
-    except Exception as exc:
-        log.append("edge tint fallback (%r): %s" % (exc, GROUND_COLOUR_FALLBACK))
-        return list(GROUND_COLOUR_FALLBACK)
+    v = _mi_vectors(GROUND_MI, ("SoilColor", "DustColor", "GrassColor", "DryGrassColor"))
+    if v is None:
+        log.append("edge tint fallback: %s" % (GROUND_COLOUR_FALLBACK,))
+        return GROUND_COLOUR_FALLBACK
+    soil = _mix(v["SoilColor"], v["DustColor"], 0.25)
+    grass = _mix(v["GrassColor"], v["DryGrassColor"], 0.5)
+    rgb = _mix(soil, grass, 0.4)
+    log.append("edge tint from %s: (%.3f, %.3f, %.3f) linear" % ((GROUND_MI,) + rgb))
+    return rgb
+
+
+def _rock_shade_colour():
+    """Linear RGB that near-black scan texels are lifted toward: shaded sandstone.
+
+    MI_Sandstone_Rock's BaseColor/BuffColor band mix (40 % buff), DARK_DESAT
+    toward grey and at DARK_SHADE of its brightness, so a lifted texel still
+    reads as rock in shadow, just warm rock rather than a black hole.
+    """
+    v = _mi_vectors(ROCK_MI, ("BaseColor", "BuffColor"))
+    rock = _mix(v["BaseColor"], v["BuffColor"], 0.4) if v else ROCK_COLOUR_FALLBACK
+    grey = 0.2126 * rock[0] + 0.7152 * rock[1] + 0.0722 * rock[2]
+    rgb = tuple(DARK_SHADE * (c + (grey - c) * DARK_DESAT) for c in rock)
+    log.append("dark-texel lift toward (%.3f, %.3f, %.3f) linear%s"
+               % (rgb + ("" if v else " (fallback)",)))
+    return rgb
 
 
 def _build_material(textures):
@@ -276,7 +322,27 @@ def _build_material(textures):
         link(b, b_out, n, "B")
         return n
 
-    base = sample(textures["base"], -600, 0) if "base" in textures else None
+    base = None
+    if "base" in textures:
+        # Lift near-black texels toward shaded sandstone:
+        # col = lerp(tex, shade, saturate((DARK_LUM - lum) / DARK_LUM) * DARK_LIFT).
+        tex = sample(textures["base"], -1400, 0)
+        lum = node("MaterialExpressionDotProduct", -1200, -150)
+        link(tex, "RGB", lum, "A")
+        link(node("MaterialExpressionConstant3Vector", -1400, -200,
+                  constant=unreal.LinearColor(r=0.2126, g=0.7152, b=0.0722, a=1.0)), "", lum, "B")
+        dark = op("MaterialExpressionMultiply",
+                  op("MaterialExpressionSubtract", const(DARK_LUM, -1200, -300), lum, -1000, -250),
+                  const(DARK_LIFT / DARK_LUM, -1000, -350), -800, -250)
+        dark01 = node("MaterialExpressionSaturate", -600, -250)
+        link(dark, "", dark01, "")
+        r, g_, b_ = _rock_shade_colour()
+        shade = node("MaterialExpressionConstant3Vector", -800, -100,
+                     constant=unreal.LinearColor(r=r, g=g_, b=b_, a=1.0))
+        base = node("MaterialExpressionLinearInterpolate", -400, 0)
+        link(tex, "RGB", base, "A")
+        link(shade, "", base, "B")
+        link(dark01, "", base, "Alpha")
     if "normal" in textures:
         lib.connect_material_property(
             sample(textures["normal"], -600, 300, unreal.MaterialSamplerType.SAMPLERTYPE_NORMAL),
@@ -294,7 +360,7 @@ def _build_material(textures):
     if "fade" not in textures:
         log.append("ERROR: no fade mask (%s); run tools/scan_heights.py" % FADE_PNG)
         if base is not None:
-            lib.connect_material_property(base, "RGB", unreal.MaterialProperty.MP_BASE_COLOR)
+            lib.connect_material_property(base, "", unreal.MaterialProperty.MP_BASE_COLOR)
         mat.set_editor_property("blend_mode", unreal.BlendMode.BLEND_OPAQUE)
     else:
         # Fade alpha a: uv = (world XY - (x0, y1)) * (1/width, -1/height); the
@@ -354,7 +420,7 @@ def _build_material(textures):
             link(fade, "R", inv_a, "")
             amount = op("MaterialExpressionMultiply", inv_a, const(EDGE_TINT, -1000, 950), -800, 1000)
             tinted = node("MaterialExpressionLinearInterpolate", -300, 0)
-            link(base, "RGB", tinted, "A")
+            link(base, "", tinted, "A")
             link(ground, "", tinted, "B")
             link(amount, "", tinted, "Alpha")
             lib.connect_material_property(tinted, "", unreal.MaterialProperty.MP_BASE_COLOR)
