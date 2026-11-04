@@ -51,7 +51,7 @@ from __future__ import annotations
 import math
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Sequence
+from typing import Callable, Sequence
 
 import numpy as np
 
@@ -173,8 +173,48 @@ def _poly(frame_o, a, l, pts) -> np.ndarray:
     return np.array([frame_o + x * l + y * a for x, y in pts])
 
 
-def stage_parts(rows: Sequence[Row], polylines: Sequence[np.ndarray], base_elevation_m: float) -> list[Part]:
-    """Lay out every blockout part from the seating-bowl rows."""
+DECK_CLEARANCE_M = 0.05  # deck top above the highest terrain under it
+DECK_SAMPLE_M = 1.0  # terrain sample spacing over the deck footprint
+# Only the front of the deck has to clear the terrain: the rear is cut into the
+# hillside, which is what the retaining wall behind the shell holds back.
+DECK_CLEAR_FRACTION = 0.5
+
+
+def deck_top_elevation(
+    rows: Sequence[Row], ground: Callable[[float, float], float] | None = None
+) -> float:
+    """Deck top elevation (m above sea level).
+
+    Row 1's elevation minus ``STAGE_DROP_M``, raised if needed so the front
+    ``DECK_CLEAR_FRACTION`` of the deck clears the terrain under it: the DEM bulges at the stage end, and a deck
+    below the terrain is invisible and buries the player's spawn.
+    """
+    top = rows[0].elevation_m - STAGE_DROP_M
+    if ground is None:
+        return top
+    a = stage_axis(rows)
+    l = np.array([a[1], -a[0]])
+    origin = np.array([rows[0].centre_east, rows[0].centre_north]) - a * STAGE_FRONT_SETBACK_M
+    hw = STAGE_WIDTH_M / 2.0
+    highest = max(
+        ground(*(origin + x * l + y * a))
+        for x in np.arange(-hw, hw + 1e-9, DECK_SAMPLE_M)
+        for y in np.arange(-STAGE_DEPTH_M * DECK_CLEAR_FRACTION, 1e-9, DECK_SAMPLE_M)
+    )
+    return max(top, highest + DECK_CLEARANCE_M)
+
+
+def stage_parts(
+    rows: Sequence[Row],
+    polylines: Sequence[np.ndarray],
+    base_elevation_m: float,
+    ground: Callable[[float, float], float] | None = None,
+) -> list[Part]:
+    """Lay out every blockout part from the seating-bowl rows.
+
+    ``ground(east, north)`` (metres) is the terrain the deck must clear; without
+    it the deck sits ``STAGE_DROP_M`` below row 1 regardless of the terrain.
+    """
     if len(rows) != len(polylines):
         raise ValueError(f"{len(rows)} rows but {len(polylines)} polylines")
     a = stage_axis(rows)
@@ -183,7 +223,7 @@ def stage_parts(rows: Sequence[Row], polylines: Sequence[np.ndarray], base_eleva
     origin = np.array([first.centre_east, first.centre_north]) - a * STAGE_FRONT_SETBACK_M
 
     W, D = STAGE_WIDTH_M, STAGE_DEPTH_M
-    deck_top = first.elevation_m - base_elevation_m - STAGE_DROP_M
+    deck_top = deck_top_elevation(rows, ground) - base_elevation_m
     deck_bot = deck_top - dim("deck_thickness")
     roof_top = deck_top + ROOF_TOP_ABOVE_DECK_M
     roof_bot = roof_top - dim("roof_thickness")
@@ -312,6 +352,7 @@ def export_stage_obj(
     polylines: Sequence[np.ndarray],
     out_path: Path,
     base_elevation_m: float,
+    ground: Callable[[float, float], float] | None = None,
 ) -> StageMesh:
     """Write the blockout as one OBJ object, ``Stage``.
 
@@ -321,8 +362,10 @@ def export_stage_obj(
         out_path: where to write ``Stage.obj``.
         base_elevation_m: Z=0 elevation, the terrain minimum
             (``benches.terrain_base_elevation``).
+        ground: terrain height function the deck must clear (e.g.
+            ``terrain_mesh.TerrainSurface``); optional.
     """
-    parts = stage_parts(rows, polylines, base_elevation_m)
+    parts = stage_parts(rows, polylines, base_elevation_m, ground)
 
     all_v: list[np.ndarray] = []
     all_uv: list[np.ndarray] = []
@@ -373,7 +416,7 @@ def export_stage_obj(
         vertices=len(verts_cm),
         triangles=n_tris,
         base_elevation_m=base_elevation_m,
-        deck_top_elevation_m=rows[0].elevation_m - STAGE_DROP_M,
+        deck_top_elevation_m=deck_top_elevation(rows, ground),
         walkway_elevation_m=rows[-1].elevation_m,
         front_edge_east=float(origin[0]),
         front_edge_north=float(origin[1]),
