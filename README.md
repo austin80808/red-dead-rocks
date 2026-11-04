@@ -351,6 +351,8 @@ project), and everything below is placed from the map by `redrocks build`
 | ![cart](docs/media/explore/cart.gif) | ![sled](docs/media/explore/sled.gif) |
 | **The amphitheatre, then N for snow** | **Morrison** |
 | ![amphitheatre](docs/media/explore/amphitheatre.gif) | ![Morrison](docs/media/explore/morrison.gif) |
+| **Bear Creek tubing** | **T for night: the stage concert** |
+| ![tubing](docs/media/explore/tubing.gif) | ![night](docs/media/explore/night_stage.jpg) |
 
 *All captured by `unreal/playtest_explore.py` (`FILM=1` for the motion frames). The
 clean run: climbed 49.9 m and pulled over the top, flew 353 m at up to 101 km/h and
