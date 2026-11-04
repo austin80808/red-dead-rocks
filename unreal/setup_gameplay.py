@@ -25,7 +25,9 @@ What it does, each step logged to /tmp/redrocks_gameplay.log as "ok" or "FAIL":
   5. Sets the level's game mode to the FirstPerson template's, so Play spawns a
      walking first-person character (WASD, mouse, space to jump).
   6. Raises the sky light so shaded ground isn't black at eye level.
-  7. Turns off collision on the ml0w scan chunks: they are visual only.
+  7. Turns off collision on the ml0w scan chunks: they are visual only. When
+     the scan is present, hides the extruded rocks in game (#16); they keep
+     their collision, so they act as the scan rocks' walls.
   8. Places the attribution as text in the world, beside the spawn, so the
      CC BY 4.0 (ml0w scan) and ODbL (OpenStreetMap) credits show in-game.
 """
@@ -161,6 +163,24 @@ def _scan_visual_only():
         actor.static_mesh_component.set_collision_profile_name("NoCollision")
         actor.set_actor_enable_collision(False)
     return len(chunks)
+
+
+EXTRUDED_ROCKS = ["Creation_Rock", "Ship_Rock"]
+
+
+def _hide_extruded_rocks():
+    """Issue #16: where the scan has the real rocks, hide the extruded ones in
+    game. They keep their collision, so they still stop the player at the
+    rock faces the scan shows (the scan itself has none)."""
+    scan = [a for a in _actors() if a.get_actor_label().startswith(SCAN_PREFIX)]
+    if not scan:
+        return "no scan in the level; extruded rocks stay visible"
+    hidden = 0
+    for name in EXTRUDED_ROCKS:
+        for actor in _by_label(name):
+            actor.set_actor_hidden_in_game(True)
+            hidden += 1
+    return hidden
 
 
 def _save_level():
@@ -370,6 +390,7 @@ def main():
     _step("sky light %.1f for first person" % SKY_LIGHT_INTENSITY, _first_person_light)
 
     _step("scan is visual only (no collision)", _scan_visual_only)
+    _step("hide extruded rocks in game (collision kept)", _hide_extruded_rocks)
     _step("save %s" % LEVEL_PATH, _save_level)
 
 
