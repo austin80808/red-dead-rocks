@@ -174,19 +174,38 @@ def _enable_nanite(mesh):
     log.append("nanite enabled=%s" % mesh.get_editor_property("nanite_settings").enabled)
 
 
-def _find_scan_mesh(paths):
+def _find_scan_meshes(paths):
+    """Every StaticMesh the import produced.
+
+    Interchange splits the Sketchfab USD into one mesh per prim (31 chunks for
+    this scan), all authored in the scene's shared frame, so they are placed
+    together with one transform.
+    """
+    meshes = []
     for p in paths:
         asset_path = p.split(".")[0]
         asset = unreal.EditorAssetLibrary.load_asset(asset_path)
         if isinstance(asset, unreal.StaticMesh):
-            return asset, asset_path
-    return None, None
+            meshes.append((asset, asset_path))
+    return meshes
 
 
 def _remove_old_actors(actor_subsystem):
     for actor in actor_subsystem.get_all_level_actors():
-        if actor.get_actor_label() in (ACTOR_LABEL, ACTOR_LABEL + "_Credit"):
+        if actor.get_actor_label().startswith(ACTOR_LABEL):
             actor_subsystem.destroy_actor(actor)
+
+
+def _union_bounds(actors):
+    """(min, max) corners of all actors' world bounds, as unreal.Vector."""
+    lo = [float("inf")] * 3
+    hi = [float("-inf")] * 3
+    for actor in actors:
+        centre, extent = actor.get_actor_bounds(False)
+        for i, (c, e) in enumerate(((centre.x, extent.x), (centre.y, extent.y), (centre.z, extent.z))):
+            lo[i] = min(lo[i], c - e)
+            hi[i] = max(hi[i], c + e)
+    return unreal.Vector(*lo), unreal.Vector(*hi)
 
 
 def main():
@@ -198,17 +217,19 @@ def main():
 
     paths = _import_task(SCAN_FILE, ASSET_DIR)
     log.append("imported scan -> %s" % paths)
-    mesh, mesh_path = _find_scan_mesh(paths)
-    if mesh is None:
+    meshes = _find_scan_meshes(paths)
+    if not meshes:
         log.append(
             "ABORT: no StaticMesh imported. Check the USD / Interchange plugins "
             "are enabled and read the UE log for the translator error."
         )
         return
+    log.append("scan chunks: %d" % len(meshes))
 
-    _enable_nanite(mesh)
+    for mesh, mesh_path in meshes:
+        _enable_nanite(mesh)
+        unreal.EditorAssetLibrary.save_asset(mesh_path)
     material = _build_material(_import_textures())
-    unreal.EditorAssetLibrary.save_asset(mesh_path)
 
     if not unreal.EditorAssetLibrary.does_asset_exist(LEVEL_PATH):
         log.append("ABORT: %s missing; run import_redrocks.py first" % LEVEL_PATH)
@@ -218,55 +239,64 @@ def main():
     actor_subsystem = unreal.get_editor_subsystem(unreal.EditorActorSubsystem)
     _remove_old_actors(actor_subsystem)
 
-    # spawn_actor_from_object no-ops headless; spawn the class and set the mesh.
-    actor = actor_subsystem.spawn_actor_from_class(
-        unreal.StaticMeshActor, unreal.Vector(0.0, 0.0, 0.0)
-    )
-    if actor is None:
-        log.append("SPAWN FAILED for %s" % ACTOR_LABEL)
+    # One actor per chunk, all at the origin with the same rotation, so they
+    # keep their shared frame. spawn_actor_from_object no-ops headless; spawn
+    # the class and set the mesh.
+    actors = []
+    for i, (mesh, _) in enumerate(meshes):
+        actor = actor_subsystem.spawn_actor_from_class(
+            unreal.StaticMeshActor, unreal.Vector(0.0, 0.0, 0.0)
+        )
+        if actor is None:
+            log.append("SPAWN FAILED for chunk %d" % i)
+            continue
+        comp = actor.static_mesh_component
+        comp.set_static_mesh(mesh)
+        for slot in range(comp.get_num_materials()):
+            comp.set_material(slot, material)
+        actor.set_actor_label("%s_%02d" % (ACTOR_LABEL, i))
+        actor.set_mobility(unreal.ComponentMobility.STATIC)
+        actor.set_actor_rotation(ACTOR_ROTATION, False)
+        # The credit travels with every chunk: tags plus a shared folder.
+        actor.set_editor_property(
+            "tags", [unreal.Name("CC-BY-4.0"), unreal.Name("author:ml0w"), unreal.Name(CREDIT)]
+        )
+        actor.set_folder_path("Scan_ml0w")
+        actors.append(actor)
+    if not actors:
+        log.append("ABORT: no scan actors spawned")
         return
-    comp = actor.static_mesh_component
-    comp.set_static_mesh(mesh)
-    for slot in range(comp.get_num_materials()):
-        comp.set_material(slot, material)
-    actor.set_actor_label(ACTOR_LABEL)
-    actor.set_mobility(unreal.ComponentMobility.STATIC)
-    actor.set_actor_rotation(ACTOR_ROTATION, False)
 
-    # Measure at scale 1, then scale so the longest side is the known length.
-    _, extent = actor.get_actor_bounds(False)
-    longest = 2.0 * max(extent.x, extent.y, extent.z)
-    log.append(
-        "imported size cm (x,y,z)=(%.1f, %.1f, %.1f)"
-        % (2 * extent.x, 2 * extent.y, 2 * extent.z)
-    )
+    # Measure the whole scan at scale 1, then scale so its longest side is the
+    # known length. Every actor sits at the origin, so scaling each one about
+    # its own pivot scales the group about the origin.
+    lo, hi = _union_bounds(actors)
+    size = (hi.x - lo.x, hi.y - lo.y, hi.z - lo.z)
+    log.append("imported size cm (x,y,z)=(%.1f, %.1f, %.1f)" % size)
+    longest = max(size)
     if longest > 0.0:
         scale = EXPECTED_LONGEST_M * 100.0 / longest
     else:
         scale = NOMINAL_SCALE
         log.append("bounds empty, using nominal scale")
-    actor.set_actor_scale3d(unreal.Vector(scale, scale, scale))
+    for actor in actors:
+        actor.set_actor_scale3d(unreal.Vector(scale, scale, scale))
     log.append("scale factor %.4f (raw metres -> cm would be %.1f)" % (scale, NOMINAL_SCALE))
 
     # Centre on the origin in XY and put the lowest point on the bowl floor.
-    centre, extent = actor.get_actor_bounds(False)
-    bottom = centre.z - extent.z
-    actor.set_actor_location(
-        unreal.Vector(
-            -centre.x + SCAN_OFFSET_CM[0],
-            -centre.y + SCAN_OFFSET_CM[1],
-            BOWL_FLOOR_Z_CM - bottom + SCAN_OFFSET_CM[2],
-        ),
-        False,
-        False,
+    lo, hi = _union_bounds(actors)
+    log.append(
+        "scaled size m (x,y,z)=(%.1f, %.1f, %.1f), expect a 78.9 x 163.3 x 52.1 shape"
+        % ((hi.x - lo.x) / 100.0, (hi.y - lo.y) / 100.0, (hi.z - lo.z) / 100.0)
     )
-
-    # The credit travels with the actor: tags, a Credits folder, and a text
-    # actor beside it.
-    actor.set_editor_property(
-        "tags", [unreal.Name("CC-BY-4.0"), unreal.Name("author:ml0w"), unreal.Name(CREDIT)]
+    offset = unreal.Vector(
+        -(lo.x + hi.x) / 2.0 + SCAN_OFFSET_CM[0],
+        -(lo.y + hi.y) / 2.0 + SCAN_OFFSET_CM[1],
+        BOWL_FLOOR_Z_CM - lo.z + SCAN_OFFSET_CM[2],
     )
-    actor.set_folder_path("Credits")
+    for actor in actors:
+        actor.set_actor_location(actor.get_actor_location() + offset, False, False)
+    log.append("placed %d chunks, offset %s" % (len(actors), offset))
     try:
         credit = actor_subsystem.spawn_actor_from_class(
             unreal.TextRenderActor, unreal.Vector(0.0, 0.0, BOWL_FLOOR_Z_CM + 300.0)
