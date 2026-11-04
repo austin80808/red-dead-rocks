@@ -49,6 +49,8 @@ out/
   Creation_Rock.obj        north monolith, 91.4 m, watertight
   Ship_Rock.obj            south monolith, 61.0 m, watertight
   Benches.obj              68 bench rows, 816 triangles, terrain frame
+  Roads.obj, Paths.obj     OSM highways as draped ribbons (21,118 / 23,000 triangles)
+  Parking.obj              24 OSM parking lots as terrain-following patches (22,788 triangles)
   manifest.json            Z scale, bbox, origin, venue, monoliths, attribution
 ```
 
@@ -97,6 +99,39 @@ Landscape LOD); the mesh can be swapped for a Landscape later.
 Axes are X east, Y north, Z up, in centimetres, centred on the origin, with the
 lowest point at Z = 0. Faces wind counter-clockwise seen from above, so normals
 point up.
+
+### Roads, paths and parking
+
+`park.py` turns the OSM `highway=*` and `amenity=parking` ways into three more
+OBJs in the terrain's frame (cm, X east, Y north, Z up, Z=0 at the terrain
+minimum): `Roads.obj`, `Paths.obj` and `Parking.obj`. A file is skipped when the
+data has nothing for it, and each present one is recorded under `park` in
+`manifest.json`.
+
+Ribbons are swept along each way, sampled every 2 m and draped on the *same
+triangles* as `RedRocks_Terrain.obj` (cell-diagonal aware, so no float over or
+sink into the mesh), then lifted by 3 cm (parking), 5 cm (roads) or 7 cm
+(paths) so layers don't z-fight. Widths by `highway=*`, in metres:
+
+| Class | Width |
+|---|---|
+| motorway, trunk | 10 |
+| primary | 8 |
+| secondary | 7 |
+| tertiary, unclassified, residential | 6 |
+| living_street | 4.5 |
+| service (parking aisle 3) | 4 |
+| track | 3.5 |
+| cycleway | 2.5 |
+| footway, pedestrian, bridleway | 2 |
+| path, steps | 1.5 |
+
+`*_link` uses its parent class, and a numeric `width=` tag overrides the table.
+Roads are motorway down to track; cycleway and below are paths.
+`tunnel=*` ways and closed `area=yes` ways are skipped; other `highway` values
+(construction, proposed ...) are ignored. Bridges are draped, with no deck.
+Every face has UVs: on ribbons U is distance along the way divided by its width
+(square texels) and V runs 0 to 1 across; on parking, planar metres / 10.
 
 ### Monoliths
 
@@ -291,12 +326,12 @@ work, and no amount of geodata substitutes for them.
 ## Tests
 
 ```bash
-.venv/bin/python -m pytest tests -q   # 121 passed
+.venv/bin/python -m pytest tests -q   # 142 passed
 ```
 
 Covers the projection (round-trip, axis orientation, distance accuracy), DEM
 sampling and interpolation, the Unreal Z scale formula, heightmap encoding, OSM
-parsing and feature classification, the seating bowl, monolith geometry, the OBJ
+parsing and feature classification, the seating bowl, monolith geometry, roads/paths/parking, the OBJ
 exports (terrain grid, benches, winding, and a valid UV on every face), and the
 CLI build. No network in tests.
 
