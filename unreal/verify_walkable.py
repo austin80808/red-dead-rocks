@@ -30,8 +30,9 @@ import os
 import unreal
 
 LEVEL_PATH = "/Game/RedRocks/Lvl_RedRocks"
+# The redrocks build output; REDROCKS_OUT_DIR points a test copy at another build.
 OUT_DIR = os.environ.get("REDROCKS_OUT_DIR", "/Users/austin/dev/redrocks-ue/out")
-LOG_PATH = "/tmp/redrocks_verify.log"
+LOG_PATH = os.path.join(os.environ.get("REDROCKS_LOG_DIR", "/tmp"), "redrocks_verify.log")
 GAME_MODE_NAME = "BP_FirstPersonGameMode"
 EYE_CM = 160.0
 WIDTH, HEIGHT = 1600, 900

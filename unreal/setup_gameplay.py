@@ -38,12 +38,13 @@ import os
 
 import unreal
 
+# The redrocks build output; REDROCKS_OUT_DIR points a test copy at another build.
 OUT_DIR = os.environ.get("REDROCKS_OUT_DIR", "/Users/austin/dev/redrocks-ue/out")
 ASSET_DIR = "/Game/RedRocks"
 MAT_DIR = "/Game/RedRocks/Materials"
 LEVEL_PATH = "/Game/RedRocks/Lvl_RedRocks"
 GAME_MODE = "/Game/FirstPerson/Blueprints/BP_FirstPersonGameMode"
-LOG_PATH = "/tmp/redrocks_gameplay.log"
+LOG_PATH = os.path.join(os.environ.get("REDROCKS_LOG_DIR", "/tmp"), "redrocks_gameplay.log")
 
 # Meshes placed by this script (all in the terrain frame, origin, no rotation).
 NEW_MESHES = ["Stage", "Roads", "Paths", "Parking"]

@@ -336,3 +336,24 @@ def test_terrain_surface_clamps_outside_the_extent():
     assert surface(1e6, 1e6) == pytest.approx(surface(1e5, 1e5))
     with pytest.raises(ValueError):
         TerrainSurface(make_dem(), 1)
+
+
+def test_floor_pulls_the_bench_bottom_down_but_not_the_seat(tmp_path):
+    """On the scan: seat 0.45 m over the scan's ground, bottom down to the terrain under it."""
+    line = np.array([[-40.0, 100.0], [40.0, 100.0]])
+    ground = Tilted()
+    floor = lambda e, n: ground(e, n) - 0.4 - 0.01 * abs(e)  # noqa: E731  terrain under the scan
+    _, verts, _ = export(tmp_path, [line], ground=ground, floor=floor)
+    for lb, lt, rt, rb in section_stations(verts):
+        centre = ground(0.5 * (lt[0] + rt[0]), 0.5 * (lt[1] + rt[1]))
+        assert lt[2] + BASE == pytest.approx(centre + SEAT_HEIGHT_M, abs=1e-6)
+        lowest = min(floor(c[0], c[1]) for c in (lb, rb, 0.5 * (lb + rb)))
+        assert lb[2] + BASE == pytest.approx(lowest, abs=1e-6)
+        assert rb[2] + BASE == pytest.approx(lowest, abs=1e-6)
+
+
+def test_a_floor_above_the_ground_does_not_lift_the_bottom(tmp_path):
+    line = np.array([[-40.0, 100.0], [40.0, 100.0]])
+    _, with_floor, _ = export(tmp_path, [line], ground=Tilted(), floor=lambda e, n: 5000.0)
+    _, without, _ = export(tmp_path, [line], ground=Tilted())
+    np.testing.assert_allclose(with_floor, without)

@@ -42,7 +42,7 @@ def load(path):
         elif tok[0] == "o":
             objects.append(tok[1])
         elif tok[0] == "f":
-            faces.append([tuple(int(i) for i in t.split("/")) for t in tok[1:]])
+            faces.append([tuple(int(i) for i in t.split("/")[:2]) for t in tok[1:]])
     return np.array(verts), np.array(uvs), faces, objects
 
 
@@ -252,3 +252,23 @@ def test_row_polylines_falls_back_to_straight_chords_for_bare_rows():
         assert np.hypot(*(line[-1] - line[0])) == pytest.approx(row.length_m, abs=0.01)
     with pytest.raises(ValueError):
         row_polylines(venue, ring, proj, n_rows=7)
+
+
+def test_every_face_has_a_flat_outward_normal(tmp_path):
+    """Seat tops point up, risers sideways: the importer must not smooth them together."""
+    export(tmp_path)
+    obj = (tmp_path / "Benches.obj").read_text().splitlines()
+    verts = np.array([[float(x) for x in l.split()[1:4]] for l in obj if l.startswith("v ")])
+    vns = np.array([[float(x) for x in l.split()[1:4]] for l in obj if l.startswith("vn ")])
+    faces = [[tuple(int(i) for i in tok.split("/")) for tok in l.split()[1:]] for l in obj if l.startswith("f ")]
+    assert len(vns) >= 4
+    np.testing.assert_allclose(np.linalg.norm(vns, axis=1), 1.0, atol=1e-3)
+    ups = 0
+    for f in faces:
+        assert len({n for _, _, n in f}) == 1
+        a, b, c = (verts[v - 1] for v, _, _ in f)
+        cross = np.cross(b - a, c - a)
+        n = vns[f[0][2] - 1]
+        assert np.dot(cross / np.linalg.norm(cross), n) > 0.999
+        ups += n[2] > 0.99
+    assert ups >= len(faces) // 6  # the seat tops (2 of every 12 faces on a straight bench)

@@ -25,11 +25,12 @@ screenshots land in <project>/Saved/Screenshots/. Checks:
 """
 
 import math
+import os
 import time
 
 import unreal
 
-LOG_PATH = "/tmp/redrocks_playtest.log"
+LOG_PATH = os.path.join(os.environ.get("REDROCKS_LOG_DIR", "/tmp"), "redrocks_playtest.log")
 SETTLE_S = 10.0  # auto exposure and TSR need ~10 s after the spawn cut before a shot is representative
 WALK_S = 12.0
 JUMP_EVERY_S = 0.8

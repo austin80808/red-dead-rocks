@@ -380,10 +380,10 @@ def _juniper(name, index, one_seed: bool) -> Model:
     meshes = {p: Mesh() for p in PARTS}
     if one_seed:
         height, n_stems, base_r, zb = 3.6, int(rng.integers(2, 5)), 0.10, 0.04
-        radius, shape_pow, n_clumps, core, card = 0.55 * 3.6, 0.6, 56, 0.3, 0.68
+        radius, shape_pow, n_clumps, core, card = 0.55 * 3.6, 0.6, 56, 0.3, 0.5
     else:
         height, n_stems, base_r, zb = 5.0, int(rng.integers(1, 3)), 0.17, 0.10
-        radius, shape_pow, n_clumps, core, card = 0.34 * 5.0, 0.85, 64, 0.32, 0.72
+        radius, shape_pow, n_clumps, core, card = 0.34 * 5.0, 0.85, 64, 0.32, 0.52
     lean = rng.normal(scale=0.12 * height, size=2)
     sin_w = rng.normal(size=(3, 3))
     sin_p = rng.uniform(0, 2 * math.pi, 3)
@@ -431,8 +431,8 @@ def _juniper(name, index, one_seed: bool) -> Model:
             continue
         p = axis(t) + np.array([math.cos(theta) * rho * r, math.sin(theta) * rho * r, 0.0])
         scale = 0.65 + 0.35 * min(1.0, r / radius * 1.6)
-        _clump(meshes, rng, p, core * scale, 11, card * scale, crown_c, crown_r, 0.6,
-               subdiv=1, tilt_up=0.2, squash=0.85, spread=0.7)
+        _clump(meshes, rng, p, core * scale, 16, card * scale, crown_c, crown_r, 0.6,
+               subdiv=1, tilt_up=0.2, squash=0.85, spread=1.0)
         placed += 1
         if rng.uniform() < 0.55:
             stem = stems[int(rng.integers(0, len(stems)))]

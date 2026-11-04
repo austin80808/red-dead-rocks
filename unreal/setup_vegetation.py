@@ -6,7 +6,7 @@ leaf atlases and vegetation.json with every instance). Headless:
     UnrealEditor-Cmd RedRocks.uproject -run=pythonscript \
         -script=unreal/setup_vegetation.py -unattended -nosplash -stdout
 
-What it does, each step logged to /tmp/redrocks_vegetation.log:
+What it does, each step logged to $REDROCKS_LOG_DIR (default /tmp)/redrocks_vegetation.log:
   1. Imports the four leaf atlases (T_Leaves_*) to /Game/RedRocks/Vegetation,
      keeping alpha coverage in the mips so distant cards don't thin out.
   2. Builds three procedural master materials and an instance per species:
@@ -37,7 +37,7 @@ ASSET_DIR = "/Game/RedRocks/Vegetation"
 LEVEL_PATH = "/Game/RedRocks/Lvl_RedRocks"
 ACTOR_LABEL = "Vegetation"
 OLD_LABELS = ["Scrub", "Vegetation"]
-LOG_PATH = "/tmp/redrocks_vegetation.log"
+LOG_PATH = os.path.join(os.environ.get("REDROCKS_LOG_DIR", "/tmp"), "redrocks_vegetation.log")
 
 TREES = ("JuniperRM", "JuniperOS", "Ponderosa")  # these trunks block the player
 SHRUB_CULL_CM = 200000.0

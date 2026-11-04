@@ -18,7 +18,7 @@ Views (each held 7 s so auto exposure settles; FPS is the mean over the last 3 s
   aerial    (0, -45000, 45000) cm, pitch -42, yaw 90
 The pawn flies with gravity and collision off. Screenshots:
 <project>/Saved/Screenshots/MacEditor/<prefix>veg_<view>.png (HighResShot 1600x900).
-Log: $REDROCKS_SHOT_LOG or /tmp/redrocks_vegetation_shots.log.
+Log: $REDROCKS_LOG_DIR (default /tmp)/redrocks_vegetation_shots.log.
 """
 
 import json
@@ -29,7 +29,7 @@ import time
 import unreal
 
 OUT_DIR = os.environ.get("REDROCKS_OUT_DIR", "/Users/austin/dev/redrocks-ue/out")
-LOG_PATH = os.environ.get("REDROCKS_SHOT_LOG", "/tmp/redrocks_vegetation_shots.log")
+LOG_PATH = os.path.join(os.environ.get("REDROCKS_LOG_DIR", "/tmp"), "redrocks_vegetation_shots.log")
 PREFIX = os.environ.get("REDROCKS_SHOT_PREFIX", "")
 HOLD_S = 7.0
 FPS_WINDOW_S = 3.0

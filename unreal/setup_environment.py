@@ -30,13 +30,14 @@ import os
 
 import unreal
 
+# The redrocks build output; REDROCKS_OUT_DIR points a test copy at another build.
 OUT_DIR = os.environ.get("REDROCKS_OUT_DIR", "/Users/austin/dev/redrocks-ue/out")
 TERRAIN_OBJ = os.path.join(OUT_DIR, "RedRocks_Terrain.obj")
 ASSET_DIR = "/Game/RedRocks"
 LEVEL_PATH = "/Game/RedRocks/Lvl_RedRocks"
 SKIRT_NAME = "Terrain_Skirt"
 SKIRT_MATERIAL = "/Game/RedRocks/Materials/MI_Sandstone_Ground"
-LOG_PATH = "/tmp/redrocks_environment.log"
+LOG_PATH = os.path.join(os.environ.get("REDROCKS_LOG_DIR", "/tmp"), "redrocks_environment.log")
 
 # Rings, as distance past the terrain edge (cm), how many edge samples each
 # side of a vertex its height is averaged over, how far it has blended to the

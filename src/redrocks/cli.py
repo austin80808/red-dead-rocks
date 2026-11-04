@@ -10,15 +10,15 @@ import numpy as np
 
 from .dem import BBox, fetch_dem, square_bbox
 from .geo import LocalProjection
-from .benches import SEAT_DEPTH_M, export_benches_obj, row_polylines, terrain_base_elevation
+from .benches import export_benches_obj, row_polylines, terrain_base_elevation
 from .landscape import export_landscape
 from .monoliths import build_monoliths, monolith_to_obj
 from .osm import fetch_osm
 from .spawn import player_spawn
-from .stage import DIMENSIONS, export_stage_obj, stage_parts
+from .stage import DIMENSIONS, export_stage_obj
 from .park import export_park
 from .scan_blend import (
-    FADE_M, FALLOFF_M, KEEP_OUT_M, KEEP_OUT_TAPER_M, MARGIN_M, ScanHeights, blend_summary, conform_dem,
+    FADE_M, FALLOFF_M, MARGIN_M, ScanGround, ScanHeights, blend_summary, conform_dem,
 )
 from .terrain_mesh import TerrainSurface, export_terrain_obj, summary as terrain_summary
 from .venue import build_venue, summary as venue_summary
@@ -30,8 +30,9 @@ RED_ROCKS_LON = -105.20550
 # The park plus the surrounding hogback, so the venue sits in its real bowl.
 DEFAULT_SIDE_M = 2400.0
 
-# The ml0w scan's height raster (tools/scan_heights.py), relative to the checkout.
+# The ml0w scan's floor and ground rasters (tools/scan_heights.py), relative to the checkout.
 DEFAULT_SCAN_HEIGHTS = Path("assets") / "scan" / "scan_heights.npz"
+DEFAULT_SCAN_GROUND = Path("assets") / "scan" / "scan_ground.npz"
 
 
 def build(args: argparse.Namespace) -> int:
@@ -79,10 +80,13 @@ def build(args: argparse.Namespace) -> int:
     base = terrain_base_elevation(dem, grid=grid)
     lines = row_polylines(venue, osm.way_coords(venue_way), projection) if venue is not None else None
 
-    # Issue #17: pull the terrain onto the ml0w scan where the scan covers it.
-    # The bowl and stage keep the DEM (their meshes are built against it), and
-    # the monoliths and landscape heightmap stay on the DEM too.
-    ground_dem, scan_blend = _scan_blended_dem(args, dem, venue, lines, base, grid)
+    # Issue #17: pull the terrain under the ml0w scan where the scan covers it.
+    # The monoliths and landscape heightmap stay on the DEM.
+    ground_dem, scan_blend = _scan_blended_dem(args, dem, base, grid)
+    # The benches, stage and spawn stand on the scan's ground where it has
+    # one; the walkable terrain mesh (as exported) everywhere else.
+    walkable = TerrainSurface(ground_dem, grid)
+    seat_ground, ground_info = _seat_ground(args, walkable)
 
     terrain = None
     if args.terrain_grid:
@@ -97,21 +101,19 @@ def build(args: argparse.Namespace) -> int:
     spawn = None
     if venue is not None:
         print("\nbuilding benches ...")
-        # Sit each bench on the terrain mesh as exported, not the finer DEM.
+        # Seat on the scan's ground; bottoms reach the terrain under it too.
         benches = export_benches_obj(
-            venue.rows, lines, out_dir / "Benches.obj", base, ground=TerrainSurface(dem, grid)
+            venue.rows, lines, out_dir / "Benches.obj", base, ground=seat_ground, floor=walkable
         )
         print(f"  {benches.benches} benches, {benches.triangles} triangles -> {benches.path.name}")
 
         print("\nblocking out the stage ...")
-        stage = export_stage_obj(
-            venue.rows, lines, out_dir / "Stage.obj", base, ground=TerrainSurface(dem, grid)
-        )
+        stage = export_stage_obj(venue.rows, lines, out_dir / "Stage.obj", base, ground=seat_ground)
         print(f"  {len(stage.parts)} parts, {stage.triangles} triangles -> {stage.path.name}")
 
         spawn = player_spawn(
             stage.front_edge_east, stage.front_edge_north, stage.axis,
-            stage.deck_top_elevation_m, TerrainSurface(dem, grid),
+            stage.deck_top_elevation_m, seat_ground,
         )
         print(
             f"  player spawn E{spawn.east_m:.1f} N{spawn.north_m:.1f} on {spawn.ground_m:.2f} m "
@@ -194,6 +196,7 @@ def build(args: argparse.Namespace) -> int:
             "benches": benches.benches,
             "triangles": benches.triangles,
             "base_elevation_m": round(benches.base_elevation_m, 3),
+            "ground": ground_info,
         }
     if spawn is not None:
         manifest["spawn"] = {
@@ -235,17 +238,17 @@ def build(args: argparse.Namespace) -> int:
     return 0
 
 
-def _venue_keep_out(venue, lines, base: float, grid: int, dem):
-    """Footprint of every bench row and stage blockout part, local metres."""
-    import shapely
-    from shapely.geometry import LineString, Polygon
+def _seat_ground(args, walkable):
+    """(ground the benches, stage and spawn stand on, what it is for the manifest)."""
+    path = getattr(args, "scan_ground", None)
+    if not path or not Path(path).is_file():
+        print(f"no scan ground at {path}; benches and stage stand on the terrain mesh")
+        return walkable, "terrain mesh"
+    print(f"benches, stage and spawn stand on the ml0w scan's ground ({path})")
+    return ScanGround(ScanHeights.load(Path(path)), fallback=walkable), f"ml0w scan ({Path(path).name})"
 
-    shapes = [LineString(np.asarray(line, float)).buffer(SEAT_DEPTH_M) for line in lines if len(line) > 1]
-    shapes += [Polygon(part.plan) for part in stage_parts(venue.rows, lines, base, TerrainSurface(dem, grid))]
-    return shapely.union_all(shapes)
 
-
-def _scan_blended_dem(args, dem, venue, lines, base: float, grid: int):
+def _scan_blended_dem(args, dem, base: float, grid: int):
     """(dem for the terrain and park, manifest block or None)."""
     path = getattr(args, "scan_heights", None)
     if not path or not Path(path).is_file():
@@ -253,8 +256,7 @@ def _scan_blended_dem(args, dem, venue, lines, base: float, grid: int):
         return dem, None
     print(f"\nblending the terrain into the ml0w scan ({path}) ...")
     scan = ScanHeights.load(Path(path))
-    keep_out = _venue_keep_out(venue, lines, base, grid, dem) if venue is not None else None
-    blended = conform_dem(dem, scan, grid=grid, keep_out=keep_out)
+    blended = conform_dem(dem, scan, grid=grid)
     # The Z datum of every OBJ is the 377-grid minimum; the blend must not move it.
     if abs(terrain_base_elevation(blended, grid=grid) - base) > 1e-3:
         raise RuntimeError("scan blend moved the terrain minimum; the OBJs would disagree on Z")
@@ -263,9 +265,6 @@ def _scan_blended_dem(args, dem, venue, lines, base: float, grid: int):
         "margin_m": MARGIN_M,
         "falloff_m": FALLOFF_M,
         "fade_m": FADE_M,
-        "keep_out": "benches and stage" if keep_out is not None else None,
-        "keep_out_m": KEEP_OUT_M,
-        "keep_out_taper_m": KEEP_OUT_TAPER_M,
         **blend_summary(dem, blended),
     }
     print(f"  changed {info['changed_area_m2']:,.0f} m^2; " + ", ".join(
@@ -311,6 +310,12 @@ def main(argv: list[str] | None = None) -> int:
         default=str(DEFAULT_SCAN_HEIGHTS),
         help="ml0w scan height raster from tools/scan_heights.py; the terrain is "
         "conformed to it (issue #17). Pass '' to keep the bare DEM.",
+    )
+    build_cmd.add_argument(
+        "--scan-ground",
+        default=str(DEFAULT_SCAN_GROUND),
+        help="ml0w scan ground raster from tools/scan_heights.py; the benches, stage "
+        "and player spawn stand on it. Pass '' to put them on the terrain mesh.",
     )
     build_cmd.set_defaults(func=build)
 

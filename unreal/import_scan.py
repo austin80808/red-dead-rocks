@@ -595,5 +595,5 @@ try:
 except Exception as exc:
     log.append("ERROR: %r" % (exc,))
 
-with open("/tmp/redrocks_scan.log", "w") as fh:
+with open(os.path.join(os.environ.get("REDROCKS_LOG_DIR", "/tmp"), "redrocks_scan.log"), "w") as fh:
     fh.write("\n".join(log))

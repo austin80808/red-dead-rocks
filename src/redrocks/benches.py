@@ -19,12 +19,15 @@ Depth and height come from the venue data where it says something:
 * seat depth defaults to 0.9 m but is clamped to 95% of the gap to the
   neighbouring row, so adjacent benches never overlap (the gap is the tread
   depth the generator actually produced);
-* when a ``ground`` function is given (the terrain mesh, see
-  ``terrain_mesh.TerrainSurface``) the polyline is subdivided every
-  ``ground_step_m`` and each station is lowered or raised to the ground there:
-  the seat top is 0.45 m above the ground under the row's centreline, and the
-  base drops to the lowest ground under the section so no edge floats. Without
-  it a bench is flat at its row's ``elevation_m``, as before.
+* when a ``ground`` function is given (the ml0w scan's ground,
+  ``scan_blend.ScanGround``, or the terrain mesh, ``terrain_mesh.TerrainSurface``)
+  the polyline is subdivided every ``ground_step_m`` and each station is
+  lowered or raised to the ground there: the seat top is 0.45 m above the
+  ground under the row's centreline, and the base drops to the lowest ground
+  under the section so no edge floats. An optional ``floor`` (the walkable
+  terrain, which sits under the scan) pulls the base down to it as well, so a
+  bench stands on the scan and still meets the terrain where the scan is
+  thin. Without ``ground`` a bench is flat at its row's ``elevation_m``.
 """
 
 from __future__ import annotations
@@ -184,6 +187,7 @@ def _follow_ground(
     ground: Callable[[float, float], float],
     base_elevation_m: float,
     seat_height_m: float,
+    floor: Callable[[float, float], float] | None = None,
 ) -> tuple[np.ndarray, np.ndarray]:
     """Per-station (bottom, top) heights, in metres above the base elevation.
 
@@ -191,13 +195,15 @@ def _follow_ground(
     seat surface is the same height off the ground along the whole row. The
     bottom is the lowest ground under the section's left, centre and right
     corners, so a bench on a cross-slope is buried on its uphill side rather
-    than floating on its downhill side.
+    than floating on its downhill side; with ``floor``, the lowest of the
+    ground and the floor there.
     """
     left, right, _ = _offsets(pts, depth_m)
     under_centre = np.array([ground(float(x), float(y)) for x, y in pts])
-    under_left = np.array([ground(float(x), float(y)) for x, y in left])
-    under_right = np.array([ground(float(x), float(y)) for x, y in right])
-    bottom = np.minimum(np.minimum(under_left, under_right), under_centre)
+    bottom = under_centre.copy()
+    for surface in (ground, floor) if floor is not None else (ground,):
+        for line in (left, pts, right):
+            bottom = np.minimum(bottom, [surface(float(x), float(y)) for x, y in line])
     return bottom - base_elevation_m, under_centre + seat_height_m - base_elevation_m
 
 
@@ -285,6 +291,16 @@ def _bench_solid(
     return verts, tris, np.array(uvs), tuvs
 
 
+def _face_normal(verts: np.ndarray, tri) -> tuple[float, float, float]:
+    """Unit normal of a counter-clockwise triangle, rounded so equal normals share a ``vn``."""
+    a, b, c = verts[list(tri)]
+    n = np.cross(b - a, c - a)
+    length = float(np.linalg.norm(n))
+    if length < 1e-12:
+        return (0.0, 0.0, 1.0)
+    return tuple(round(float(x), 4) + 0.0 for x in n / length)
+
+
 def export_benches_obj(
     rows: Sequence[Row],
     polylines: Sequence[np.ndarray],
@@ -296,6 +312,7 @@ def export_benches_obj(
     fit_to_row_gap: bool = True,
     ground: Callable[[float, float], float] | None = None,
     ground_step_m: float = GROUND_STEP_M,
+    floor: Callable[[float, float], float] | None = None,
 ) -> BenchMesh:
     """Write every row as a bench in one OBJ object, ``Benches``.
 
@@ -314,10 +331,13 @@ def export_benches_obj(
         simplify_m: polyline simplification tolerance.
         fit_to_row_gap: clamp depth so neighbouring benches do not overlap.
         ground: ``ground(east, north)`` -> absolute elevation in metres, e.g. a
-            ``terrain_mesh.TerrainSurface``. When given, each bench is
-            subdivided every ``ground_step_m`` and follows the ground along its
-            length instead of sitting flat at ``row.elevation_m``.
+            ``scan_blend.ScanGround`` or ``terrain_mesh.TerrainSurface``. When
+            given, each bench is subdivided every ``ground_step_m`` and follows
+            the ground along its length instead of sitting flat at
+            ``row.elevation_m``.
         ground_step_m: maximum station spacing when following the ground.
+        floor: optional surface the bench bottoms also reach down to (the
+            walkable terrain under the scan). Only used with ``ground``.
     """
     if len(rows) != len(polylines):
         raise ValueError(f"{len(rows)} rows but {len(polylines)} polylines")
@@ -331,6 +351,7 @@ def export_benches_obj(
     all_v: list[np.ndarray] = []
     all_uv: list[np.ndarray] = []
     faces: list[str] = []
+    normals: dict[tuple[float, float, float], int] = {}
     v_off = 0
     uv_off = 0
     n_tris = 0
@@ -343,14 +364,15 @@ def export_benches_obj(
             z_hi = z_lo + seat_height_m
         else:
             pts = _densify(pts, ground_step_m)
-            z_lo, z_hi = _follow_ground(pts, depth, ground, base_elevation_m, seat_height_m)
+            z_lo, z_hi = _follow_ground(pts, depth, ground, base_elevation_m, seat_height_m, floor)
         verts, tris, uvs, tuvs = _bench_solid(pts, depth, z_lo, z_hi)
 
         all_v.append(verts)
         all_uv.append(uvs)
         for t, tu in zip(tris, tuvs):
+            n = normals.setdefault(_face_normal(verts, t), len(normals) + 1)
             faces.append(
-                "f " + " ".join(f"{v_off + v + 1}/{uv_off + u + 1}" for v, u in zip(t, tu))
+                "f " + " ".join(f"{v_off + v + 1}/{uv_off + u + 1}/{n}" for v, u in zip(t, tu))
             )
         v_off += len(verts)
         uv_off += len(uvs)
@@ -365,6 +387,11 @@ def export_benches_obj(
     lines += [f"v {x:.3f} {y:.3f} {z:.3f}" for x, y, z in verts_cm]
     # U = metres along the row, V = metres across / up. Every face uses these.
     lines += [f"vt {u:.4f} {v:.4f}" for u, v in np.vstack(all_uv)]
+    # Flat normals per face. Left to the importer, a corner's normal averages
+    # the seat top with the riser under it, weighted by area; on the scan the
+    # risers reach down to the terrain, so the seat tops came out tilted past
+    # M_Benches's "top" threshold and lost their planks.
+    lines += [f"vn {x:.4f} {y:.4f} {z:.4f}" for x, y, z in normals]
     lines += faces
 
     out_path = Path(out_path)

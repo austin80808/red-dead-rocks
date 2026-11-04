@@ -25,12 +25,13 @@ screenshots (with the UI, via `Shot showui`) land in
 <project>/Saved/Screenshots/MacEditor/redrocks_credits_*.png.
 """
 
+import os
 import time
 import traceback
 
 import unreal
 
-LOG_PATH = "/tmp/redrocks_playtest_credits.log"
+LOG_PATH = os.path.join(os.environ.get("REDROCKS_LOG_DIR", "/tmp"), "redrocks_playtest_credits.log")
 MENU_BP = "/Game/RedRocks/UI/BP_CreditsMenu"
 INPUT_ACTION = "/Game/RedRocks/UI/IA_Credits"
 IMC_PATH = "/Game/Input/IMC_Default"
