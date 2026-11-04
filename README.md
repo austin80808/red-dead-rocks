@@ -47,8 +47,8 @@ and olive grass on gentle slopes, banded red rock on steep ones, bands that fade
 to their average colour with distance instead of shimmering. Benches are
 weathered redwood planks on dusty concrete risers; the stage is concrete; roads,
 lots and paths are asphalt and gravel with dusty edges. A generated terrain skirt
-carries the hills out to the horizon (no more flat blue plane past the 2.4 km
-terrain), and about 45,000 procedural junipers, ponderosa pines and scrub oak /
+carries the hills out to the horizon (no more flat blue plane past the 3.6 km
+terrain), and about 100,000 procedural junipers, ponderosa pines and scrub oak /
 mountain mahogany cover the hillsides (see Vegetation).
 `configure_level.py` writes the render settings this needs into the project's
 `Config/DefaultEngine.ini` (restart the editor after the first rebuild).
@@ -58,18 +58,18 @@ mountain mahogany cover the hillsides (see Vegetation).
 ```
 out/
   redrocks_heightmap.png   2017x2017 16-bit heightmap, Unreal landscape format
-  RedRocks_Terrain.obj     377x377 grid terrain mesh, 282,752 triangles, cm
+  RedRocks_Terrain.obj     563x563 grid terrain mesh, 631,688 triangles, cm
   Creation_Rock.obj        north monolith, 91.4 m (300 ft), watertight
   Ship_Rock.obj            south monolith, 61.0 m (200 ft), watertight
   Stage_Rock.obj           east monolith, 18.3 m (60 ft), watertight
   Benches.obj              70 curved bench rows, 16,808 triangles, terrain frame
   Stage.obj                stage, Y-columns, trusses, FOH booth & bowl end stairs (462 parts, 5,536 triangles)
-  Roads.obj, Paths.obj     OSM highways as draped ribbons (21,118 / 23,000 triangles)
-  Parking.obj              24 OSM parking lots as terrain-following patches (22,788 triangles)
-  Buildings.obj            42 OSM park & Morrison buildings with buried foundations & parapets (1,004 triangles)
-  Walls.obj                63 OSM retaining walls, stone walls, fences & rails (18,092 triangles)
-  Rocks.obj                239 surveyed OSM rock & cliff outcrops across the park (29,716 triangles)
-  manifest.json            Z scale, bbox, origin, venue, monoliths, stage, park, attribution
+  Roads.obj, Paths.obj     OSM highways as draped ribbons (57,146 / 34,472 triangles)
+  Parking.obj              53 OSM parking lots as terrain-following patches (52,338 triangles)
+  Buildings.obj            314 OSM park & Morrison buildings with buried foundations & parapets (5,852 triangles)
+  Walls.obj                100 OSM retaining walls, stone walls, fences & rails (36,432 triangles)
+  Rocks.obj                242 surveyed OSM rock & cliff outcrops across the park (30,480 triangles)
+  manifest.json            Z scale, bbox, origin, venue, monoliths, stage, park, explore (spots, cart route, sled hill), attribution
 ```
 
 Clone with Git LFS installed: the scan, rock models and textures in `assets/`
@@ -98,16 +98,17 @@ follows the ground: it is subdivided every 2.5 m and its seat top sits 0.45 m
 above the terrain mesh at every station, with its base dropped to the lowest
 ground under the section so no edge floats.
 
-Current output for a 2.4 km box centred on the amphitheatre:
+Current output for a 3.6 km box centred on the amphitheatre (it reaches
+downtown Morrison; the box was 2.4 km until the explorable realm):
 
 | | |
 |---|---|
-| Heightmap | 2017 × 2017, 16-bit |
-| Ground resolution | 1.19 m per pixel |
-| Elevation range | 1753.9 m – 2400.0 m (646 m relief) |
-| **Z scale** | **126.2013** |
-| Terrain mesh | 377 × 377 vertices, 282,752 triangles |
-| OSM features | 15,114 nodes, 1,397 ways |
+| DEM | 3025 × 3025, 1.19 m per pixel |
+| Heightmap | 2017 × 2017, 16-bit, 1.78 m per pixel |
+| Elevation range | 1742.1 m – 2403.5 m (661 m relief) |
+| **Z scale** | **129.185** |
+| Terrain mesh | 563 × 563 vertices (6.4 m cells), 631,688 triangles |
+| OSM features | 21,353 nodes, 2,039 ways |
 
 ### Terrain mesh
 
@@ -167,7 +168,7 @@ the ridge behind each rock.
 | Ship Rock (south) | 236.1 × 177.2 m, 18,647 m² | 61.0 m (200 ft) | 1993.4 m |
 | Stage Rock (east) | 45.5 × 38.3 m, 1,028 m² | 18.3 m (60 ft) | 1950.7 m |
 
-In addition, `park.py` extrudes the other 239 surveyed OSM `natural=bare_rock|stone|cliff` polygons across the 2.4 km park (Tethys Rock, Picnic Rock, Frog Rock, Lizard Head Rock, Seven Ladders Rock, Park Cave Rock and Entry Rock) into `Rocks.obj` in the terrain frame, with buried foundations and battered 3-tier sandstone cliffs, alongside `Buildings.obj` (42 park and Morrison buildings with buried foundations and Pueblo-Revival parapet rims) and `Walls.obj` (63 retaining walls, stone walls, wood fences and guard rails).
+In addition, `park.py` extrudes the other 239 surveyed OSM `natural=bare_rock|stone|cliff` polygons across the park (Tethys Rock, Picnic Rock, Frog Rock, Lizard Head Rock, Seven Ladders Rock, Park Cave Rock and Entry Rock) into `Rocks.obj` in the terrain frame, with buried foundations and battered 3-tier sandstone cliffs, alongside `Buildings.obj` (314 park and Morrison buildings with buried foundations and Pueblo-Revival parapet rims) and `Walls.obj` (63 retaining walls, stone walls, wood fences and guard rails).
 
 Meshes are watertight, outward-facing, and their volume matches
 footprint × height to six digits. Units are centimetres, matching Unreal. Side
@@ -285,7 +286,7 @@ gone, the rows sit on the scan's bowl, the top walkway on its plateau):
 
 ## Vegetation
 
-The hillsides carry about 45,000 procedural plants: Rocky Mountain and one-seed
+The hillsides carry about 100,000 procedural plants: Rocky Mountain and one-seed
 juniper, ponderosa pine, Gambel (scrub) oak and mountain mahogany. Nothing is
 downloaded: `redrocks.vegetation` grows every model from a seed and paints its
 leaf textures with Pillow, and `redrocks vegetation --out out` writes them to
@@ -324,6 +325,65 @@ roads, paths, parking, benches and the stage (the masks the old scrub used).
 
 Regenerate the shots with `unreal/shoot_vegetation.py` (needs the editor GUI;
 it also runs `ProfileGPU` at each view and logs the frame rate).
+
+## Explore it
+
+Red Rocks is a place to roam, not just a bowl to walk up. The level's game mode
+is `RRGameMode` from the project's C++ module (`Source/RedRocks` in the Unreal
+project), and everything below is placed from the map by `redrocks build`
+(`src/redrocks/explore.py`, the manifest's `explore` block) and
+`unreal/setup_explore.py`.
+
+| Do | How |
+|---|---|
+| **Climb the rocks** | Walk into any face too steep to stand on (Creation Rock, Ship Rock, the scan's fins, a cliff). WASD climbs, Shift climbs faster, keep pushing up at the top to pull over the edge, Space leaps off, Q lets go. |
+| **Wingsuit off the rocks** | In the air more than 5 m up, press Space. Mouse steers, A/D banks, W dives for speed, S flares. Space again opens the parachute (A/D turn, W/S speed, Q cuts away). Hit a rock too fast and you splat; R puts you back. |
+| **Shopping cart to Morrison** | Three carts wait at the top of Red Rocks Park Road (2000 m). E climbs in, W pushes off, S brakes, A/D steer, Space hops. The road drops 217 m over 3.4 km to Bear Creek Avenue in downtown Morrison; the HUD counts down the metres. Carts roll on the road and bog down off it; hit a wall over ~54 km/h and you're thrown out. |
+| **Sled when it snows** | Press N and it snows: flakes fall, the ground, benches, roads and trees whiten (every material reads `MPC_Weather`'s `Snow`), the sun dims and the fog closes in. Sleds on the sled hill (a 318 m run, 89 m drop, cleared of trees) only run well on snow. Carts drift on it. |
+| **Go places** | Number keys teleport: 1 stage, 2 top of the bowl, 3 the climb, 4 Creation Rock summit, 5 shopping carts, 6 sled hill, 7 the high ridge (2403 m, the longest wingsuit flight), 8 Morrison. H shows the controls, V swaps to a third-person camera, R respawns. |
+
+The world is now 3.6 km across (it was 2.4 km), so downtown Morrison is in it:
+314 buildings, 315 roads, and about 100,000 plants.
+
+**Where things go is computed, not placed by hand.** The cart lot is the
+highest drivable road node within 700 m of the bowl; the route is the shortest
+road path from there to Bear Creek Avenue. The sled hill is the longest fall
+line near the bowl (120 to 320 m) that keeps between 10 % and 50 % grade, stays
+off roads, paths and buildings, and is scored toward a 28 % grade;
+`redrocks vegetation` keeps trees off it. Spots snap onto whatever is really
+there when play starts, so the summit lands on the scanned rock top and the
+climb spot walks to the scanned face.
+
+To check it all without a keyboard:
+
+```bash
+"/Users/Shared/Epic Games/UE_5.8/Engine/Binaries/Mac/UnrealEditor.app/Contents/MacOS/UnrealEditor" \
+  "$HOME/Documents/Unreal Projects/RedRocks/RedRocks.uproject" -nosplash \
+  -ExecCmds="py /Users/austin/dev/redrocks-ue/unreal/playtest_explore.py"
+```
+
+It climbs Creation Rock, wingsuits off its summit and lands under a parachute,
+rides a cart from the lot to Morrison steering along the road like a player,
+makes it snow and sleds the hill, then looks around Morrison. Results go to
+`/tmp/redrocks_playtest_explore.log`, screenshots to
+`Saved/Screenshots/MacEditor/redrocks_explore_*.png`. `SCENARIOS=cart,sled`
+runs a subset.
+
+**The C++ module.** The Unreal project is no longer Blueprint-only. Build it
+once after pulling (the editor also offers to when it opens):
+
+```bash
+"/Users/Shared/Epic Games/UE_5.8/Engine/Build/BatchFiles/Mac/Build.sh" RedRocksEditor Mac Development \
+  -Project="$HOME/Documents/Unreal Projects/RedRocks/RedRocks.uproject" -WaitMutex
+```
+
+| Class | Does |
+|---|---|
+| `ARRExplorer` | the player: walk, sprint, climb, mantle, wingsuit, parachute, ride; test hooks `ScriptMove`, `ScriptPress`, `ScriptLook`, `RRGo` |
+| `ARRRide` | shopping cart or sled: rolls or slides on whatever is under it, rolling resistance by surface and snow, sideways grip, crests, air, wipeouts |
+| `ARRWeather` | snow: falling flakes around the camera, the `Snow` cover parameter, sun, sky and fog |
+| `ARRSpot` | a teleport spot; drops onto the ground (or a summit) and can walk to a rock face |
+| `ARRHUD`, `ARRGameMode` | status, hints, toasts, controls; the game mode that ties it together |
 
 ## Play it
 
@@ -376,7 +436,7 @@ PROJ="$HOME/Documents/Unreal Projects/RedRocks/RedRocks.uproject"
 ```
 
 **To rebuild the whole level, run one script.** `rebuild_level.py` runs the
-ten steps below in order (`import_redrocks.py` through `setup_credits.py`), clears
+twelve steps below in order (`import_redrocks.py` through `setup_explore.py`), clears
 each step's old log first, stops at the first `ERROR`/`ABORT`/`FAIL` line in its
 `/tmp/redrocks_*.log` (or a missing log), and prints a summary of step, status,
 duration and log path (also saved to `/tmp/redrocks_rebuild.log`):
@@ -391,7 +451,7 @@ a time, in this order; each writes a log to `/tmp/redrocks_*.log`:
 
 | Script | Does |
 |---|---|
-| `rebuild_level.py` | **entry point:** runs the ten scripts below in order, stops at the first failure |
+| `rebuild_level.py` | **entry point:** runs the twelve scripts below in order, stops at the first failure |
 | `import_redrocks.py` | imports the terrain, rocks and benches OBJs to `/Game/RedRocks` and places them in `Lvl_RedRocks`. **Clears every actor in the level first.** |
 | `setup_lighting.py` | low morning sun (120 klx, ENE, 24° up, behind the spawn), sky atmosphere, real-time sky light, height fog, volumetric clouds, PlayerStart. Replaces the rig on every run |
 | `configure_level.py` | writes Lumen / distance fields / VSM / eye adaptation / TSR into `Config/DefaultEngine.ini` `[SystemSettings]`; post-process volume with Lumen, auto exposure (EV100 11-14.2) and a light grade; framing camera |
@@ -401,10 +461,13 @@ a time, in this order; each writes a log to `/tmp/redrocks_*.log`:
 | `setup_vegetation.py` | imports `out/vegetation/` (from `redrocks vegetation`): leaf atlases, bark/leaf/crown materials, 16 Nanite tree and shrub models, and every instance into one `Vegetation` actor; tree trunks block, canopies and shrubs don't |
 | `import_scan.py` | imports the ml0w scan with Nanite and credits it; its material fades the scan out at its edge (see Scan edge blend); run after `import_redrocks.py` |
 | `setup_gameplay.py` | imports Stage, Roads, Paths, Parking; complex collision on every walkable mesh and on the scan (the hidden extruded rocks get none); PlayerStart on the stage deck facing up the bowl; FirstPerson game mode; in-world credits. Runs last |
+| `setup_snow.py` | `MPC_Weather` (one scalar, `Snow`) and a snow layer in every `/Game/RedRocks` material: up-facing surfaces lerp to packed snow as `Snow` rises, in patches. Re-running skips materials that already have it |
+| `setup_explore.py` | the explorable realm: teleport spots, three shopping carts bound for Morrison, three sleds, the weather actor, `road`/`parking` tags, and the `RRGameMode` game mode. Needs the C++ module built. Runs last |
 | `setup_credits.py` | the press-**C** credits screen: input action `IA_Credits` (C, in `IMC_Default`), Widget Blueprint `WBP_Credits`, Actor Blueprint `BP_CreditsMenu` placed in the level. Text from `assets/*/ATTRIBUTION.md` and the manifest. Runs after `setup_gameplay.py` |
 | `verify_walkable.py` | headless checks: game mode, one PlayerStart, triangle counts kept, credits present; renders the spawn and bowl views |
 | `playtest.py` | **the real test:** launches Play In Editor, lets the player land, walks and jumps up the bowl for 12 s, screenshots, quits. Needs the editor GUI (`-ExecCmds="py …"`) |
 | `shoot_vegetation.py` | Play In Editor, flies to the bowl-top, hillside (a juniper and a pine) and aerial views, screenshots each and logs FPS. Needs the editor GUI |
+| `playtest_explore.py` | Play In Editor through every activity: climb, wingsuit and parachute, cart to Morrison, snow and sled, Morrison. Needs the editor GUI |
 | `playtest_credits.py` | Play In Editor, checks the hint, presses C (open), C (close), screenshots each (`Shot showui`), quits. Needs the editor GUI |
 | `render_preview.py` | renders the level to `Saved/redrocks_preview.png` |
 | `diagnose.py` | lists actors, mesh triangle counts and the startup map |

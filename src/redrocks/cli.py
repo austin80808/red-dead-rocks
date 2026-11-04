@@ -9,6 +9,7 @@ from pathlib import Path
 import numpy as np
 
 from .dem import BBox, fetch_dem, square_bbox
+from .explore import plan as explore_plan
 from .geo import LocalProjection
 from .benches import export_benches_obj, row_polylines, terrain_base_elevation
 from .landscape import export_landscape
@@ -16,7 +17,7 @@ from .monoliths import build_monoliths, monolith_to_obj
 from .osm import fetch_osm
 from .spawn import player_spawn
 from .stage import DIMENSIONS, export_stage_obj
-from .park import export_park
+from .park import TerrainSurface as ParkSurface, export_park
 from .scan_blend import (
     FADE_M, FALLOFF_M, MARGIN_M, ScanGround, ScanHeights, blend_summary, conform_dem,
 )
@@ -27,8 +28,12 @@ from .venue import build_venue, summary as venue_summary
 RED_ROCKS_LAT = 39.66550
 RED_ROCKS_LON = -105.20550
 
-# The park plus the surrounding hogback, so the venue sits in its real bowl.
-DEFAULT_SIDE_M = 2400.0
+# The park, the hogback around it and downtown Morrison (1.7 km east-southeast
+# of the bowl), so the shopping-cart road runs all the way into town.
+DEFAULT_SIDE_M = 3600.0
+# 6.4 m terrain cells and a 1.19 m DEM across that box, as at 2.4 km.
+DEFAULT_TERRAIN_GRID = 563
+DEFAULT_DEM_SIZE = 3025
 
 # The ml0w scan's floor and ground rasters (tools/scan_heights.py), relative to the checkout.
 DEFAULT_SCAN_HEIGHTS = Path("assets") / "scan" / "scan_heights.npz"
@@ -76,7 +81,7 @@ def build(args: argparse.Namespace) -> int:
 
     # Benches, stage and park share the terrain mesh's Z datum, so use the same
     # grid it was resampled at; a different grid shifts the minimum elevation.
-    grid = args.terrain_grid or 377
+    grid = args.terrain_grid or DEFAULT_TERRAIN_GRID
     base = terrain_base_elevation(dem, grid=grid)
     lines = row_polylines(venue, osm.way_coords(venue_way), projection) if venue is not None else None
 
@@ -233,6 +238,20 @@ def build(args: argparse.Namespace) -> int:
             }
             for key, m in park.items()
         }
+    print("\nplanning carts, sleds and teleport spots ...")
+    park_frame = ParkSurface(ground_dem, grid)
+    explore = explore_plan(
+        osm, park_frame.to_xy, walkable, park_frame.half_x,
+        manifest.get("spawn"), manifest.get("stage"), manifest["monoliths"],
+    )
+    manifest["explore"] = explore
+    if explore["carts"]:
+        c = explore["carts"]
+        print(f"  carts: {c['route_length_m']:.0f} m of road to {c['destination']}, dropping {c['route_drop_m']:.0f} m")
+    if explore["sleds"]:
+        s = explore["sleds"]
+        print(f"  sled hill: {s['run_m']:.0f} m run, {s['drop_m']:.0f} m drop")
+    print(f"  {len(explore['spots'])} spots: " + ", ".join(sp["title"] for sp in explore["spots"]))
     (out_dir / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n")
     print(f"\nwrote {out_dir}/manifest.json")
     return 0
@@ -297,12 +316,12 @@ def main(argv: list[str] | None = None) -> int:
     build_cmd = sub.add_parser("build", help="fetch terrain and write the Unreal package")
     build_cmd.add_argument("--out", default="out", help="output directory")
     build_cmd.add_argument("--side-m", type=float, default=DEFAULT_SIDE_M, help="bbox side in metres")
-    build_cmd.add_argument("--dem-size", type=int, default=2017, help="DEM raster size to request")
+    build_cmd.add_argument("--dem-size", type=int, default=DEFAULT_DEM_SIZE, help="DEM raster size to request")
     build_cmd.add_argument("--landscape-size", type=int, default=2017, help="landscape vertices per side")
     build_cmd.add_argument(
         "--terrain-grid",
         type=int,
-        default=377,
+        default=DEFAULT_TERRAIN_GRID,
         help="terrain mesh vertices per side (0 skips RedRocks_Terrain.obj)",
     )
     build_cmd.add_argument(

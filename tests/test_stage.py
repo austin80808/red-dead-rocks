@@ -363,7 +363,7 @@ def test_cli_stands_benches_stage_and_spawn_on_the_scan_ground(monkeypatch, tmp_
     raster(2.0, -0.3).save(tmp_path / "floor.npz")
     raster(1.0, 0.0).save(tmp_path / "ground.npz")
     out = tmp_path / "out"
-    args = ["build", "--out", str(out), "--landscape-size", "33", "--terrain-grid", "65",
+    args = ["build", "--out", str(out), "--side-m", "2400", "--landscape-size", "33", "--terrain-grid", "65",
             "--scan-heights", str(tmp_path / "floor.npz")]
     assert cli.main(args + ["--scan-ground", str(tmp_path / "ground.npz")]) == 0
     manifest = json.loads((out / "manifest.json").read_text())

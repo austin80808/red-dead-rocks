@@ -808,6 +808,24 @@ def blocked_cells(verts: np.ndarray, cell: float = BLOCK_CELL_CM, dilate: int = 
     return out
 
 
+SLED_CLEAR_CELLS = 2  # trees stay this many 8 m cells off the sled run
+
+
+def sled_run_cells(manifest_path: Path, dilate: int = SLED_CLEAR_CELLS) -> set:
+    """Blocked cells along the sled run in manifest.json's explore block (a clear piste)."""
+    try:
+        run = json.loads(Path(manifest_path).read_text())["explore"]["sleds"]["run"]
+    except (OSError, KeyError, TypeError, ValueError):
+        return set()
+    pts = []
+    for (ax, ay, _), (bx, by, _) in zip(run, run[1:]):
+        steps = max(1, int(math.hypot(bx - ax, by - ay) / 2.0))
+        for k in range(steps + 1):
+            f = k / steps
+            pts.append(((ax + (bx - ax) * f) * 100.0, (ay + (by - ay) * f) * 100.0, 0.0))
+    return blocked_cells(np.asarray(pts, float).reshape(-1, 3), dilate=dilate)
+
+
 def _smooth(lo, hi, x):
     t = np.clip((x - lo) / (hi - lo), 0.0, 1.0)
     return t * t * (3 - 2 * t)
@@ -930,6 +948,7 @@ def export(out_dir: Path, terrain_obj: Path | None = None, avoid_dir: Path | Non
             path = Path(avoid_dir or Path(terrain_obj).parent) / (name + ".obj")
             if path.exists():
                 blocked |= blocked_cells(read_obj_vertices(path), dilate=dilate)
+        blocked |= sled_run_cells(Path(avoid_dir or Path(terrain_obj).parent) / "manifest.json")
         info["instances"] = place(ground, blocked, models, seed=seed)
         counts = {}
         for name, rows in info["instances"].items():
