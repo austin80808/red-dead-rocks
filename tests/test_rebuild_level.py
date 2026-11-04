@@ -20,8 +20,7 @@ def test_step_order(rl):
     assert [s for s, _ in rl.STEPS] == [
         "import_redrocks.py", "setup_lighting.py", "configure_level.py",
         "fix_camera.py", "setup_materials.py", "setup_environment.py",
-        "import_scan.py",
-        "setup_gameplay.py",
+        "import_scan.py", "setup_gameplay.py", "setup_credits.py",
     ]
 
 
