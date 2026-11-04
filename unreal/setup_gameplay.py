@@ -48,7 +48,7 @@ LOG_PATH = os.path.join(os.environ.get("REDROCKS_LOG_DIR", "/tmp"), "redrocks_ga
 
 # Meshes placed by this script (all in the terrain frame, origin, no rotation).
 NEW_MESHES = ["Stage", "Roads", "Paths", "Parking", "Buildings", "Walls", "Rocks", "Water",
-              "Bench_Planks", "Bench_Brackets", "Handrail"]
+              "Bench_Planks", "Bench_Brackets", "Handrail", "Booth", "Stairs"]
 # Seen but not stood on: the planks and brackets sit on the terraces' riser
 # edges, a few cm over the treads; colliding with them would make every row a
 # step too tall to walk up (redrocks.seating).
@@ -71,6 +71,8 @@ PLAIN = {
     "M_Water": ("1d4b52", 0.04),  # Bear Creek: dark green-blue, glassy
     "M_BenchWood": ("a8916f", 0.8),
     "M_Steel": ("2e2d2b", 0.6),
+    "M_Roof": ("7a2a22", 0.55),
+    "M_Benches": ("94482c", 0.9),
 }
 MESH_MATERIAL = {
     "Roads": "M_Asphalt",
@@ -84,6 +86,8 @@ MESH_MATERIAL = {
     "Bench_Planks": "M_BenchWood",
     "Bench_Brackets": "M_Steel",
     "Handrail": "M_Steel",
+    "Booth": "M_Roof",
+    "Stairs": "M_Benches",  # the seating's flagstone risers and sandstone treads
 }
 
 SPAWN_BACK_M = 5.0  # how far behind the downstage edge the player starts

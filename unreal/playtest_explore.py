@@ -227,8 +227,20 @@ def climb_end(now, pawn, world):
 # from mid-bowl, down from the top row.
 
 def _seat_target():
+    """The top of the bowl, moved 12 m sideways away from the sound booth so the
+    walk goes up beside it (the booth sits on the centre line, around row 13)."""
     top = next(sp for sp in explore["spots"] if sp["key"] == "bowl_top")
-    return top["east_m"] * 100.0, top["north_m"] * 100.0
+    stage = next(sp for sp in explore["spots"] if sp["key"] == "stage")
+    x, y = top["east_m"], top["north_m"]
+    booth = manifest.get("booth")
+    if booth:
+        ux, uy = x - stage["east_m"], y - stage["north_m"]
+        n = math.hypot(ux, uy)
+        side = (-uy / n, ux / n)
+        bx, by = booth["east_m"] - stage["east_m"], booth["north_m"] - stage["north_m"]
+        away = -1.0 if bx * side[0] + by * side[1] > 0 else 1.0
+        x, y = x + away * 12.0 * side[0], y + away * 12.0 * side[1]
+    return x * 100.0, y * 100.0
 
 
 def _seat_levels_cm():
@@ -287,7 +299,7 @@ def seat_walk(fraction):
             note("stuck at z=%.0f (%.0f cm above the start) for 8 s" % (loc.z, loc.z - R.s["z0"]))
             R.s["stuck"] = True
             return True
-        feet = loc.z - pawn.get_capsule_component().get_scaled_capsule_half_height()
+        feet = loc.z - pawn.capsule_component.get_scaled_capsule_half_height()
         goal = lo + fraction * (hi - lo) - 50.0
         if int(now - R.s["t_walk"]) % 10 == 0 and int(now - R.s["t_walk"]) not in R.s.setdefault("noted", set()):
             R.s["noted"].add(int(now - R.s["t_walk"]))

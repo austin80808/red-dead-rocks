@@ -99,11 +99,11 @@ PLANK_TOP_M = 0.06
 # bearings about the stage in every row), down the riser face, under the
 # boards and just proud of their top so the line shows from above.
 BRACKET_SPACING_M = 2.4
-BRACKET_WIDTH_M = 0.10
-BRACKET_FRONT_M = 0.13
-BRACKET_BACK_M = 0.22
-BRACKET_DROP_M = 0.08
-BRACKET_PROUD_M = 0.005
+BRACKET_WIDTH_M = 0.06
+BRACKET_FRONT_M = 0.115
+BRACKET_BACK_M = 0.205
+BRACKET_DROP_M = 0.05
+BRACKET_PROUD_M = 0.003
 BRACKET_END_MARGIN_M = 0.4
 
 # Scan cut.

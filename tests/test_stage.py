@@ -419,6 +419,24 @@ def test_y_columns_and_skydeck_trusses_match_published_stations(tmp_path):
     assert "shell_baffle_e" in mesh.parts and "shell_baffle_w" in mesh.parts
 
 
+def stair_verts(mesh, name):
+    """A row-end stair part's vertices, from Stairs.obj (they are not in Stage.obj)."""
+    verts, _, faces, _ = load(mesh.stairs_path)
+    a, b = mesh.stairs_parts[name]
+    return verts[sorted({i - 1 for f in faces[a:b] for i, _ in f})]
+
+
+def test_row_end_stairs_are_their_own_mesh(tmp_path):
+    """They take the seating's flagstone, so they leave the concrete Stage.obj."""
+    mesh, (verts, _, faces, objects), rows = export(tmp_path)
+    assert not any(p.startswith("stair_") for p in mesh.parts)
+    sv, suv, sfaces, sobjects = load(tmp_path / "Stairs.obj")
+    assert mesh.stairs_path == tmp_path / "Stairs.obj" and sobjects == ["Stairs"]
+    assert len(mesh.stairs_parts) == 3 * 2 * len(rows)
+    assert sum(b - a for a, b in mesh.stairs_parts.values()) == len(sfaces) == mesh.stairs_triangles
+    assert all(1 <= t <= len(suv) for f in sfaces for _, t in f)
+
+
 def test_foh_booth_and_end_of_row_stairs(tmp_path):
     mesh, (verts, _, faces, _), rows = export(tmp_path)
     for part_name in ("foh_platform", "foh_wall_front", "foh_wall_e", "foh_wall_w", "walkway_parapet"):
@@ -427,9 +445,9 @@ def test_foh_booth_and_end_of_row_stairs(tmp_path):
     # Every row has 2 steps at both ends (start and end) plus outer cheek walls.
     for r in rows:
         for side in ("start", "end"):
-            s1 = part_verts(mesh, verts, faces, f"stair_{side}_r{r.index}_s1")
-            s2 = part_verts(mesh, verts, faces, f"stair_{side}_r{r.index}_s2")
-            wall = part_verts(mesh, verts, faces, f"stair_wall_{side}_r{r.index}")
+            s1 = stair_verts(mesh, f"stair_{side}_r{r.index}_s1")
+            s2 = stair_verts(mesh, f"stair_{side}_r{r.index}_s2")
+            wall = stair_verts(mesh, f"stair_wall_{side}_r{r.index}")
             # Step 2 rises half a bench height (22.5 cm) above step 1.
             assert s2[:, 2].max() - s1[:, 2].max() == pytest.approx(22.5, abs=0.05)
             assert wall[:, 2].max() > s2[:, 2].max()
@@ -446,7 +464,8 @@ def terraced(tmp_path, n=10):
 
 
 def top(mesh, verts, faces, name):
-    return part_verts(mesh, verts, faces, name)[:, 2].max() / 100.0 + BASE
+    v = stair_verts(mesh, name) if name.startswith("stair_") else part_verts(mesh, verts, faces, name)
+    return v[:, 2].max() / 100.0 + BASE
 
 
 def test_side_stairs_climb_from_tread_to_tread(tmp_path):
@@ -460,7 +479,7 @@ def test_side_stairs_climb_from_tread_to_tread(tmp_path):
             assert top(mesh, verts, faces, f"stair_wall_{side}_r{r.index}") == pytest.approx(
                 levels[k] + dim("stair_wall_height"), abs=1e-3)
             # Each pair of steps fills the row's band: its line back to the next row's.
-            s = np.vstack([part_verts(mesh, verts, faces, f"stair_{side}_r{r.index}_s{j}") for j in (1, 2)])
+            s = np.vstack([stair_verts(mesh, f"stair_{side}_r{r.index}_s{j}") for j in (1, 2)])
             assert s[:, 1].min() / 100 == pytest.approx(r.centre_north, abs=1e-3)
             assert s[:, 1].max() / 100 == pytest.approx(r.centre_north + 1.0, abs=1e-3)
 
@@ -497,3 +516,52 @@ def test_handrail_runs_along_the_walkway_parapet(tmp_path):
     posts = sum(1 for line in (tmp_path / "Handrail.obj").read_text().splitlines() if line.startswith("# post"))
     assert posts == int(np.ptp(parapet[:, 0]) / 100 // stage.HANDRAIL_POST_SPACING_M) + 1
     assert all(1 <= t <= len(huv) for f in hfaces for _, t in f)
+
+
+# ---- the sound booth from its OSM roof -------------------------------------------
+
+def booth_rect(east=0.0, north=104.0, w=6.0, d=4.5):
+    """A 6 x 4.5 m roof footprint over rows 5-9 of make_rows (rows run east-west, uphill north)."""
+    return np.array([[east - w / 2, north], [east + w / 2, north], [east + w / 2, north + d], [east - w / 2, north + d]])
+
+
+def test_booth_stands_on_its_osm_footprint_over_the_rows(tmp_path):
+    rows, lines = make_rows(10)
+    levels = [1800.5 + 0.45 * i for i in range(10)]
+    plan = booth_rect()
+    mesh = export_stage_obj(rows, lines, tmp_path / "Stage.obj", BASE, levels=levels, booth=plan)
+    verts, _, faces, _ = load(tmp_path / "Stage.obj")
+    deck = part_verts(mesh, verts, faces, "foh_platform")
+    assert deck[:, 0].min() / 100 == pytest.approx(-3.0, abs=1e-3) and deck[:, 0].max() / 100 == pytest.approx(3.0, abs=1e-3)
+    assert deck[:, 1].min() / 100 == pytest.approx(104.0, abs=1e-3) and deck[:, 1].max() / 100 == pytest.approx(108.5, abs=1e-3)
+    # Level with the highest tread under it, plus a step: entered from the row behind.
+    top = deck[:, 2].max() / 100 + BASE
+    assert top == pytest.approx(levels[8] + stage.BOOTH_RAISE_M, abs=1e-3)
+    assert mesh.booth_deck_elevation_m == pytest.approx(top, abs=1e-3)
+    # The parapet is on the stage side (south here).
+    front = part_verts(mesh, verts, faces, "foh_wall_front")
+    assert front[:, 1].max() / 100 < 104.0 + 0.5
+    assert front[:, 2].max() / 100 + BASE == pytest.approx(top + dim("foh_wall_height"), abs=1e-3)
+
+
+def test_booth_roof_is_its_own_mesh_on_four_posts(tmp_path):
+    rows, lines = make_rows(10)
+    levels = [1800.5 + 0.45 * i for i in range(10)]
+    mesh = export_stage_obj(rows, lines, tmp_path / "Stage.obj", BASE, levels=levels, booth=booth_rect())
+    assert mesh.booth_path == tmp_path / "Booth.obj"
+    v, uv, f, objects = load(tmp_path / "Booth.obj")
+    assert objects == ["Booth"] and all(1 <= t <= len(uv) for face in f for _, t in face)
+    text = (tmp_path / "Booth.obj").read_text()
+    assert text.count("# post") == 4 and "# roof" in text
+    deck_top = (mesh.booth_deck_elevation_m - BASE) * 100
+    assert v[:, 2].min() == pytest.approx(deck_top, abs=0.01)
+    assert v[:, 2].max() == pytest.approx(deck_top + (stage.BOOTH_ROOF_M + stage.BOOTH_ROOF_THICK_M) * 100, abs=0.01)
+    # The roof overhangs the deck all round.
+    assert v[:, 0].min() / 100 == pytest.approx(-3.0 - stage.BOOTH_ROOF_OVERHANG_M, abs=1e-3)
+
+
+def test_without_a_footprint_the_booth_stays_a_blockout_and_has_no_roof(tmp_path):
+    rows, lines = make_rows(10)
+    mesh = export_stage_obj(rows, lines, tmp_path / "Stage.obj", BASE)
+    assert "foh_platform" in mesh.parts and mesh.booth_path is None
+    assert not (tmp_path / "Booth.obj").exists()

@@ -104,6 +104,8 @@ def test_plan_lists_spots_in_order():
     assert plan["carts"]["route"][0][:2] == [100.0, 0.0]
     summit = next(s for s in plan["spots"] if s["key"] == "summit")
     assert summit["place"] == "summit"
+    # The stage spot is on the deck: snapping from high above would land on the roof.
+    assert next(s for s in plan["spots"] if s["key"] == "stage")["place"] == "deck"
     json.dumps(plan)  # manifest-safe
 
 

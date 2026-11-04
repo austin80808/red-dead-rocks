@@ -143,10 +143,14 @@ def build(args: argparse.Namespace) -> int:
             scan_cut = _cut_scan_fade(args, layout, out_dir)
 
         print("\nblocking out the stage ...")
+        booth_way, booth_plan = _sound_booth(osm, venue_way, projection)
         stage = export_stage_obj(venue.rows, lines, out_dir / "Stage.obj", base, ground=seat_ground,
-                                 levels=layout.levels)
+                                 levels=layout.levels, booth=booth_plan)
         print(f"  {len(stage.parts)} parts, {stage.triangles} triangles -> {stage.path.name}")
         print(f"  {stage.handrail_triangles} triangles -> {stage.handrail_path.name}")
+        if stage.booth_path is not None:
+            print(f"  sound booth on OSM way {booth_way.id}, deck {stage.booth_deck_elevation_m:.2f} m "
+                  f"-> {stage.booth_path.name}")
 
         spawn = player_spawn(
             stage.front_edge_east, stage.front_edge_north, stage.axis,
@@ -258,6 +262,17 @@ def build(args: argparse.Namespace) -> int:
         }
     if stage is not None:
         manifest["handrail"] = {"obj": stage.handrail_path.name, "triangles": stage.handrail_triangles}
+        if stage.stairs_path is not None:
+            manifest["stairs"] = {"obj": stage.stairs_path.name, "triangles": stage.stairs_triangles,
+                                  "parts": len(stage.stairs_parts)}
+        if stage.booth_path is not None:
+            manifest["booth"] = {
+                "obj": stage.booth_path.name,
+                "osm_way": booth_way.id,
+                "deck_elevation_m": round(stage.booth_deck_elevation_m, 3),
+                "east_m": round(float(np.mean(booth_plan[:, 0])), 3),
+                "north_m": round(float(np.mean(booth_plan[:, 1])), 3),
+            }
         manifest["stage"] = {
             "obj": stage.path.name,
             "parts": {name: {"first_triangle": a, "end_triangle": b} for name, (a, b) in stage.parts.items()},
@@ -307,6 +322,33 @@ def build(args: argparse.Namespace) -> int:
     (out_dir / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n")
     print(f"\nwrote {out_dir}/manifest.json")
     return 0
+
+
+def _sound_booth(osm, venue_way, projection):
+    """(OSM way, 4-corner footprint in local metres) of the sound booth's roof, or (None, None).
+
+    The booth is the ``building=roof`` way inside the amphitheatre's footprint
+    (way 229359709 at the real venue).
+    """
+    from shapely.geometry import Polygon
+
+    def plan(way):
+        try:
+            return Polygon([projection.to_local(*osm.nodes[n])[:2] for n in way.node_ids])
+        except (KeyError, ValueError):
+            return None
+
+    bowl = plan(venue_way)
+    if bowl is None or not bowl.is_valid:
+        return None, None
+    for way in osm.ways:
+        if way.tags.get("building") != "roof":
+            continue
+        roof = plan(way)
+        if roof is not None and roof.is_valid and 4.0 < roof.area < 200.0 and bowl.contains(roof.centroid):
+            rect = np.array(roof.minimum_rotated_rectangle.exterior.coords)[:4]
+            return way, rect
+    return None, None
 
 
 def _cut_scan_fade(args, layout, out_dir: Path) -> dict | None:

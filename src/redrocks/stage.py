@@ -57,7 +57,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Callable, Sequence
 
-from shapely.geometry import LineString
+from shapely.geometry import LineString, Point
 
 import numpy as np
 
@@ -97,6 +97,15 @@ HANDRAIL_HEIGHT_M = 1.07
 HANDRAIL_POST_SPACING_M = 2.0
 HANDRAIL_POST_M = 0.06
 HANDRAIL_RAIL_M = 0.05
+# The sound (FOH) booth, when its OSM roof footprint is known: a deck this far
+# over the highest tread under it (a step up from the row behind), and a maroon
+# roof on four posts (the photo from the top row shows a flat red roof with open
+# sides, like the stage's).
+BOOTH_RAISE_M = 0.30
+BOOTH_ROOF_M = 2.6  # roof underside over the deck
+BOOTH_ROOF_THICK_M = 0.18
+BOOTH_ROOF_OVERHANG_M = 0.3
+BOOTH_POST_M = 0.12
 SKYDECK_BEAM_COUNT = 3
 
 _SCAN = "ml0w scan (CC BY 4.0), "
@@ -224,6 +233,11 @@ class StageMesh:
     front_edge_north: float = 0.0
     axis: tuple[float, float] = field(default=(0.0, 1.0))
     handrail_path: Path | None = None
+    booth_path: Path | None = None
+    booth_deck_elevation_m: float | None = None
+    stairs_path: Path | None = None
+    stairs_parts: dict[str, tuple[int, int]] = field(default_factory=dict)
+    stairs_triangles: int = 0
     handrail_triangles: int = 0
 
 
@@ -316,6 +330,7 @@ def stage_parts(
     base_elevation_m: float,
     ground: Callable[[float, float], float] | None = None,
     levels: Sequence[float] | None = None,
+    booth: np.ndarray | None = None,
 ) -> list[Part]:
     """Lay out every blockout part from the seating-bowl rows.
 
@@ -328,6 +343,12 @@ def stage_parts(
     (``seating.tread_levels``). With them the side stairs climb from each tread
     to the next across the row's band, the stage steps reach row 1's tread and
     the walkway sits just under the top tread.
+
+    ``booth`` is the sound booth's roof footprint (4 corners, local metres; the
+    CLI takes OSM's ``building=roof`` in the bowl). With it and ``levels`` the
+    booth deck covers that footprint, ``BOOTH_RAISE_M`` over the highest tread
+    under it, with its parapet on the stage side; ``booth_roof_parts`` adds the
+    roof. Without, it is the old blockout at row 8.
     """
     if len(rows) != len(polylines):
         raise ValueError(f"{len(rows)} rows but {len(polylines)} polylines")
@@ -454,8 +475,11 @@ def stage_parts(
                 _rect(origin, a, l, sx * (hw - stair_w), sx * hw, sy0, sy1),
                 sz0, sz1))
 
-    # Front-of-House (FOH) sound & lighting booth in the lower bowl (around Row 8, per OSM way 229359709).
-    if len(rows) >= 8:
+    # Front-of-House (FOH) sound booth: on its OSM roof footprint (way 229359709, row ~13) when the
+    # CLI found it; otherwise the old blockout at row 8.
+    if booth is not None and levels is not None:
+        parts += _booth_parts(np.asarray(booth, dtype=float), a, polylines, levels, base_elevation_m, ground)
+    elif len(rows) >= 8:
         foh_row = rows[min(7, len(rows) - 1)]
         foh_c = np.array([foh_row.centre_east, foh_row.centre_north])
         foh_hw = dim("foh_width") / 2.0
@@ -633,6 +657,7 @@ def export_stage_obj(
     base_elevation_m: float,
     ground: Callable[[float, float], float] | None = None,
     levels: Sequence[float] | None = None,
+    booth: np.ndarray | None = None,
 ) -> StageMesh:
     """Write the blockout as one OBJ object, ``Stage``.
 
@@ -646,7 +671,15 @@ def export_stage_obj(
             sit on (``scan_blend.ScanGround`` or ``terrain_mesh.TerrainSurface``);
             optional, see ``stage_parts``.
     """
-    parts = stage_parts(rows, polylines, base_elevation_m, ground, levels)
+    parts = stage_parts(rows, polylines, base_elevation_m, ground, levels, booth)
+    # The row-end aisle stairs and cheek walls go in Stairs.obj, which takes the
+    # seating's flagstone material; everything else is the concrete Stage.obj.
+    stairs = [p for p in parts if p.name.startswith("stair_")]
+    stairs_path = Path(out_path).parent / "Stairs.obj"
+    stairs_tris, stairs_ranges = _write_parts_obj(stairs, stairs_path, "Stairs", [
+        "Red Rocks row-end aisle stairs and stone cheek walls, two steps per row",
+        f"centimetres, base {base_elevation_m:.3f} m",
+    ]) if stairs else (0, {})
 
     all_v: list[np.ndarray] = []
     all_uv: list[np.ndarray] = []
@@ -654,7 +687,7 @@ def export_stage_obj(
     ranges: dict[str, tuple[int, int]] = {}
     v_off = uv_off = n_tris = 0
     comments: list[str] = []
-    for part in parts:
+    for part in (p for p in parts if not p.name.startswith("stair_")):
         verts, tris, uvs, tuvs = prism(part.plan, part.z0, part.z1)
         all_v.append(verts)
         all_uv.append(uvs)
@@ -691,6 +724,17 @@ def export_stage_obj(
 
     handrail_path = out_path.parent / "Handrail.obj"
     handrail_tris = _write_handrail(parts, handrail_path, base_elevation_m)
+    booth_path, booth_deck = None, None
+    if booth is not None and levels is not None:
+        booth_path = out_path.parent / "Booth.obj"
+        roof = booth_roof_parts(parts, booth, stage_axis(rows))
+        _write_parts_obj(roof, booth_path, "Booth", [
+            "Red Rocks sound booth: posts and roof over the FOH deck (deck and parapet are in Stage.obj)",
+            f"centimetres, base {base_elevation_m:.3f} m",
+        ])
+        booth_deck = next(p.z1 for p in parts if p.name == "foh_platform") + base_elevation_m
+    else:
+        (out_path.parent / "Booth.obj").unlink(missing_ok=True)
 
     a = stage_axis(rows)
     origin = np.array([rows[0].centre_east, rows[0].centre_north]) - a * STAGE_FRONT_SETBACK_M
@@ -707,7 +751,102 @@ def export_stage_obj(
         axis=(float(a[0]), float(a[1])),
         handrail_path=handrail_path,
         handrail_triangles=handrail_tris,
+        booth_path=booth_path,
+        booth_deck_elevation_m=booth_deck,
+        stairs_path=stairs_path if stairs else None,
+        stairs_parts=stairs_ranges,
+        stairs_triangles=stairs_tris,
     )
+
+
+def _row_at(point: np.ndarray, shapes: Sequence[LineString]) -> int:
+    """Index of the row whose band (its line up to the next row's) holds ``point``."""
+    d = np.array([s.distance(Point(*point)) for s in shapes])
+    i, j = sorted(np.argsort(d)[:2])
+    # Between two neighbouring lines the band is the lower one's; past the last line, the last row.
+    return int(i) if j == i + 1 and d[i] + d[j] <= float(shapes[i].distance(shapes[j])) + 1e-6 else int(np.argmin(d))
+
+
+def _booth_frame(plan: np.ndarray, a: np.ndarray) -> tuple[np.ndarray, np.ndarray, np.ndarray, float, float]:
+    """(centre, along-the-rows unit, uphill unit, half width, depth) of a 4-corner footprint."""
+    plan = np.asarray(plan, dtype=float)[:4]
+    centre = plan.mean(axis=0)
+    edges = [plan[(k + 1) % 4] - plan[k] for k in range(4)]
+    # The uphill direction is whichever edge pair is most nearly along the stage axis.
+    depth_edge = max(edges, key=lambda e: abs(float(e @ a)) / float(np.hypot(*e)))
+    up = depth_edge / float(np.hypot(*depth_edge))
+    if up @ a < 0:
+        up = -up
+    along = np.array([up[1], -up[0]])
+    depth = float(np.hypot(*depth_edge))
+    width = float(np.hypot(*next(e for e in edges if abs(float(e @ up)) < 0.5 * np.hypot(*e))))
+    return centre, along, up, width / 2.0, depth
+
+
+def _booth_parts(plan, a, polylines, levels, base, ground) -> list[Part]:
+    centre, along, up, hw, depth = _booth_frame(plan, a)
+    shapes = [LineString(np.asarray(p, dtype=float)[:, :2]) for p in polylines]
+    samples = [centre + along * x + up * y
+               for x in np.linspace(-hw, hw, 5) for y in np.linspace(-depth / 2, depth / 2, 5)]
+    top = max(levels[_row_at(p, shapes)] for p in samples) + BOOTH_RAISE_M
+    low = min(levels[_row_at(p, shapes)] for p in samples)
+    if ground is not None:
+        low = min(low, min(float(ground(*p)) for p in samples))
+    z_top, z_bot = top - base, low - base - 0.6
+    wt, wh = dim("foh_wall_thickness"), dim("foh_wall_height")
+    y0, y1 = -depth / 2, depth / 2
+    parts = [
+        Part("foh_platform", _rect(centre, up, along, -hw, hw, y0, y1), z_bot, z_top),
+        Part("foh_wall_front", _rect(centre, up, along, -hw, hw, y0, y0 + wt), z_top, z_top + wh),
+    ]
+    for sx, nm in ((1, "e"), (-1, "w")):
+        x0, x1 = (hw - wt, hw) if sx > 0 else (-hw, -hw + wt)
+        # Side walls stop short of the back so the row behind walks straight in.
+        parts.append(Part(f"foh_wall_{nm}", _rect(centre, up, along, x0, x1, y0 + wt + 0.02, y0 + depth * 0.6),
+                          z_top, z_top + wh))
+    return parts
+
+
+def booth_roof_parts(parts: Sequence[Part], booth: np.ndarray, a: np.ndarray) -> list[Part]:
+    """Four corner posts on the booth deck and the flat roof over them."""
+    centre, along, up, hw, depth = _booth_frame(booth, a)
+    deck = next(p for p in parts if p.name == "foh_platform")
+    z0, z1 = deck.z1, deck.z1 + BOOTH_ROOF_M
+    out = []
+    pi = BOOTH_POST_M
+    for k, (sx, sy) in enumerate(((-1, -1), (1, -1), (1, 1), (-1, 1))):
+        x = sx * (hw - 0.15 - pi / 2)
+        y = sy * (depth / 2 - 0.15 - pi / 2)
+        out.append(Part(f"post_{k + 1}", _rect(centre, up, along, x - pi / 2, x + pi / 2, y - pi / 2, y + pi / 2), z0, z1))
+    o = BOOTH_ROOF_OVERHANG_M
+    out.append(Part("roof", _rect(centre, up, along, -hw - o, hw + o, -depth / 2 - o, depth / 2 + o),
+                    z1, z1 + BOOTH_ROOF_THICK_M))
+    return out
+
+
+def _write_parts_obj(parts: Sequence[Part], path: Path, name: str, header: Sequence[str]
+                     ) -> tuple[int, dict[str, tuple[int, int]]]:
+    """One OBJ object of prisms; returns (triangles, part name -> (first, end) triangle)."""
+    lines = [f"# {h}" for h in header] + [f"o {name}"]
+    vs, uvs, faces = [], [], []
+    ranges: dict[str, tuple[int, int]] = {}
+    v_off = uv_off = n_tris = 0
+    for part in parts:
+        verts, tris, puv, tuvs = prism(part.plan, part.z0, part.z1)
+        vs.append(verts)
+        uvs.append(puv)
+        faces.append(f"# {part.name.replace('_', ' ')}")
+        for t, tu in zip(tris, tuvs):
+            faces.append("f " + " ".join(f"{v_off + v + 1}/{uv_off + u + 1}" for v, u in zip(t, tu)))
+        ranges[part.name] = (n_tris, n_tris + len(tris))
+        n_tris += len(tris)
+        v_off += len(verts)
+        uv_off += len(puv)
+    lines += [f"v {x:.3f} {y:.3f} {z:.3f}" for x, y, z in np.vstack(vs) * CM_PER_M]
+    lines += [f"vt {u:.4f} {v:.4f}" for u, v in np.vstack(uvs)]
+    lines += faces
+    path.write_text("\n".join(lines) + "\n")
+    return n_tris, ranges
 
 
 def handrail_parts(parts: Sequence[Part]) -> list[Part]:
@@ -742,27 +881,10 @@ def handrail_parts(parts: Sequence[Part]) -> list[Part]:
 
 def _write_handrail(parts: Sequence[Part], path: Path, base_elevation_m: float) -> int:
     rail = handrail_parts(parts)
-    lines = [
-        "# Red Rocks top-of-bowl steel handrail on the walkway parapet",
-        f"# {len(rail) - 1} posts and a rail, centimetres, base {base_elevation_m:.3f} m",
-        "o Handrail",
-    ]
-    vs, uvs, faces = [], [], []
-    v_off = uv_off = 0
-    for part in rail:
-        verts, tris, puv, tuvs = prism(part.plan, part.z0, part.z1)
-        vs.append(verts)
-        uvs.append(puv)
-        faces.append(f"# {part.name.replace('_', ' ')}")
-        for t, tu in zip(tris, tuvs):
-            faces.append("f " + " ".join(f"{v_off + v + 1}/{uv_off + u + 1}" for v, u in zip(t, tu)))
-        v_off += len(verts)
-        uv_off += len(puv)
-    lines += [f"v {x:.3f} {y:.3f} {z:.3f}" for x, y, z in np.vstack(vs) * CM_PER_M]
-    lines += [f"vt {u:.4f} {v:.4f}" for u, v in np.vstack(uvs)]
-    lines += faces
-    path.write_text("\n".join(lines) + "\n")
-    return sum(1 for f in faces if f.startswith("f "))
+    return _write_parts_obj(rail, path, "Handrail", [
+        "Red Rocks top-of-bowl steel handrail on the walkway parapet",
+        f"{len(rail) - 1} posts and a rail, centimetres, base {base_elevation_m:.3f} m",
+    ])[0]
 
 
 def dimensions_table() -> str:

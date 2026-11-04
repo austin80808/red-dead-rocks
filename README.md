@@ -67,6 +67,8 @@ out/
   Bench_Planks.obj         two boards on every riser edge (43,696 triangles)
   Bench_Brackets.obj       1,807 steel brackets lined up about the stage (21,684 triangles)
   Handrail.obj             steel rail on the top walkway's parapet
+  Stairs.obj               row-end aisle stairs and cheek walls, two steps per row (5,040 triangles)
+  Booth.obj                the sound booth's posts and maroon roof, on its OSM footprint (way 229359709)
   scan_fade.png, .json     the scan's fade mask with the seating cut out (see Seating)
   Stage.obj                stage, Y-columns, trusses, FOH booth & bowl end stairs (462 parts, 5,536 triangles)
   Roads.obj, Paths.obj     OSM highways as draped ribbons (57,146 / 34,472 triangles)
@@ -133,8 +135,17 @@ out, except where the scan stands more than 0.6 m over the tread
 which stays visible so anything solid is something you can see.
 `import_scan.py` uses it when it is there.
 
-The stage's side stairs climb from each tread to the next across the row's band
-(two steps per row) and its walkway sits 2 cm under the top tread.
+The row-end aisle stairs (`Stairs.obj`, in the same flagstone) climb from each
+tread to the next across the row's band, two steps per row, and the stage's
+walkway sits 2 cm under the top tread.
+
+**The sound booth** stands where OSM has its roof (way 229359709,
+`building=roof`, about 6 x 4.5 m, around row 13 just off the centre line), not on
+row 8 where the blockout had it. Its deck covers that footprint 0.3 m over the
+highest tread under it, so you step in from the row behind; a parapet faces the
+stage, and four posts carry a flat maroon roof 2.6 m up (`Booth.obj`, `M_Roof`),
+like the one in the top-row photo. The scan shows no booth (it was flown without
+one), so nothing there is kept visible over it.
 
 Current output for a 3.6 km box centred on the amphitheatre (it reaches
 downtown Morrison; the box was 2.4 km until the explorable realm):

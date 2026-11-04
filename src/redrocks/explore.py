@@ -66,7 +66,8 @@ class Spot:
     elevation_m: float
     yaw_deg: float
     # How the Unreal script finds the floor: "ground" traces down from above,
-    # "summit" traces down from high above (lands on the rock top).
+    # "summit" traces down from high above (lands on the rock top), "deck" from
+    # just above (the stage spot: from higher up it landed on the stage roof).
     place: str = "ground"
 
     def as_dict(self) -> dict:
@@ -301,7 +302,8 @@ def plan(osm: OsmData, to_xy, elevation, half_extent: float, spawn: dict | None,
     spots: list[Spot] = []
     if spawn:
         spots.append(Spot("stage", "The stage", "Walk up the bowl, or turn around and climb the rocks.",
-                          spawn["east_m"], spawn["north_m"], spawn["ground_elevation_m"], spawn["yaw_deg"]))
+                          spawn["east_m"], spawn["north_m"], spawn["ground_elevation_m"], spawn["yaw_deg"],
+                          place="deck"))
     if stage:
         ax, ay = stage["axis_east_north"]
         n = math.hypot(ax, ay) or 1.0

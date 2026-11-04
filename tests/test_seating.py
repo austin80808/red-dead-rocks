@@ -319,8 +319,14 @@ def _cli_build(monkeypatch, tmp_path, with_fade=True):
     lat, lon = cli.RED_ROCKS_LAT, cli.RED_ROCKS_LON
     ring = [(lat - 0.0012, lon - 0.0008), (lat - 0.0012, lon + 0.0008),
             (lat + 0.0012, lon + 0.0008), (lat + 0.0012, lon - 0.0008)]
-    osm = OsmData(nodes={i + 1: p for i, p in enumerate(ring)},
-                  ways=[Way(id=1, node_ids=[1, 2, 3, 4, 1], tags={"amenity": "theatre"})])
+    # The sound booth's roof, a 6 x 4.5 m footprint in the middle of the bowl.
+    booth = [(lat - 0.00002, lon - 0.000035), (lat - 0.00002, lon + 0.000035),
+             (lat + 0.00002, lon + 0.000035), (lat + 0.00002, lon - 0.000035)]
+    nodes = {i + 1: p for i, p in enumerate(ring + booth)}
+    osm = OsmData(nodes=nodes, ways=[
+        Way(id=1, node_ids=[1, 2, 3, 4, 1], tags={"amenity": "theatre"}),
+        Way(id=229359709, node_ids=[5, 6, 7, 8, 5], tags={"building": "roof", "layer": "1"}),
+    ])
     monkeypatch.setattr(cli, "fetch_dem", fake_dem)
     monkeypatch.setattr(cli, "fetch_osm", lambda bbox: osm)
     monkeypatch.setattr(cli, "build_monoliths", lambda *a, **k: [])
@@ -353,6 +359,11 @@ def test_build_writes_the_seating_meshes_and_their_manifest(monkeypatch, tmp_pat
     assert len(b["tread_levels_m"]) == 70 and b["clearance_m"] == pytest.approx(0.45)
     assert np.all(np.diff(b["tread_levels_m"]) >= MIN_RISE_M - 1e-6)
     assert manifest["handrail"]["obj"] == "Handrail.obj" and (out / "Handrail.obj").exists()
+    assert manifest["stairs"]["obj"] == "Stairs.obj" and manifest["stairs"]["parts"] == 3 * 2 * 70
+    # The sound booth stands on its OSM roof footprint, with its roof in Booth.obj.
+    assert manifest["booth"]["osm_way"] == 229359709 and (out / "Booth.obj").exists()
+    assert manifest["booth"]["deck_elevation_m"] > b["tread_levels_m"][0]
+    assert abs(manifest["booth"]["east_m"]) < 5.0 and abs(manifest["booth"]["north_m"]) < 5.0
     # The stage's walkway sits just under the top tread.
     assert manifest["stage"]["walkway_elevation_m"] == pytest.approx(b["tread_levels_m"][-1] - 0.02, abs=1e-3)
 
