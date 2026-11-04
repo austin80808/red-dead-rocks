@@ -7,8 +7,12 @@ from redrocks.monoliths import (
     CREATION_ROCK_HEIGHT_FT,
     FT,
     SHIP_ROCK_HEIGHT_FT,
+    STAGE_ROCK_HEIGHT_FT,
+    STAGE_ROCK_WAY_ID,
     STRATA_DIP_DEGREES,
     Monolith,
+    build_monoliths,
+    build_stage_rock,
     monolith_to_obj,
 )
 
@@ -140,3 +144,62 @@ def test_every_face_references_a_valid_uv(tmp_path):
             assert len(parts) >= 2, f"face token {token} has no UV index"
             uv_index = int(parts[1])
             assert 1 <= uv_index <= n_uvs
+
+
+def test_stage_rock_official_height_and_build():
+    from redrocks.geo import LocalProjection
+    from redrocks.osm import OsmData, Way
+
+    assert STAGE_ROCK_HEIGHT_FT == 60.0
+    assert STAGE_ROCK_HEIGHT_FT * FT == pytest.approx(18.288)
+
+    lat0, lon0 = 39.6655, -105.2055
+    proj = LocalProjection(lat0, lon0, 1930.0)
+
+    def ring_nodes(start_id, dlat, dlon):
+        pts = [
+            (lat0 + dlat - 0.0002, lon0 + dlon - 0.0002),
+            (lat0 + dlat - 0.0002, lon0 + dlon + 0.0002),
+            (lat0 + dlat + 0.0002, lon0 + dlon + 0.0002),
+            (lat0 + dlat + 0.0002, lon0 + dlon - 0.0002),
+        ]
+        nodes = {start_id + i: p for i, p in enumerate(pts)}
+        ids = [start_id, start_id + 1, start_id + 2, start_id + 3, start_id]
+        return nodes, ids
+
+    n_v, ids_v = ring_nodes(1, 0.0, 0.0)
+    n_c, ids_c = ring_nodes(10, 0.001, 0.0)
+    n_s, ids_s = ring_nodes(20, -0.001, 0.0)
+    n_st, ids_st = ring_nodes(30, 0.0, 0.0006)
+    nodes = {**n_v, **n_c, **n_s, **n_st}
+
+    class FlatDem:
+        def sample(self, lat, lon):
+            return 1932.0
+
+    osm_two = OsmData(
+        nodes=nodes,
+        ways=[
+            Way(id=1, node_ids=ids_v, tags={"amenity": "theatre"}),
+            Way(id=91483333, node_ids=ids_c, tags={"natural": "bare_rock", "name": "Creation Rock"}),
+            Way(id=91483376, node_ids=ids_s, tags={"natural": "bare_rock", "name": "Ship Rock"}),
+        ],
+    )
+    assert build_stage_rock(osm_two, FlatDem(), proj, lat0, lon0) is None
+    assert len(build_monoliths(osm_two, FlatDem(), proj, lat0, lon0)) == 2
+
+    osm_three = OsmData(
+        nodes=nodes,
+        ways=osm_two.ways + [
+            Way(id=STAGE_ROCK_WAY_ID, node_ids=ids_st, tags={"natural": "bare_rock", "name": "Stage Rock"}),
+        ],
+    )
+    sr = build_stage_rock(osm_three, FlatDem(), proj, lat0, lon0)
+    assert sr is not None and sr.name == "Stage Rock (east)"
+    assert sr.height_m == pytest.approx(60.0 * FT)
+    all_rocks = build_monoliths(osm_three, FlatDem(), proj, lat0, lon0)
+    assert [r.name for r in all_rocks] == [
+        "Creation Rock (north)",
+        "Ship Rock (south)",
+        "Stage Rock (east)",
+    ]

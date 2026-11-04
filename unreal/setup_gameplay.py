@@ -47,25 +47,30 @@ GAME_MODE = "/Game/FirstPerson/Blueprints/BP_FirstPersonGameMode"
 LOG_PATH = os.path.join(os.environ.get("REDROCKS_LOG_DIR", "/tmp"), "redrocks_gameplay.log")
 
 # Meshes placed by this script (all in the terrain frame, origin, no rotation).
-NEW_MESHES = ["Stage", "Roads", "Paths", "Parking"]
+NEW_MESHES = ["Stage", "Roads", "Paths", "Parking", "Buildings", "Walls", "Rocks"]
 # Every mesh the player should be able to stand on or bump into.
-COLLIDE = ["RedRocks_Terrain", "Creation_Rock", "Ship_Rock", "Benches"] + NEW_MESHES
+COLLIDE = ["RedRocks_Terrain", "Creation_Rock", "Ship_Rock", "Stage_Rock", "Benches"] + NEW_MESHES
 
 # Plain materials: name -> (sRGB hex, roughness), and which mesh gets which.
 # setup_materials.py builds these as procedural materials (asphalt, gravel,
-# concrete, parking lot) and runs first; the flat colours here are only a
-# fallback for running this script on its own.
+# concrete, parking lot, buildings, sandstone) and runs first; the flat colours
+# here are only a fallback for running this script on its own.
 PLAIN = {
     "M_Asphalt": ("4a4845", 0.85),
     "M_Lot": ("57544f", 0.85),
     "M_Gravel": ("9b6a4b", 0.95),
     "M_Concrete": ("a8a196", 0.85),
+    "M_Buildings": ("a66848", 0.85),
+    "M_Sandstone": ("a2482a", 0.88),
 }
 MESH_MATERIAL = {
     "Roads": "M_Asphalt",
     "Paths": "M_Gravel",
     "Parking": "M_Lot",
     "Stage": "M_Concrete",
+    "Buildings": "M_Buildings",
+    "Walls": "M_Concrete",
+    "Rocks": "MI_Sandstone_Rock",
 }
 
 SPAWN_BACK_M = 5.0  # how far behind the downstage edge the player starts
@@ -401,6 +406,11 @@ def main():
     mats = {}
     for name, (color, rough) in PLAIN.items():
         mats[name] = _step("material %s" % name, _plain_material, name, color, rough)
+    rock_inst_path = "%s/MI_Sandstone_Rock" % MAT_DIR
+    if unreal.EditorAssetLibrary.does_asset_exist(rock_inst_path):
+        mats["MI_Sandstone_Rock"] = unreal.EditorAssetLibrary.load_asset(rock_inst_path)
+    else:
+        mats["MI_Sandstone_Rock"] = mats.get("M_Sandstone")
     for mesh_name, mat_name in MESH_MATERIAL.items():
         if mesh_name in present and mats.get(mat_name):
             _step("assign %s -> %s" % (mat_name, mesh_name), _assign_material, mesh_name, mats[mat_name])

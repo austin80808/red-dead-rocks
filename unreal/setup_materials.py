@@ -435,6 +435,19 @@ def build_gravel(mat):
     g.output(col, 0.95)
 
 
+def build_buildings(mat):
+    """Pueblo Revival sandstone/adobe walls with dark weathered roofs on top faces."""
+    lib.delete_all_material_expressions(mat)
+    g = Graph(mat)
+    wpos = g.world_pos()
+    wall = _concrete_color(g, wpos, "#B67856", "#8E553A")
+    roof = _concrete_color(g, wpos, "#5A534D", "#423D39")
+    top = g.smooth(0.55, 0.75, g.sat(g.normal_z()))
+    col = g.lerp(wall, roof, top)
+    rough = g.lerp(0.88, 0.82, top)
+    g.output(col, rough)
+
+
 # --------------------------------------------------------------- asset helpers
 
 def _get_or_create(name, asset_class, factory):
@@ -509,6 +522,7 @@ SURFACES = [
     ("M_Asphalt", build_asphalt, "Roads"),
     ("M_Lot", build_lot, "Parking"),
     ("M_Gravel", build_gravel, "Paths"),
+    ("M_Buildings", build_buildings, "Buildings"),
 ]
 
 
@@ -525,7 +539,7 @@ def main():
         ground = _step("MI_Sandstone_Ground", make_instance,
                        "MI_Sandstone_Ground", sandstone, GROUND_INSTANCE)
 
-    for name in ("Creation_Rock", "Ship_Rock"):
+    for name in ("Creation_Rock", "Ship_Rock", "Stage_Rock", "Rocks"):
         _step("apply %s" % name, apply_to_mesh, name, rock or sandstone)
     _step("apply RedRocks_Terrain", apply_to_mesh, "RedRocks_Terrain",
           ground or sandstone)
@@ -534,6 +548,8 @@ def main():
         mat = _step(mat_name, make_material, mat_name, builder)
         if mat is not None and mesh_name:
             _step("apply %s" % mesh_name, apply_to_mesh, mesh_name, mat)
+        if mat_name == "M_Concrete" and mat is not None:
+            _step("apply Walls", apply_to_mesh, "Walls", mat)
 
     log.append("done")
 

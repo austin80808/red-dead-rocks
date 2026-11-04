@@ -9,19 +9,33 @@ from redrocks.dem import Dem, square_bbox
 from redrocks.geo import metres_per_degree
 from redrocks.osm import parse_osm
 from redrocks.park import (
+    BARRIER_BURY_M,
+    BUILDING_FOUNDATION_M,
+    BUILDING_HEIGHTS_M,
+    BUILDING_PARAPET_M,
     PARKING_AISLE_WIDTH_M,
     PATH_LIFT_M,
     PATH_WIDTHS_M,
     ROAD_LIFT_M,
     ROAD_WIDTHS_M,
+    ROCK_BURY_M,
     TerrainSurface,
+    barrier_dimensions_m,
+    building_height_m,
+    export_buildings_obj,
     export_park,
     export_parking_obj,
     export_paths_obj,
     export_roads_obj,
+    export_rocks_obj,
+    export_walls_obj,
+    is_barrier,
+    is_building,
+    is_park_rock,
     is_path,
     is_road,
     ribbon,
+    rock_height_m,
     way_width_m,
 )
 from redrocks.terrain_mesh import export_terrain_obj
@@ -322,3 +336,78 @@ def osm_xml_at(centre, ways):
         tg = "".join(f'<tag k="{k}" v="{v}"/>' for k, v in tags.items())
         way_xml.append(f'<way id="{wid}">{nd}{tg}</way>')
     return parse_osm(f"<osm>{''.join(nodes)}{''.join(way_xml)}</osm>".encode())
+
+
+# --- buildings, walls & rocks -----------------------------------------------
+
+
+def test_buildings_obj_extrudes_footprints_and_skips_bowl_roof(tmp_path, surface):
+    # Trading Post (L-shaped concave polygon), toilets, and an inner-bowl roof (skipped).
+    trading_post = [(200, -180), (230, -180), (230, -160), (215, -160), (215, -170), (200, -170)]
+    toilets = [(-10, 300), (0, 300), (0, 308), (-10, 308)]
+    bowl_roof = [(10, 0), (25, 0), (25, 15), (10, 15)]
+    data = osm_xml(
+        [
+            ({"building": "yes", "name": "Trading Post", "tourism": "attraction", "_close": True}, trading_post),
+            ({"building": "yes", "amenity": "toilets", "_close": True}, toilets),
+            ({"building": "roof", "layer": "1", "_close": True}, bowl_roof),
+        ]
+    )
+    assert is_building(data.ways[0]) and building_height_m(data.ways[0]) == BUILDING_HEIGHTS_M["attraction"]
+    assert building_height_m(data.ways[1]) == BUILDING_HEIGHTS_M["toilets"]
+
+    mesh = export_buildings_obj(data, surface, tmp_path / "Buildings.obj")
+    assert mesh is not None and mesh.features == 2
+    verts, uvs, faces = load(tmp_path / "Buildings.obj")
+    assert len(verts) == len(uvs) == mesh.vertices and len(faces) == mesh.triangles
+    assert all(len(f) == 3 and all(len(t) == 2 for t in f) for f in faces)
+    assert "o Buildings" in (tmp_path / "Buildings.obj").read_text()
+
+    # Foundation is buried below the lowest ground corner so hillside buildings never float.
+    tp_xy = np.array([surface.to_xy(*at(e, n)) for e, n in trading_post])
+    tp_ground = surface.height(tp_xy[:, 0], tp_xy[:, 1])
+    expected_top = (tp_ground.max() + BUILDING_HEIGHTS_M["attraction"] + BUILDING_PARAPET_M) * 100.0
+    assert verts[:, 2].max() == pytest.approx(expected_top, abs=2.0)
+
+
+def test_walls_obj_sweeps_barriers_on_terrain(tmp_path, surface):
+    data = osm_xml(
+        [
+            ({"barrier": "retaining_wall", "material": "concrete"}, [(-60, 20), (0, 20), (40, 50)]),
+            ({"barrier": "fence", "material": "wood"}, [(-80, -40), (-20, -40)]),
+        ]
+    )
+    assert is_barrier(data.ways[0]) and barrier_dimensions_m(data.ways[0]) == (0.45, 1.50)
+    assert barrier_dimensions_m(data.ways[1]) == (0.18, 1.25)
+
+    mesh = export_walls_obj(data, surface, tmp_path / "Walls.obj")
+    assert mesh is not None and mesh.features == 2
+    verts, uvs, faces = load(tmp_path / "Walls.obj")
+    assert len(verts) == len(uvs) == mesh.vertices and len(faces) == mesh.triangles
+    assert all(len(f) == 3 and all(len(t) == 2 for t in f) for f in faces)
+    assert "o Walls" in (tmp_path / "Walls.obj").read_text()
+
+
+def test_rocks_obj_extrudes_stage_rock_and_park_outcrops(tmp_path, surface):
+    stage_rock = [(55, 0), (80, 0), (80, 20), (55, 20)]
+    picnic_rock = [(140, -300), (170, -300), (175, -270), (135, -275)]
+    data = osm_xml(
+        [
+            ({"natural": "bare_rock", "name": "Stage Rock", "_close": True}, stage_rock),
+            ({"natural": "bare_rock", "name": "Picnic Rock", "_close": True}, picnic_rock),
+            ({"natural": "stone", "_close": True}, [(-120, 80), (-114, 80), (-114, 86), (-120, 86)]),
+        ]
+    )
+    # Exclude flanking monolith way IDs if present.
+    creation_way = osm_xml([({"natural": "bare_rock", "_close": True}, stage_rock)]).ways[0]
+    creation_way.id = 91483333
+    assert not is_park_rock(creation_way)
+    assert all(is_park_rock(w) for w in data.ways)
+    assert rock_height_m(data.ways[0], 500.0) == pytest.approx(60.0 * 0.3048)
+
+    mesh = export_rocks_obj(data, surface, tmp_path / "Rocks.obj")
+    assert mesh is not None and mesh.features == 3
+    verts, uvs, faces = load(tmp_path / "Rocks.obj")
+    assert len(verts) == len(uvs) == mesh.vertices and len(faces) == mesh.triangles
+    assert all(len(f) == 3 and all(len(t) == 2 for t in f) for f in faces)
+    assert "o Rocks" in (tmp_path / "Rocks.obj").read_text()

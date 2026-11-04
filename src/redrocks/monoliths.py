@@ -29,6 +29,10 @@ CREATION_ROCK_HEIGHT_FT = 300.0  # north side
 SHIP_ROCK_HEIGHT_FT = 200.0  # south side
 STAGE_ROCK_HEIGHT_FT = 60.0  # east, smaller
 
+CREATION_ROCK_WAY_ID = 91483333
+SHIP_ROCK_WAY_ID = 91483376
+STAGE_ROCK_WAY_ID = 91483381
+
 # Both monoliths dip ~30 degrees toward the west.
 STRATA_DIP_DEGREES = 30.0
 
@@ -87,16 +91,38 @@ def _bowl_floor(osm, dem, projection: LocalProjection, lat0: float, lon0: float)
     return lowest
 
 
+def build_stage_rock(
+    osm,
+    dem,
+    projection: LocalProjection,
+    lat0: float,
+    lon0: float,
+    stage_way: int = STAGE_ROCK_WAY_ID,
+) -> Monolith | None:
+    """Build Stage Rock (60 ft, east of the stage) from its surveyed OSM footprint, if present."""
+    if not any(w.id == stage_way for w in osm.ways):
+        return None
+    floor = _bowl_floor(osm, dem, projection, lat0, lon0)
+    poly = _rock_polygon(osm, stage_way, projection)
+    return Monolith(
+        name="Stage Rock (east)",
+        footprint=poly,
+        base_elevation_m=floor,
+        height_m=STAGE_ROCK_HEIGHT_FT * FT,
+    )
+
+
 def build_monoliths(
     osm,
     dem,
     projection: LocalProjection,
     lat0: float,
     lon0: float,
-    creation_way: int = 91483333,
-    ship_way: int = 91483376,
+    creation_way: int = CREATION_ROCK_WAY_ID,
+    ship_way: int = SHIP_ROCK_WAY_ID,
+    stage_way: int | None = STAGE_ROCK_WAY_ID,
 ) -> list[Monolith]:
-    """Build the two flanking monoliths from their surveyed OSM footprints."""
+    """Build the flanking monoliths (and Stage Rock when present) from their surveyed OSM footprints."""
     floor = _bowl_floor(osm, dem, projection, lat0, lon0)
 
     a = _rock_polygon(osm, creation_way, projection)
@@ -106,7 +132,7 @@ def build_monoliths(
     # position so a change in OSM ids cannot silently swap the heights.
     north, south = (a, b) if a.centroid.y > b.centroid.y else (b, a)
 
-    return [
+    out = [
         Monolith(
             name="Creation Rock (north)",
             footprint=north,
@@ -120,6 +146,11 @@ def build_monoliths(
             height_m=SHIP_ROCK_HEIGHT_FT * FT,
         ),
     ]
+    if stage_way is not None:
+        stage_rock = build_stage_rock(osm, dem, projection, lat0, lon0, stage_way=stage_way)
+        if stage_rock is not None:
+            out.append(stage_rock)
+    return out
 
 
 def monolith_to_obj(monolith: Monolith, out_path: Path, segments: int = HEIGHT_SEGMENTS) -> Path:

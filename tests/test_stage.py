@@ -388,3 +388,44 @@ def test_cli_stands_benches_stage_and_spawn_on_the_scan_ground(monkeypatch, tmp_
     # Without the ground raster everything goes back onto the terrain mesh.
     assert cli.main(args + ["--scan-ground", ""]) == 0
     assert json.loads((out / "manifest.json").read_text())["benches"]["ground"] == "terrain mesh"
+
+
+def test_y_columns_and_skydeck_trusses_match_published_stations(tmp_path):
+    mesh, (verts, _, faces, _), rows = export(tmp_path)
+    deck_top = (rows[0].elevation_m - BASE - STAGE_DROP_M) * 100.0
+    roof_bot = part_verts(mesh, verts, faces, "roof")[:, 2].min()
+    fork_z = deck_top + stage.Y_COLUMN_FORK_ABOVE_DECK_M * 100.0
+
+    y_arms = [name for name in mesh.parts if name.startswith("y_arm_")]
+    assert len(y_arms) == 8
+    for name in y_arms:
+        v = part_verts(mesh, verts, faces, name)
+        assert v[:, 2].min() == pytest.approx(fork_z, abs=0.05)
+        assert v[:, 2].max() == pytest.approx(roof_bot, abs=0.05)
+
+    for tname in ("truss_1", "truss_2", "truss_3"):
+        assert tname in mesh.parts
+        tv = part_verts(mesh, verts, faces, tname)
+        assert tv[:, 2].max() == pytest.approx(roof_bot, abs=0.05)
+        assert tv[:, 2].min() == pytest.approx(roof_bot - dim("truss_depth") * 100.0, abs=0.05)
+
+    beams = [name for name in mesh.parts if name.startswith("skydeck_beam_")]
+    assert len(beams) == 6
+    assert "shell_canopy" in mesh.parts
+    assert "shell_baffle_e" in mesh.parts and "shell_baffle_w" in mesh.parts
+
+
+def test_foh_booth_and_end_of_row_stairs(tmp_path):
+    mesh, (verts, _, faces, _), rows = export(tmp_path)
+    for part_name in ("foh_platform", "foh_wall_front", "foh_wall_e", "foh_wall_w", "walkway_parapet"):
+        assert part_name in mesh.parts
+
+    # Every row has 2 steps at both ends (start and end) plus outer cheek walls.
+    for r in rows:
+        for side in ("start", "end"):
+            s1 = part_verts(mesh, verts, faces, f"stair_{side}_r{r.index}_s1")
+            s2 = part_verts(mesh, verts, faces, f"stair_{side}_r{r.index}_s2")
+            wall = part_verts(mesh, verts, faces, f"stair_wall_{side}_r{r.index}")
+            # Step 2 rises half a bench height (22.5 cm) above step 1.
+            assert s2[:, 2].max() - s1[:, 2].max() == pytest.approx(22.5, abs=0.05)
+            assert wall[:, 2].max() > s2[:, 2].max()

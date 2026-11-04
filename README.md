@@ -59,13 +59,17 @@ mountain mahogany cover the hillsides (see Vegetation).
 out/
   redrocks_heightmap.png   2017x2017 16-bit heightmap, Unreal landscape format
   RedRocks_Terrain.obj     377x377 grid terrain mesh, 282,752 triangles, cm
-  Creation_Rock.obj        north monolith, 91.4 m, watertight
-  Ship_Rock.obj            south monolith, 61.0 m, watertight
+  Creation_Rock.obj        north monolith, 91.4 m (300 ft), watertight
+  Ship_Rock.obj            south monolith, 61.0 m (200 ft), watertight
+  Stage_Rock.obj           east monolith, 18.3 m (60 ft), watertight
   Benches.obj              70 curved bench rows, 16,808 triangles, terrain frame
-  Stage.obj                stage blockout, 13 parts, 148 triangles, terrain frame
+  Stage.obj                stage, Y-columns, trusses, FOH booth & bowl end stairs (462 parts, 5,536 triangles)
   Roads.obj, Paths.obj     OSM highways as draped ribbons (21,118 / 23,000 triangles)
   Parking.obj              24 OSM parking lots as terrain-following patches (22,788 triangles)
-  manifest.json            Z scale, bbox, origin, venue, monoliths, attribution
+  Buildings.obj            42 OSM park & Morrison buildings with buried foundations & parapets (1,004 triangles)
+  Walls.obj                63 OSM retaining walls, stone walls, fences & rails (18,092 triangles)
+  Rocks.obj                240 surveyed OSM rock & cliff outcrops across the park (30,152 triangles)
+  manifest.json            Z scale, bbox, origin, venue, monoliths, stage, park, attribution
 ```
 
 Clone with Git LFS installed: the scan, rock models and textures in `assets/`
@@ -161,6 +165,9 @@ the ridge behind each rock.
 |---|---|---|---|
 | Creation Rock (north) | 163.6 × 94.8 m, 8,132 m² | 91.4 m (300 ft) | 2023.8 m |
 | Ship Rock (south) | 236.1 × 177.2 m, 18,647 m² | 61.0 m (200 ft) | 1993.4 m |
+| Stage Rock (east) | 45.5 × 38.3 m, 1,028 m² | 18.3 m (60 ft) | 1950.7 m |
+
+In addition, `park.py` extrudes all 240 surveyed OSM `natural=bare_rock|stone|cliff` polygons across the 2.4 km park (including Stage Rock, Tethys Rock, Picnic Rock, Frog Rock, Lizard Head Rock, Seven Ladders Rock, Park Cave Rock and Entry Rock) into `Rocks.obj` in the terrain frame, with buried foundations and battered 3-tier sandstone cliffs, alongside `Buildings.obj` (42 park and Morrison buildings with buried foundations and Pueblo-Revival parapet rims) and `Walls.obj` (63 retaining walls, stone walls, wood fences and guard rails).
 
 Meshes are watertight, outward-facing, and their volume matches
 footprint × height to six digits. Units are centimetres, matching Unreal. Side
