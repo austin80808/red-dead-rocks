@@ -287,3 +287,21 @@ def test_cli_build_writes_stage_and_manifest(monkeypatch, tmp_path):
     assert st["parts"]["deck"]["end_triangle"] > st["parts"]["deck"]["first_triangle"]
     assert {d["name"] for d in st["dimensions"]} == {d.name for d in DIMENSIONS}
     assert st["base_elevation_m"] == manifest["benches"]["base_elevation_m"]
+
+
+def test_deck_rises_above_terrain_that_would_bury_it():
+    from redrocks import stage as st
+    from redrocks.venue import Row
+    import inspect
+    fields = inspect.signature(Row).parameters
+    def row(e, n, z):
+        kw = {k: 0 for k in fields}
+        kw.update(centre_east=e, centre_north=n, elevation_m=z)
+        return Row(**kw)
+    rows = [row(0.0, 0.0, 100.0), row(0.0, 50.0, 130.0)]
+    flat = st.deck_top_elevation(rows)
+    assert flat == 100.0 - st.STAGE_DROP_M
+    buried = st.deck_top_elevation(rows, ground=lambda e, n: 101.0)
+    assert buried == 101.0 + st.DECK_CLEARANCE_M
+    low = st.deck_top_elevation(rows, ground=lambda e, n: 50.0)
+    assert low == flat
