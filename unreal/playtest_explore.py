@@ -31,7 +31,7 @@ import unreal
 
 OUT_DIR = os.environ.get("REDROCKS_OUT_DIR", "/Users/austin/dev/redrocks-ue/out")
 LOG_PATH = os.path.join(os.environ.get("REDROCKS_LOG_DIR", "/tmp"), "redrocks_playtest_explore.log")
-ALL = ["bowl", "climb", "wingsuit", "cart", "sled", "morrison"]
+ALL = ["bowl", "climb", "wingsuit", "cart", "sled", "tubing", "night", "morrison"]
 SCENARIOS = [s for s in os.environ.get("SCENARIOS", ",".join(ALL)).split(",") if s]
 TIMEOUT_S = 900.0
 SETTLE_S = 5.0
@@ -160,6 +160,16 @@ def _start_scenario(pawn, world, name):
         pawn.rr_go(SPOT["sleds"])
         R.steps = [("settle", R.wait(SETTLE_S + 3.0)), ("snow_shot", snow_shot), ("board", board_step),
                    ("ride", ride_step), ("ride_end", ride_end), ("melt", melt)]
+    elif name == "tubing":
+        pawn.rr_go(SPOT["tubing"])
+        R.steps = [("settle", R.wait(SETTLE_S)), ("board", board_step), ("ride", ride_step), ("ride_end", ride_end)]
+    elif name == "night":
+        weather = unreal.GameplayStatics.get_actor_of_class(world, unreal.RRWeather)
+        if weather:
+            weather.set_night(True)
+        R.s["views"] = [("bowl_top", 0.0, -12.0, True), ("stage", 0.0, 10.0, True)]
+        R.s["prefix"] = "night"
+        R.steps = [("views", bowl_views), ("day", day_again)]
     elif name == "bowl":
         R.s["views"] = [("stage", 0.0, 4.0, False), ("bowl_top", 0.0, -14.0, False), ("bowl_top", 0.0, -14.0, True)]
         R.steps = [("views", bowl_views)]
@@ -276,9 +286,9 @@ def board_step(now, pawn, world):
     start = ride.get_actor_location()
     R.s.update(ride=ride, start=(start.x, start.y, start.z), vmax=0.0, idx=0, crashes=0, dist=0.0,
                last=(start.x, start.y))
-    key = "carts" if R.s["name"] == "cart" else "sleds"
+    key = {"cart": "carts", "sled": "sleds", "tubing": "tubes"}[R.s["name"]]
     datum = manifest["terrain_mesh"]["min_elevation_m"]
-    pts = explore[key]["route" if key == "carts" else "run"]
+    pts = explore[key]["run" if key == "sleds" else "route"]
     R.s["route"] = [(p[0] * 100.0, p[1] * 100.0, (p[2] - datum) * 100.0) for p in pts]
     note("boarded at x=%.0f y=%.0f z=%.0f" % (start.x, start.y, start.z))
     return True
@@ -317,18 +327,21 @@ def ride_step(now, pawn, world):
     end = R.s["route"][-1]
     left = math.hypot(end[0] - loc.x, end[1] - loc.y) / 100.0
     R.s["left"] = left
-    limit = 420.0 if R.s["name"] == "cart" else 70.0
+    limit = {"cart": 420.0, "tubing": 600.0}.get(R.s["name"], 70.0)
     return left < 60.0 or now - R.mark > limit
 
 
 def ride_end(now, pawn, world):
     name = R.s["name"]
     _shot(world, "%s_end" % name)
-    route_len = explore["carts"]["route_length_m"] if name == "cart" else explore["sleds"]["run_m"]
+    route_len = {"cart": explore["carts"]["route_length_m"], "tubing": explore["tubes"]["route_length_m"]}.get(
+        name, explore["sleds"]["run_m"])
     detail = "%.0f m ridden of %.0f, %.0f m from the end, top %.0f km/h, %d wipeouts" % (
         R.s["dist"], route_len, R.s.get("left", -1), R.s["vmax"], R.s["crashes"])
     if name == "cart":
         check("shopping cart to Morrison", R.s.get("left", 1e9) < 150.0, detail)
+    elif name == "tubing":
+        check("tubed Bear Creek through Morrison", R.s["dist"] >= 2000.0, detail)
     else:
         check("sledded the hill", R.s["dist"] >= 100.0 and R.s["vmax"] >= 20.0, detail)
     pawn.script_release()
@@ -365,17 +378,18 @@ def bowl_views(now, pawn, world):
     if at is None or (not R.s.get("pending") and now - at > 2.0):
         if not R.s["views"]:
             weather = unreal.GameplayStatics.get_actor_of_class(world, unreal.RRWeather)
-            if weather:
+            if weather and R.s.get("prefix", "bowl") == "bowl":
                 weather.set_snow_now(False)
-            check("amphitheatre views", True)
+            check("%s views" % ("amphitheatre" if R.s.get("prefix", "bowl") == "bowl" else R.s["prefix"]), True)
             return True
-        key, dyaw, pitch, snow = R.s["views"].pop(0)
+        key, dyaw, pitch, flag = R.s["views"].pop(0)
+        prefix = R.s.get("prefix", "bowl")
         weather = unreal.GameplayStatics.get_actor_of_class(world, unreal.RRWeather)
-        if weather:
-            weather.set_snow_now(snow)
+        if weather and prefix == "bowl":
+            weather.set_snow_now(flag)
         pawn.rr_go(SPOT[key])
         R.s["look"] = (dyaw, pitch)
-        R.s["pending"] = "bowl_%s%s" % (key, "_snow" if snow else "")
+        R.s["pending"] = "%s_%s%s" % (prefix, key, "_snow" if flag and prefix == "bowl" else "")
         R.s["at"] = now
         return False
     if R.s.get("look") and now - at > 6.0:
@@ -383,6 +397,15 @@ def bowl_views(now, pawn, world):
         pawn.script_look(pawn.get_actor_rotation().yaw + dyaw, pitch)
         R.s["look"] = None
     return False
+
+
+def day_again(now, pawn, world):
+    weather = unreal.GameplayStatics.get_actor_of_class(world, unreal.RRWeather)
+    concert = unreal.GameplayStatics.get_actor_of_class(world, unreal.RRConcert)
+    check("night concert played", bool(concert) and concert.is_playing())
+    if weather:
+        weather.set_night(False)
+    return True
 
 
 def morrison_shot(now, pawn, world):

@@ -7,6 +7,9 @@
 * **Sleds** wait at the top of the longest steady slope near the bowl that has
   no road, path or building on it: a fall line of 120-300 m whose grade stays
   between sledding and cliff.
+* **Inner tubes** float Bear Creek: its longest stretch inside the world, from
+  the canyon down through Morrison, with a water level that never runs uphill
+  (``Water.obj`` is a ribbon along it).
 * **Teleport spots** (number keys in game): the stage, the top of the bowl, the
   foot and summit of Creation Rock, the cart lot, the sled hill, the high ridge
   for long wingsuit flights, and Morrison.
@@ -356,6 +359,26 @@ def plan(osm: OsmData, to_xy, elevation, half_extent: float, spawn: dict | None,
     spots.append(Spot("ridge", "The high ridge",
                       f"{rz:.0f} m.  Jump off and wingsuit down to the rocks.", rx, ry, rz, ryaw))
 
+    creek = creek_route(osm, to_xy, elevation, half_extent)
+    tubes = None
+    if len(creek.points) >= 3:
+        cx0, cy0, cz0 = creek.points[0]
+        cx1, cy1, _ = creek.points[2]
+        cyaw = yaw_deg(cx1 - cx0, cy1 - cy0)
+        spots.append(Spot("tubing", "Bear Creek tubing",
+                          "E to grab an inner tube and float the canyon down through Morrison.",
+                          cx0, cy0, cz0, cyaw))
+        tubes = {
+            "start": {"east_m": round(cx0, 2), "north_m": round(cy0, 2), "elevation_m": round(cz0, 2),
+                      "yaw_deg": round(cyaw, 1)},
+            "count": 3,
+            "name": CREEK_NAME,
+            "route_length_m": round(creek.length_m, 1),
+            "route_drop_m": round(creek.drop_m, 1),
+            "width_m": CREEK_WIDTH_M,
+            "route": [[round(p[0], 1), round(p[1], 1), round(p[2], 2)] for p in creek.points],
+        }
+
     if carts:
         ex, ey, ez = route.points[-1]
         px, py, _ = route.points[-2]
@@ -366,6 +389,130 @@ def plan(osm: OsmData, to_xy, elevation, half_extent: float, spawn: dict | None,
         "spots": [s.as_dict() for s in spots],
         "carts": carts,
         "sleds": sleds,
+        "tubes": tubes,
         "morrison": {"lat": town[0], "lon": town[1],
                      "east_m": round(goal[0], 2), "north_m": round(goal[1], 2)},
     }
+
+
+# ------------------------------------------------------------------ Bear Creek
+
+CREEK_NAME = "Bear Creek"
+CREEK_WIDTH_M = 9.0
+CREEK_STEP_M = 12.0
+CREEK_EDGE_MARGIN_M = 40.0
+WATER_LIFT_M = 0.35
+
+
+def creek_route(osm: OsmData, to_xy, elevation, half_extent: float, name: str = CREEK_NAME) -> Route:
+    """The longest stretch of the named waterway inside the world, downstream order,
+    resampled every CREEK_STEP_M with a water level that never runs uphill."""
+    best: list[tuple[float, float]] = []
+    lim = half_extent - CREEK_EDGE_MARGIN_M
+    for way in osm.ways:
+        if way.tags.get("name") != name or "waterway" not in way.tags:
+            continue
+        run: list[tuple[float, float]] = []
+        for n in way.node_ids:
+            if n not in osm.nodes:
+                continue
+            x, y = to_xy(*osm.nodes[n])
+            if abs(x) <= lim and abs(y) <= lim:
+                run.append((x, y))
+            else:
+                if len(run) > len(best):
+                    best = run
+                run = []
+        if len(run) > len(best):
+            best = run
+    if len(best) < 2:
+        return Route()
+    # OSM waterways point downstream; trust it but check with the ground.
+    if elevation(*best[0]) < elevation(*best[-1]):
+        best = best[::-1]
+    fine = densify(Route([(x, y, 0.0) for x, y in best]), CREEK_STEP_M)
+    level = math.inf
+    pts = []
+    for x, y, _ in fine.points:
+        level = min(level, elevation(x, y))
+        pts.append((x, y, level))
+    return Route(pts)
+
+
+def export_water_obj(route: Route, base_m: float, path, width_m: float = CREEK_WIDTH_M) -> int:
+    """A flat ribbon of water along the route (cm, terrain frame, Z above base_m). Returns triangles."""
+    if len(route.points) < 2:
+        return 0
+    verts, uvs = [], []
+    along = 0.0
+    n = len(route.points)
+    for i, (x, y, z) in enumerate(route.points):
+        a = route.points[max(0, i - 1)]
+        b = route.points[min(n - 1, i + 1)]
+        dx, dy = b[0] - a[0], b[1] - a[1]
+        L = math.hypot(dx, dy) or 1.0
+        nx, ny = -dy / L, dx / L  # left of the flow
+        if i:
+            p = route.points[i - 1]
+            along += math.hypot(x - p[0], y - p[1])
+        zc = (z - base_m + WATER_LIFT_M) * 100.0
+        for side in (1.0, -1.0):
+            verts.append(((x + side * nx * width_m / 2) * 100.0, (y + side * ny * width_m / 2) * 100.0, zc))
+            uvs.append((along / width_m, 0.0 if side > 0 else 1.0))
+    lines = ["# Bear Creek water surface, redrocks.explore", "o Water"]
+    lines += ["v %.2f %.2f %.2f" % v for v in verts]
+    lines += ["vt %.5f %.5f" % t for t in uvs]
+    lines.append("vn 0 0 1")
+    tris = 0
+    for i in range(n - 1):
+        l0, r0, l1, r1 = 2 * i + 1, 2 * i + 2, 2 * i + 3, 2 * i + 4
+        # Counter-clockwise seen from above (left bank is +normal side).
+        lines.append("f %d/%d/1 %d/%d/1 %d/%d/1" % (r0, r0, r1, r1, l1, l1))
+        lines.append("f %d/%d/1 %d/%d/1 %d/%d/1" % (r0, r0, l1, l1, l0, l0))
+        tris += 2
+    with open(path, "w") as fh:
+        fh.write("\n".join(lines) + "\n")
+    return tris
+
+
+CREEK_BED_DEPTH_M = 0.7  # bed below the water line, so the water ribbon always shows
+CREEK_BANK_M = 6.0       # the banks ease back to the ground over this far
+
+
+def carve_creek(dem, route: Route, half_x: float, half_y: float, floor_m: float,
+                width_m: float = CREEK_WIDTH_M):
+    """A copy of ``dem`` with the creek's bed cut to its water level minus
+    CREEK_BED_DEPTH_M (never below ``floor_m``, the terrain datum), its banks
+    blended back to the ground. The DEM's 1.19 m pixels resolve a channel the
+    6.4 m terrain cells would otherwise bury under the water."""
+    from .dem import Dem
+
+    data = dem.data.astype(np.float64).copy()
+    rows, cols = data.shape
+    half_w = width_m / 2.0
+    reach = half_w + CREEK_BANK_M
+    px = 2 * half_x / (cols - 1)
+    py = 2 * half_y / (rows - 1)
+    for a, b in zip(route.points, route.points[1:]):
+        x0, x1 = min(a[0], b[0]) - reach, max(a[0], b[0]) + reach
+        y0, y1 = min(a[1], b[1]) - reach, max(a[1], b[1]) + reach
+        c0 = max(0, int((x0 + half_x) / px)); c1 = min(cols - 1, int((x1 + half_x) / px) + 1)
+        r0 = max(0, int((half_y - y1) / py)); r1 = min(rows - 1, int((half_y - y0) / py) + 1)
+        if c1 < c0 or r1 < r0:
+            continue
+        cs = np.arange(c0, c1 + 1)
+        rs = np.arange(r0, r1 + 1)
+        X = cs[None, :] * px - half_x
+        Y = half_y - rs[:, None] * py
+        dx, dy = b[0] - a[0], b[1] - a[1]
+        L2 = dx * dx + dy * dy or 1.0
+        t = np.clip(((X - a[0]) * dx + (Y - a[1]) * dy) / L2, 0.0, 1.0)
+        dist = np.hypot(X - (a[0] + t * dx), Y - (a[1] + t * dy))
+        bed = np.maximum(a[2] + (b[2] - a[2]) * t - CREEK_BED_DEPTH_M, floor_m + 0.01)
+        # 1 inside the channel, easing to 0 at the top of the bank.
+        w = np.clip((reach - dist) / CREEK_BANK_M, 0.0, 1.0)
+        w = w * w * (3 - 2 * w)
+        win = data[r0:r1 + 1, c0:c1 + 1]
+        cut = np.where(win > bed, win + (bed - win) * w, win)
+        data[r0:r1 + 1, c0:c1 + 1] = np.minimum(win, cut)
+    return Dem(data=data.astype(dem.data.dtype), bbox=dem.bbox)

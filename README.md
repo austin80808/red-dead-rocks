@@ -340,7 +340,9 @@ project), and everything below is placed from the map by `redrocks build`
 | **Wingsuit off the rocks** | In the air more than 5 m up, press Space. Mouse steers, A/D banks, W dives for speed, S flares. Space again opens the parachute (A/D turn, W/S speed, Q cuts away). Hit a rock too fast and you splat; R puts you back. |
 | **Shopping cart to Morrison** | Three carts wait at the top of Red Rocks Park Road (2000 m). E climbs in, W pushes off, S brakes, A/D steer, Space hops. The road drops 217 m over 3.4 km to Bear Creek Avenue in downtown Morrison; the HUD counts down the metres. Carts roll on the road and bog down off it; hit a wall over ~54 km/h and you're thrown out. |
 | **Sled when it snows** | Press N and it snows: flakes fall, the ground, benches, roads and trees whiten (every material reads `MPC_Weather`'s `Snow`), the sun dims and the fog closes in. Sleds on the sled hill (a 318 m run, 89 m drop, cleared of trees) only run well on snow. Carts drift on it. |
-| **Go places** | Number keys teleport: 1 stage, 2 top of the bowl, 3 the climb, 4 Creation Rock summit, 5 shopping carts, 6 sled hill, 7 the high ridge (2403 m, the longest wingsuit flight), 8 Morrison. H shows the controls, V swaps to a third-person camera, R respawns. |
+| **Tube Bear Creek** | Inner tubes wait where Bear Creek enters the world in its canyon. E grabs one; the current carries you 4.5 km and 175 m down through Morrison, lazy on the flats and quick through the riffles. W paddles, A/D steer, and the tube turns slowly as it goes. The creek is `Water.obj`, a ribbon along OSM's Bear Creek whose level never runs uphill. |
+| **Night and a concert** | Press T: the sun sets, a moon rises, exposure opens up, and the stage rig plays: eight moving heads sweeping the rows and six beams fanning into the haze, changing colour every bar at 124 BPM. T again for morning. |
+| **Go places** | Number keys teleport: 1 stage, 2 top of the bowl, 3 the climb, 4 Creation Rock summit, 5 shopping carts, 6 sled hill, 7 the high ridge (2403 m, the longest wingsuit flight), 8 Bear Creek tubing, 9 Morrison. H shows the controls, V swaps to a third-person camera, R respawns. |
 
 | Climb Creation Rock | Wingsuit off the summit |
 |---|---|
@@ -393,8 +395,9 @@ once after pulling (the editor also offers to when it opens):
 | Class | Does |
 |---|---|
 | `ARRExplorer` | the player: walk, sprint, climb, mantle, wingsuit, parachute, ride; test hooks `ScriptMove`, `ScriptPress`, `ScriptLook`, `RRGo` |
-| `ARRRide` | shopping cart or sled: rolls or slides on whatever is under it, rolling resistance by surface and snow, sideways grip, crests, air, wipeouts |
-| `ARRWeather` | snow: falling flakes around the camera, the `Snow` cover parameter, sun, sky and fog |
+| `ARRRide` | shopping cart, sled or inner tube: rolls or slides on whatever is under it, rolling resistance by surface and snow, sideways grip, crests, air, wipeouts |
+| `ARRWeather` | snow: falling flakes around the camera, the `Snow` cover parameter, sun, sky and fog; night: sun below the horizon, moon, exposure, volumetric haze |
+| `ARRConcert` | the stage light rig: moving heads and sky beams on the beat, on only at night |
 | `ARRSpot` | a teleport spot; drops onto the ground (or a summit) and can walk to a rock face |
 | `ARRHUD`, `ARRGameMode` | status, hints, toasts, controls; the game mode that ties it together |
 

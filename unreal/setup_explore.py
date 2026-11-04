@@ -19,7 +19,9 @@ What it does, logged to /tmp/redrocks_explore.log:
   4. Three shopping carts at the cart lot, side by side, pointed down the road,
      with Morrison as their destination and the road route to it (the carts'
      cartoon road assist follows it); three sleds at the top of the sled hill.
-  5. An ARRWeather (snow off at start) and the HUD's elevation datum.
+  5. Three inner tubes at the top of Bear Creek with the creek as their route;
+     an ARRWeather (snow off, day at start) and the HUD's elevation datum; the
+     ARRConcert light rig on the stage (it plays when T makes it night).
   6. Sets the level's game mode to /Script/RedRocks.RRGameMode and saves.
 """
 
@@ -92,7 +94,7 @@ def _tag_surfaces():
     tagged = []
     for actor in _actors():
         label = actor.get_actor_label()
-        tag = {"Roads": "road", "Parking": "parking"}.get(label)
+        tag = {"Roads": "road", "Parking": "parking", "Water": "water"}.get(label)
         if tag:
             tags = [t for t in actor.tags if str(t) != tag] + [unreal.Name(tag)]
             actor.tags = tags
@@ -151,6 +153,16 @@ def _weather(datum):
     return "datum %.2f m" % datum
 
 
+def _concert(manifest, datum):
+    """The light rig on the stage deck, facing up the bowl like the player at spawn."""
+    spawn = manifest.get("spawn")
+    if not spawn:
+        return "no spawn in manifest"
+    loc = to_cm(spawn["east_m"], spawn["north_m"], spawn["ground_elevation_m"], datum, 0.0)
+    _spawn(unreal.RRConcert, loc, spawn["yaw_deg"], PREFIX + "Concert")
+    return "at E%.0f N%.0f facing %.0f" % (spawn["east_m"], spawn["north_m"], spawn["yaw_deg"])
+
+
 def _game_mode():
     cls = unreal.load_class(None, GAME_MODE)
     if cls is None:
@@ -191,7 +203,13 @@ def main():
     _step("shopping carts", _rides, explore.get("carts"), unreal.RRRideKind.CART, CART_SPACING_CM, datum, town,
           "Cart", road)
     _step("sleds", _rides, explore.get("sleds"), unreal.RRRideKind.SLED, SLED_SPACING_CM, datum, None, "Sled")
+    creek = None
+    if explore.get("tubes"):
+        creek = [to_cm(p[0], p[1], p[2], datum, 0.0) for p in explore["tubes"]["route"]]
+    _step("inner tubes", _rides, explore.get("tubes"), unreal.RRRideKind.TUBE, SLED_SPACING_CM, datum,
+          (creek[-1], "the bottom of Bear Creek") if creek else None, "Tube", creek)
     _step("weather", _weather, datum)
+    _step("concert rig", _concert, manifest, datum)
     _step("game mode", _game_mode)
     _step("save %s" % LEVEL_PATH, _save)
 

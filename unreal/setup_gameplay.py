@@ -47,7 +47,7 @@ GAME_MODE = "/Game/FirstPerson/Blueprints/BP_FirstPersonGameMode"
 LOG_PATH = os.path.join(os.environ.get("REDROCKS_LOG_DIR", "/tmp"), "redrocks_gameplay.log")
 
 # Meshes placed by this script (all in the terrain frame, origin, no rotation).
-NEW_MESHES = ["Stage", "Roads", "Paths", "Parking", "Buildings", "Walls", "Rocks"]
+NEW_MESHES = ["Stage", "Roads", "Paths", "Parking", "Buildings", "Walls", "Rocks", "Water"]
 # Every mesh the player should be able to stand on or bump into.
 COLLIDE = ["RedRocks_Terrain", "Creation_Rock", "Ship_Rock", "Stage_Rock", "Benches"] + NEW_MESHES
 
@@ -62,6 +62,7 @@ PLAIN = {
     "M_Concrete": ("a8a196", 0.85),
     "M_Buildings": ("a66848", 0.85),
     "M_Sandstone": ("a2482a", 0.88),
+    "M_Water": ("1d4b52", 0.04),  # Bear Creek: dark green-blue, glassy
 }
 MESH_MATERIAL = {
     "Roads": "M_Asphalt",
@@ -71,6 +72,7 @@ MESH_MATERIAL = {
     "Buildings": "M_Buildings",
     "Walls": "M_Concrete",
     "Rocks": "MI_Sandstone_Rock",
+    "Water": "M_Water",
 }
 
 SPAWN_BACK_M = 5.0  # how far behind the downstage edge the player starts
