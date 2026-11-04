@@ -302,6 +302,89 @@ def test_deck_rises_above_terrain_that_would_bury_it():
     flat = st.deck_top_elevation(rows)
     assert flat == 100.0 - st.STAGE_DROP_M
     buried = st.deck_top_elevation(rows, ground=lambda e, n: 101.0)
-    assert buried == 101.0 + st.DECK_CLEARANCE_M
+    assert buried == pytest.approx(101.0 + st.DECK_CLEARANCE_M)
+    # With a ground, row 1's tread is the ground under it (where its bench
+    # stands), not the row's DEM elevation: the deck follows the ground down.
     low = st.deck_top_elevation(rows, ground=lambda e, n: 50.0)
-    assert low == flat
+    assert low == pytest.approx(50.0 + st.DECK_CLEARANCE_M)
+
+
+def test_deck_sits_on_the_scanned_deck_not_on_its_side_walls():
+    """A few tall spots along the deck's sides (the scan's real stage wings) do not lift it."""
+    rows, lines = make_rows()
+
+    def ground(e, n):
+        side = abs(e) > STAGE_WIDTH_M / 2.0 - 2.5  # two metres or so along each side
+        return 1805.0 if side and n < 100.0 else 1799.6
+
+    top = stage.deck_top_elevation(rows, ground)
+    assert top == pytest.approx(1799.6 + stage.DECK_CLEARANCE_M)
+    # Ground everywhere that high would lift it.
+    assert stage.deck_top_elevation(rows, lambda e, n: 1805.0) == pytest.approx(1805.0 + stage.DECK_CLEARANCE_M)
+
+
+def test_walkway_sits_on_the_ground_when_given_one(tmp_path):
+    rows, lines = make_rows()
+    tilt = lambda e, n: 1830.0 + 0.01 * e  # noqa: E731  a little cross-slope under the walkway
+    mesh = export_stage_obj(rows, lines, tmp_path / "Stage.obj", BASE, ground=tilt)
+    verts, _, faces, _ = load(tmp_path / "Stage.obj")
+    w = part_verts(mesh, verts, faces, "walkway") / 100.0 + np.array([0, 0, BASE])
+    # Top clears most of the ground under it; bottom reaches its lowest point.
+    assert 1830.0 < w[:, 2].max() < 1830.0 + 0.4 + stage.WALKWAY_CLEARANCE_M
+    assert w[:, 2].min() <= 1830.0 - 0.4 + 1e-6
+    assert mesh.walkway_elevation_m == pytest.approx(w[:, 2].max(), abs=1e-3)
+
+
+def test_cli_stands_benches_stage_and_spawn_on_the_scan_ground(monkeypatch, tmp_path):
+    """With a scan ground raster, the seats are 0.45 m over it and the deck and spawn on it."""
+    from redrocks.scan_blend import ScanHeights
+
+    def fake_dem(bbox, size=2017):
+        data = np.linspace(1900.0, 1950.0, 16 * 16, dtype=np.float32).reshape(16, 16)
+        return Dem(data=data, bbox=bbox)
+
+    lat, lon = cli.RED_ROCKS_LAT, cli.RED_ROCKS_LON
+    ring = [(lat - 0.0012, lon - 0.0008), (lat - 0.0012, lon + 0.0008),
+            (lat + 0.0012, lon + 0.0008), (lat + 0.0012, lon - 0.0008)]
+    nodes = {i + 1: p for i, p in enumerate(ring)}
+    osm = OsmData(nodes=nodes, ways=[Way(id=1, node_ids=[1, 2, 3, 4, 1], tags={"amenity": "theatre"})])
+    monkeypatch.setattr(cli, "fetch_dem", fake_dem)
+    monkeypatch.setattr(cli, "fetch_osm", lambda bbox: osm)
+    monkeypatch.setattr(cli, "build_monoliths", lambda *a, **k: [])
+
+    def plane(e, n):
+        return 1920.0 + 0.05 * e + 0.2 * n
+
+    def raster(cell, lift):
+        xs = np.arange(-200.0, 200.0, cell) + cell / 2
+        e, n = np.meshgrid(xs, xs)
+        return ScanHeights(heights=plane(e, n) + lift, x0=-200.0, y0=-200.0, cell=cell)
+
+    raster(2.0, -0.3).save(tmp_path / "floor.npz")
+    raster(1.0, 0.0).save(tmp_path / "ground.npz")
+    out = tmp_path / "out"
+    args = ["build", "--out", str(out), "--landscape-size", "33", "--terrain-grid", "65",
+            "--scan-heights", str(tmp_path / "floor.npz")]
+    assert cli.main(args + ["--scan-ground", str(tmp_path / "ground.npz")]) == 0
+    manifest = json.loads((out / "manifest.json").read_text())
+    assert manifest["benches"]["ground"] == "ml0w scan (ground.npz)"
+    assert manifest["venue"]["seats"] == 9525
+
+    base = manifest["benches"]["base_elevation_m"]
+    bverts, _, _, _ = load(out / "Benches.obj")
+    st = bverts.reshape(-1, 4, 3) / 100.0  # per station: LB, LT, RT, RB
+    centre = 0.5 * (st[:, 1] + st[:, 2])
+    seat = centre[:, 2] + base - plane(centre[:, 0], centre[:, 1])
+    assert np.allclose(seat, 0.45, atol=1e-3)
+    bottom = st[:, 0, 2] + base - plane(st[:, 0, 0], st[:, 0, 1])
+    assert bottom.max() <= 0.0 + 1e-3  # no bench bottom floats over the scan
+
+    deck = manifest["stage"]["deck_top_elevation_m"]
+    spawn = manifest["spawn"]
+    assert spawn["ground_elevation_m"] == pytest.approx(deck)
+    under_spawn = plane(spawn["east_m"], spawn["north_m"])
+    assert 0.0 < deck - under_spawn < 2.0  # on the scan's ground, not the DEM's
+
+    # Without the ground raster everything goes back onto the terrain mesh.
+    assert cli.main(args + ["--scan-ground", ""]) == 0
+    assert json.loads((out / "manifest.json").read_text())["benches"]["ground"] == "terrain mesh"

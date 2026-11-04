@@ -182,11 +182,13 @@ needs no transform in Unreal. `manifest.json` records the triangle range of each
 part and every dimension with its source.
 
 It is positioned from the data, not by hand. The stage axis runs from row 1's
-centre to the last row's centre. The deck top is row 1's DEM elevation minus the
-stage drop, its front edge sits 3 m downhill of row 1, and it extends away from
-the audience. The walkway runs along the last row's chord at that row's
-elevation. On the real build the deck top lands within about 1 m of the terrain
-there.
+centre to the last row's centre. The deck top is the stage drop below row 1's
+tread (the ml0w scan's ground under row 1, where its bench stands), raised to
+clear 75 % of the scan's ground under the front half of the deck (the scan's own
+stage wings stand a few metres proud along its sides). Its front edge sits 3 m
+downhill of row 1, and it extends away from the audience. The walkway runs along
+the last row's chord, on the scan's ground behind the top row. On the real build
+the deck top is about 0.3 m over the scanned deck.
 
 **Sizes come from the ml0w scan where it could be measured.** `kind` in
 `redrocks.stage.DIMENSIONS` is `published`, `derived`, `measured` (read off the
@@ -229,8 +231,20 @@ scan and the scan's ragged edge floated as shelves. Two halves fix it (#17):
   lower, then drop wherever a triangle would still rise into the scan, so the
   scan always draws on top and the walkable ground follows it. Over 60 m outside
   the footprint a smooth (harmonic) fill takes the ground back to the DEM. Roads,
-  paths and parking drape on the blended ground; the benches and stage keep the
-  DEM under them (1 m keep-out, 6 m taper), as do the monoliths and the heightmap.
+  paths and parking drape on the blended ground; the monoliths and the heightmap
+  stay on the DEM. Nothing is kept out any more, the bowl included: the terrain
+  is under the scan everywhere, so none of it shows between the rows or in a
+  strip north of the bowl (it used to keep the DEM under the benches and stage,
+  which stood 1 to 2 m over the scan's bowl).
+* **Benches, stage and spawn** stand on the scan's ground (`ScanGround`): a
+  plane fitted to the scan points around each 1 m cell, with roofs and trees left
+  out (`ground_surface`). Each bench's base is on it and its seat 0.45 m above;
+  the bottoms also reach down to the terrain under the scan, so nothing floats
+  where the scan thins out. The scan's floor raster (lowest point per 2 m cell)
+  sits ~0.37 m under the bowl's slope, which is why the benches use the fit.
+  `Benches.obj` carries flat face normals (`vn`); with the importer's smoothed
+  normals the taller risers tipped the seat tops past `M_Benches`'s "top" test
+  and the planks disappeared.
 * **Scan material** (`unreal/import_scan.py`): `M_Scan_ml0w` is masked. A plan-view
   fade mask (0 at the footprint edge, 1 from 30 m in) broken up by world noise
   thins the scan into patches toward its edge, DitherTemporalAA softens them,
@@ -239,7 +253,7 @@ scan and the scan's ragged edge floated as shelves. Two halves fix it (#17):
   shaded sandstone.
 
 `tools/scan_heights.py` writes the inputs for both, `assets/scan/scan_heights.npz`
-(scan floor, 2 m cells) and `assets/scan/scan_fade.png` + `.json` (the mask and
+(scan floor, 2 m cells), `assets/scan/scan_ground.npz` (scan ground, 1 m cells) and `assets/scan/scan_fade.png` + `.json` (the mask and
 where it sits). Re-run it whenever the `FIT_*` constants in `import_scan.py`
 change, then `redrocks build` and `rebuild_level.py`.
 
@@ -249,6 +263,16 @@ change, then `redrocks build` and `rebuild_level.py`.
 | ![](docs/media/scan-blend/before_edge_w.jpg) | ![](docs/media/scan-blend/after_edge_w.jpg) |
 | ![](docs/media/scan-blend/before_edge_ne.jpg) | ![](docs/media/scan-blend/after_edge_ne.jpg) |
 | ![](docs/media/scan-blend/before_obl_n.jpg) | ![](docs/media/scan-blend/after_obl_n.jpg) |
+
+Benches on the scan (the strip of green terrain north of and above the bowl is
+gone, the rows sit on the scan's bowl, the top walkway on its plateau):
+
+| Before | After |
+|---|---|
+| ![](docs/media/benches-on-scan/before_obl_n.jpg) | ![](docs/media/benches-on-scan/after_obl_n.jpg) |
+| ![](docs/media/benches-on-scan/before_mid_across.jpg) | ![](docs/media/benches-on-scan/after_mid_across.jpg) |
+| ![](docs/media/benches-on-scan/before_obl_top.jpg) | ![](docs/media/benches-on-scan/after_obl_top.jpg) |
+| ![](docs/media/benches-on-scan/before_spawn.jpg) | ![](docs/media/benches-on-scan/after_spawn.jpg) |
 
 ## Play it
 
@@ -400,7 +424,10 @@ Each of these cost real time:
   `MaterialEditingLibrary.get_material_expression_input_names` when a
   connect returns False.
 - **`/tmp/redrocks_*.log` is shared** by every project copy on the machine. Two
-  rebuilds at once overwrite each other's logs; run one at a time.
+  rebuilds at once overwrite each other's logs. To rebuild a second copy from
+  another checkout, set `REDROCKS_LOG_DIR` (where every step and the play-tests
+  log) and `REDROCKS_OUT_DIR` (the `redrocks build` output to import; default
+  `/Users/austin/dev/redrocks-ue/out`) for the commandlet and the editor alike.
 - **A minimized editor looks frozen.** macOS throttles it to a few frames per
   second and it ignores input until it's brought forward and finishes compiling
   shaders.
