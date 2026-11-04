@@ -68,7 +68,7 @@ out/
   Parking.obj              24 OSM parking lots as terrain-following patches (22,788 triangles)
   Buildings.obj            42 OSM park & Morrison buildings with buried foundations & parapets (1,004 triangles)
   Walls.obj                63 OSM retaining walls, stone walls, fences & rails (18,092 triangles)
-  Rocks.obj                240 surveyed OSM rock & cliff outcrops across the park (30,152 triangles)
+  Rocks.obj                239 surveyed OSM rock & cliff outcrops across the park (29,716 triangles)
   manifest.json            Z scale, bbox, origin, venue, monoliths, stage, park, attribution
 ```
 
@@ -167,7 +167,7 @@ the ridge behind each rock.
 | Ship Rock (south) | 236.1 × 177.2 m, 18,647 m² | 61.0 m (200 ft) | 1993.4 m |
 | Stage Rock (east) | 45.5 × 38.3 m, 1,028 m² | 18.3 m (60 ft) | 1950.7 m |
 
-In addition, `park.py` extrudes all 240 surveyed OSM `natural=bare_rock|stone|cliff` polygons across the 2.4 km park (including Stage Rock, Tethys Rock, Picnic Rock, Frog Rock, Lizard Head Rock, Seven Ladders Rock, Park Cave Rock and Entry Rock) into `Rocks.obj` in the terrain frame, with buried foundations and battered 3-tier sandstone cliffs, alongside `Buildings.obj` (42 park and Morrison buildings with buried foundations and Pueblo-Revival parapet rims) and `Walls.obj` (63 retaining walls, stone walls, wood fences and guard rails).
+In addition, `park.py` extrudes the other 239 surveyed OSM `natural=bare_rock|stone|cliff` polygons across the 2.4 km park (Tethys Rock, Picnic Rock, Frog Rock, Lizard Head Rock, Seven Ladders Rock, Park Cave Rock and Entry Rock) into `Rocks.obj` in the terrain frame, with buried foundations and battered 3-tier sandstone cliffs, alongside `Buildings.obj` (42 park and Morrison buildings with buried foundations and Pueblo-Revival parapet rims) and `Walls.obj` (63 retaining walls, stone walls, wood fences and guard rails).
 
 Meshes are watertight, outward-facing, and their volume matches
 footprint × height to six digits. Units are centimetres, matching Unreal. Side

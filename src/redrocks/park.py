@@ -57,7 +57,7 @@ from shapely.ops import triangulate
 
 from .dem import Dem
 from .geo import metres_per_degree
-from .monoliths import CREATION_ROCK_WAY_ID, FT, SHIP_ROCK_WAY_ID, STAGE_ROCK_HEIGHT_FT, STAGE_ROCK_WAY_ID
+from .monoliths import CREATION_ROCK_WAY_ID, SHIP_ROCK_WAY_ID, STAGE_ROCK_WAY_ID
 from .osm import OsmData, Way
 from .terrain_mesh import CM_PER_M, DEFAULT_GRID, resample_to_grid
 
@@ -128,10 +128,12 @@ BARRIER_DIMENSIONS_M: dict[str, tuple[float, float]] = {
 DEFAULT_BARRIER_DIM_M = (0.25, 1.20)
 BARRIER_BURY_M = 0.35
 
-# Secondary rock outcrops across the park (Creation Rock & Ship Rock are separate monoliths).
+# Secondary rock outcrops across the park (Creation, Ship and Stage Rock are separate monoliths).
 ROCK_BURY_M = 1.5
 ROCK_TAPER = 0.12
 ROCK_SEGMENTS = 3
+MONOLITH_WAY_IDS = (CREATION_ROCK_WAY_ID, SHIP_ROCK_WAY_ID, STAGE_ROCK_WAY_ID)
+MONOLITH_NAMES = ("Creation Rock", "Ship Rock", "Stage Rock")
 
 
 @dataclass
@@ -816,11 +818,17 @@ def export_walls_obj(osm: OsmData, surface: TerrainSurface, out_path: Path) -> P
 
 
 def is_park_rock(way: Way) -> bool:
-    """True when the way is a closed rock/cliff outcrop other than Creation Rock and Ship Rock."""
+    """True when the way is a closed rock/cliff outcrop other than the three monoliths.
+
+    Creation Rock, Ship Rock and Stage Rock are their own meshes (monoliths.py), which
+    Unreal hides in game where the ml0w scan has the real rocks; extruding them here
+    too would leave a second, unhideable copy poking through the scan.
+    """
     return (
         way.is_closed
         and way.kind() == "rock"
-        and way.id not in (CREATION_ROCK_WAY_ID, SHIP_ROCK_WAY_ID)
+        and way.id not in MONOLITH_WAY_IDS
+        and way.tags.get("name") not in MONOLITH_NAMES
     )
 
 
@@ -829,8 +837,6 @@ def rock_height_m(way: Way, area_m2: float) -> float:
     explicit = _parse_width(way.tags.get("height"))
     if explicit is not None:
         return min(max(explicit, 1.5), 60.0)
-    if way.id == STAGE_ROCK_WAY_ID or way.tags.get("name") == "Stage Rock":
-        return STAGE_ROCK_HEIGHT_FT * FT
     span = math.sqrt(max(area_m2, 1.0))
     if "name" in way.tags:
         return min(max(0.45 * span, 8.0), 28.0)
@@ -934,7 +940,7 @@ def rock_solid(
 
 
 def export_rocks_obj(osm: OsmData, surface: TerrainSurface, out_path: Path) -> ParkMesh | None:
-    """Write ``Rocks.obj`` from surveyed OSM ``natural=bare_rock|stone|cliff`` ways (including Stage Rock)."""
+    """Write ``Rocks.obj`` from surveyed OSM ``natural=bare_rock|stone|cliff`` ways, except the three monoliths."""
     parts, features = [], 0
     bounds = surface.bounds_polygon()
     for way in osm.ways:
@@ -962,7 +968,7 @@ def export_rocks_obj(osm: OsmData, surface: TerrainSurface, out_path: Path) -> P
     if not parts:
         return None
     v, t = _write_obj(
-        Path(out_path), "Rocks", parts, "Red Rocks park outcrops and Stage Rock from OpenStreetMap (ODbL 1.0)"
+        Path(out_path), "Rocks", parts, "Red Rocks park outcrops from OpenStreetMap (ODbL 1.0)"
     )
     return ParkMesh("Rocks", Path(out_path), features, v, t)
 

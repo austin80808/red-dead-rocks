@@ -388,7 +388,7 @@ def test_walls_obj_sweeps_barriers_on_terrain(tmp_path, surface):
     assert "o Walls" in (tmp_path / "Walls.obj").read_text()
 
 
-def test_rocks_obj_extrudes_stage_rock_and_park_outcrops(tmp_path, surface):
+def test_rocks_obj_extrudes_park_outcrops_but_not_the_monoliths(tmp_path, surface):
     stage_rock = [(55, 0), (80, 0), (80, 20), (55, 20)]
     picnic_rock = [(140, -300), (170, -300), (175, -270), (135, -275)]
     data = osm_xml(
@@ -398,15 +398,17 @@ def test_rocks_obj_extrudes_stage_rock_and_park_outcrops(tmp_path, surface):
             ({"natural": "stone", "_close": True}, [(-120, 80), (-114, 80), (-114, 86), (-120, 86)]),
         ]
     )
-    # Exclude flanking monolith way IDs if present.
-    creation_way = osm_xml([({"natural": "bare_rock", "_close": True}, stage_rock)]).ways[0]
-    creation_way.id = 91483333
-    assert not is_park_rock(creation_way)
-    assert all(is_park_rock(w) for w in data.ways)
-    assert rock_height_m(data.ways[0], 500.0) == pytest.approx(60.0 * 0.3048)
+    # The three monoliths are their own meshes: excluded by way id and by name.
+    for way_id in (91483333, 91483376, 91483381):
+        way = osm_xml([({"natural": "bare_rock", "_close": True}, picnic_rock)]).ways[0]
+        way.id = way_id
+        assert not is_park_rock(way)
+    assert not is_park_rock(data.ways[0])  # named "Stage Rock"
+    assert all(is_park_rock(w) for w in data.ways[1:])
+    assert rock_height_m(data.ways[1], 500.0) > 0
 
     mesh = export_rocks_obj(data, surface, tmp_path / "Rocks.obj")
-    assert mesh is not None and mesh.features == 3
+    assert mesh is not None and mesh.features == 2
     verts, uvs, faces = load(tmp_path / "Rocks.obj")
     assert len(verts) == len(uvs) == mesh.vertices and len(faces) == mesh.triangles
     assert all(len(f) == 3 and all(len(t) == 2 for t in f) for f in faces)

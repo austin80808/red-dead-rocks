@@ -194,7 +194,7 @@ def _scan_collision():
     return "%d chunks, %d meshes" % (len(chunks), len(meshes))
 
 
-EXTRUDED_ROCKS = ["Creation_Rock", "Ship_Rock"]
+EXTRUDED_ROCKS = ["Creation_Rock", "Ship_Rock", "Stage_Rock"]
 
 
 def _hide_extruded_rocks():
