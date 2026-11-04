@@ -1,8 +1,8 @@
 """Turn the generated seating-bowl rows into bench geometry for Unreal.
 
-Each venue row becomes one solid bench: its cross-section polyline swept into a
+Each venue row becomes one solid bench: its (curved) row polyline swept into a
 strip ``depth`` metres front-to-back, standing ``seat_height`` metres above the
-row's tread elevation. All benches go into a single OBJ object (``Benches``).
+ground. All benches go into a single OBJ object (``Benches``).
 
 The OBJ shares the terrain mesh's frame so it lines up with
 ``RedRocks_Terrain.obj`` with no transform in Unreal: centimetres, X east,
@@ -19,9 +19,12 @@ Depth and height come from the venue data where it says something:
 * seat depth defaults to 0.9 m but is clamped to 95% of the gap to the
   neighbouring row, so adjacent benches never overlap (the gap is the tread
   depth the generator actually produced);
-* the seat top is 0.45 m above the row's own tread elevation, as specified. The
-  row-to-row riser (about 0.44 m over the official 100 ft rise) is therefore
-  already carried by the row elevations themselves.
+* when a ``ground`` function is given (the terrain mesh, see
+  ``terrain_mesh.TerrainSurface``) the polyline is subdivided every
+  ``ground_step_m`` and each station is lowered or raised to the ground there:
+  the seat top is 0.45 m above the ground under the row's centreline, and the
+  base drops to the lowest ground under the section so no edge floats. Without
+  it a bench is flat at its row's ``elevation_m``, as before.
 """
 
 from __future__ import annotations
@@ -29,7 +32,7 @@ from __future__ import annotations
 import math
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Sequence
+from typing import Callable, Sequence
 
 import numpy as np
 from shapely.geometry import LineString, Polygon
@@ -44,6 +47,9 @@ SEAT_HEIGHT_M = 0.45
 MAX_GAP_FRACTION = 0.95
 # Polylines are simplified to this tolerance (metres) before sweeping.
 SIMPLIFY_TOLERANCE_M = 0.1
+# With a ground function, polylines are subdivided to at most this spacing so
+# the bench can follow the terrain between its vertices.
+GROUND_STEP_M = 2.5
 # Mitre joins on sharp bends are capped so they cannot spike.
 MAX_MITRE = 2.0
 
@@ -72,13 +78,17 @@ def row_polylines(
     projection: LocalProjection,
     n_rows: int = ROWS,
 ) -> list[np.ndarray]:
-    """Recover each venue row's cross-section polyline, in local metres (E, N).
+    """Each venue row's plan-view polyline, in local metres (E, N), row order.
 
-    ``Row`` stores only a centre, length and elevation, so the chords are
-    re-cut from the footprint with the same slicer ``build_venue`` used and
-    matched to rows by midpoint. ``n_rows`` must equal the value given to
-    ``build_venue`` (its default is ``venue.ROWS``). Returned in venue-row order.
+    ``build_venue`` stores the polyline on every row it makes (curved arcs
+    around the stage), and those are returned as they are. Rows without one
+    (built by hand, or by older code that kept only a centre) fall back to
+    re-cutting the footprint with the straight-chord slicer and matching by
+    midpoint; ``n_rows`` must then equal the value given to ``build_venue``.
     """
+    if all(row.polyline is not None for row in venue.rows):
+        return [np.asarray(row.polyline, dtype=float)[:, :2] for row in venue.rows]
+
     projected = [projection.to_local(lat, lon)[:2] for lat, lon in footprint_latlon]
     polygon = Polygon(projected)
     if not polygon.is_valid:
@@ -116,36 +126,42 @@ def _clean_polyline(points: np.ndarray, tolerance_m: float) -> np.ndarray:
     return pts
 
 
-def _gaps(rows: Sequence[Row]) -> list[float]:
-    """Distance from each row's centre to its nearest neighbouring row."""
-    centres = np.array([[r.centre_east, r.centre_north] for r in rows])
+def _densify(points: np.ndarray, max_step_m: float) -> np.ndarray:
+    """Subdivide segments longer than ``max_step_m`` into equal parts."""
+    out = [points[0]]
+    for p, q in zip(points[:-1], points[1:]):
+        k = max(1, int(math.ceil(float(np.hypot(*(q - p))) / max_step_m)))
+        for j in range(1, k + 1):
+            out.append(p + (q - p) * (j / k))
+    return np.array(out)
+
+
+def _gaps(polylines: Sequence[np.ndarray]) -> list[float]:
+    """Distance from each row's polyline to its nearest neighbouring row's.
+
+    Measured between the lines themselves, not their midpoints: on concentric
+    arcs the midpoints sit at different angles and say little about the gap.
+    """
+    shapes = [LineString(p) for p in polylines]
     out = []
-    for i in range(len(rows)):
+    for i, line in enumerate(shapes):
         d = []
         if i > 0:
-            d.append(float(np.hypot(*(centres[i] - centres[i - 1]))))
-        if i < len(rows) - 1:
-            d.append(float(np.hypot(*(centres[i] - centres[i + 1]))))
+            d.append(float(line.distance(shapes[i - 1])))
+        if i < len(shapes) - 1:
+            d.append(float(line.distance(shapes[i + 1])))
         out.append(min(d) if d else math.inf)
     return out
 
 
-def _bench_solid(
-    pts: np.ndarray, depth_m: float, z0_m: float, height_m: float
-) -> tuple[np.ndarray, list[tuple[int, int, int]], np.ndarray, list[tuple[int, int, int]]]:
-    """Sweep a rectangular section along ``pts``.
-
-    Returns (vertices_m[N,3], triangle vertex ids, uvs_m[M,2], triangle uv ids),
-    ids local to this bench and 0-based. Triangles wind counter-clockwise seen
-    from outside.
-    """
-    n = len(pts)
+def _offsets(pts: np.ndarray, depth_m: float) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     seg = np.diff(pts, axis=0)
     seg_len = np.hypot(seg[:, 0], seg[:, 1])
     tang = seg / seg_len[:, None]
     seg_norm = np.stack([-tang[:, 1], tang[:, 0]], axis=1)  # left of travel
 
     # Mitred normal at each station.
+    n = len(pts)
     norms = np.zeros((n, 2))
     scale = np.ones(n)
     norms[0], norms[-1] = seg_norm[0], seg_norm[-1]
@@ -159,15 +175,57 @@ def _bench_solid(
     half = depth_m / 2.0
     left = pts + norms * (half * scale)[:, None]
     right = pts - norms * (half * scale)[:, None]
+    return left, right, seg_len
 
-    z_lo, z_hi = z0_m, z0_m + height_m
+
+def _follow_ground(
+    pts: np.ndarray,
+    depth_m: float,
+    ground: Callable[[float, float], float],
+    base_elevation_m: float,
+    seat_height_m: float,
+) -> tuple[np.ndarray, np.ndarray]:
+    """Per-station (bottom, top) heights, in metres above the base elevation.
+
+    The top is ``seat_height_m`` above the ground under the centreline, so the
+    seat surface is the same height off the ground along the whole row. The
+    bottom is the lowest ground under the section's left, centre and right
+    corners, so a bench on a cross-slope is buried on its uphill side rather
+    than floating on its downhill side.
+    """
+    left, right, _ = _offsets(pts, depth_m)
+    under_centre = np.array([ground(float(x), float(y)) for x, y in pts])
+    under_left = np.array([ground(float(x), float(y)) for x, y in left])
+    under_right = np.array([ground(float(x), float(y)) for x, y in right])
+    bottom = np.minimum(np.minimum(under_left, under_right), under_centre)
+    return bottom - base_elevation_m, under_centre + seat_height_m - base_elevation_m
+
+
+def _bench_solid(
+    pts: np.ndarray, depth_m: float, z_lo, z_hi
+) -> tuple[np.ndarray, list[tuple[int, int, int]], np.ndarray, list[tuple[int, int, int]]]:
+    """Sweep a rectangular section along ``pts``.
+
+    ``z_lo`` and ``z_hi`` are the section's bottom and top heights in metres,
+    each a scalar or one value per station.
+
+    Returns (vertices_m[N,3], triangle vertex ids, uvs_m[M,2], triangle uv ids),
+    ids local to this bench and 0-based. Triangles wind counter-clockwise seen
+    from outside.
+    """
+    n = len(pts)
+    left, right, seg_len = _offsets(pts, depth_m)
+    z_lo = np.broadcast_to(np.asarray(z_lo, dtype=float), (n,))
+    z_hi = np.broadcast_to(np.asarray(z_hi, dtype=float), (n,))
+    height_m = float(np.max(z_hi - z_lo))  # only sizes the end caps' UVs
+
     # Station i: 4 section corners. L = left, R = right; B = bottom, T = top.
     verts = []
     for i in range(n):
-        verts.append((*left[i], z_lo))   # 4i+0  LB
-        verts.append((*left[i], z_hi))   # 4i+1  LT
-        verts.append((*right[i], z_hi))  # 4i+2  RT
-        verts.append((*right[i], z_lo))  # 4i+3  RB
+        verts.append((*left[i], z_lo[i]))   # 4i+0  LB
+        verts.append((*left[i], z_hi[i]))   # 4i+1  LT
+        verts.append((*right[i], z_hi[i]))  # 4i+2  RT
+        verts.append((*right[i], z_lo[i]))  # 4i+3  RB
     verts = np.array(verts)
 
     s = np.concatenate([[0.0], np.cumsum(seg_len)])  # distance along the row
@@ -236,12 +294,14 @@ def export_benches_obj(
     seat_height_m: float = SEAT_HEIGHT_M,
     simplify_m: float = SIMPLIFY_TOLERANCE_M,
     fit_to_row_gap: bool = True,
+    ground: Callable[[float, float], float] | None = None,
+    ground_step_m: float = GROUND_STEP_M,
 ) -> BenchMesh:
     """Write every row as a bench in one OBJ object, ``Benches``.
 
     Args:
         rows: venue rows (``venue.rows``); each supplies its tread elevation
-            (``elevation_m``) and centre.
+            (``elevation_m``), used when ``ground`` is not given.
         polylines: one (N, 2) array of local (east, north) metres per row, in
             the same order; see ``row_polylines``. Local metres are relative to
             the same origin as the terrain.
@@ -249,9 +309,15 @@ def export_benches_obj(
         base_elevation_m: Z=0 elevation, the terrain's minimum
             (``terrain_base_elevation``).
         depth_m: seat depth, front to back.
-        seat_height_m: seat top above the row's tread elevation.
+        seat_height_m: seat top above the tread elevation (or above the ground
+            under the row's centreline when ``ground`` is given).
         simplify_m: polyline simplification tolerance.
         fit_to_row_gap: clamp depth so neighbouring benches do not overlap.
+        ground: ``ground(east, north)`` -> absolute elevation in metres, e.g. a
+            ``terrain_mesh.TerrainSurface``. When given, each bench is
+            subdivided every ``ground_step_m`` and follows the ground along its
+            length instead of sitting flat at ``row.elevation_m``.
+        ground_step_m: maximum station spacing when following the ground.
     """
     if len(rows) != len(polylines):
         raise ValueError(f"{len(rows)} rows but {len(polylines)} polylines")
@@ -260,7 +326,7 @@ def export_benches_obj(
     if depth_m <= 0 or seat_height_m <= 0:
         raise ValueError("depth and seat height must be positive")
 
-    gaps = _gaps(rows)
+    gaps = _gaps([_clean_polyline(line, simplify_m) for line in polylines])
 
     all_v: list[np.ndarray] = []
     all_uv: list[np.ndarray] = []
@@ -272,8 +338,13 @@ def export_benches_obj(
     for row, line, gap in zip(rows, polylines, gaps):
         pts = _clean_polyline(line, simplify_m)
         depth = min(depth_m, MAX_GAP_FRACTION * gap) if fit_to_row_gap else depth_m
-        z0 = row.elevation_m - base_elevation_m
-        verts, tris, uvs, tuvs = _bench_solid(pts, depth, z0, seat_height_m)
+        if ground is None:
+            z_lo = row.elevation_m - base_elevation_m
+            z_hi = z_lo + seat_height_m
+        else:
+            pts = _densify(pts, ground_step_m)
+            z_lo, z_hi = _follow_ground(pts, depth, ground, base_elevation_m, seat_height_m)
+        verts, tris, uvs, tuvs = _bench_solid(pts, depth, z_lo, z_hi)
 
         all_v.append(verts)
         all_uv.append(uvs)
