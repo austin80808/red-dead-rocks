@@ -12,6 +12,8 @@ from .benches import export_benches_obj, row_polylines, terrain_base_elevation
 from .landscape import export_landscape
 from .monoliths import build_monoliths, monolith_to_obj
 from .osm import fetch_osm
+from .stage import DIMENSIONS, export_stage_obj
+from .park import export_park
 from .terrain_mesh import TerrainSurface, export_terrain_obj, summary as terrain_summary
 from .venue import build_venue, summary as venue_summary
 
@@ -71,6 +73,7 @@ def build(args: argparse.Namespace) -> int:
         print(venue_summary(venue))
 
     benches = None
+    stage = None
     if venue is not None:
         print("\nbuilding benches ...")
         # Benches share the terrain mesh's Z datum, so use the same grid it was
@@ -84,12 +87,21 @@ def build(args: argparse.Namespace) -> int:
         )
         print(f"  {benches.benches} benches, {benches.triangles} triangles -> {benches.path.name}")
 
+        print("\nblocking out the stage ...")
+        stage = export_stage_obj(venue.rows, lines, out_dir / "Stage.obj", base)
+        print(f"  {len(stage.parts)} parts, {stage.triangles} triangles -> {stage.path.name}")
+
     print("\nextruding monoliths ...")
     monoliths = build_monoliths(osm, dem, projection, RED_ROCKS_LAT, RED_ROCKS_LON)
     for rock in monoliths:
         print(rock.summary())
         obj_path = monolith_to_obj(rock, out_dir / f"{rock.name.split(' (')[0].replace(' ', '_')}.obj")
         print(f"  -> {obj_path.name}")
+
+    print("\nbuilding roads, paths and parking ...")
+    park = export_park(osm, dem, out_dir, grid=args.terrain_grid or 377)
+    for mesh in park.values():
+        print(f"  {mesh.features} {mesh.name.lower()}, {mesh.triangles:,} triangles -> {mesh.path.name}")
 
     manifest = {
         "venue": "Red Rocks Amphitheatre",
@@ -153,6 +165,32 @@ def build(args: argparse.Namespace) -> int:
             "benches": benches.benches,
             "triangles": benches.triangles,
             "base_elevation_m": round(benches.base_elevation_m, 3),
+        }
+    if stage is not None:
+        manifest["stage"] = {
+            "obj": stage.path.name,
+            "parts": {name: {"first_triangle": a, "end_triangle": b} for name, (a, b) in stage.parts.items()},
+            "triangles": stage.triangles,
+            "base_elevation_m": round(stage.base_elevation_m, 3),
+            "deck_top_elevation_m": round(stage.deck_top_elevation_m, 3),
+            "walkway_elevation_m": round(stage.walkway_elevation_m, 3),
+            "front_edge_east_m": round(stage.front_edge_east, 3),
+            "front_edge_north_m": round(stage.front_edge_north, 3),
+            "axis_east_north": [round(stage.axis[0], 6), round(stage.axis[1], 6)],
+            "dimensions": [
+                {"name": d.name, "value_m": round(d.value_m, 4), "kind": d.kind, "source": d.source}
+                for d in DIMENSIONS
+            ],
+        }
+    if park:
+        manifest["park"] = {
+            key: {
+                "obj": m.path.name,
+                "features": m.features,
+                "vertices": m.vertices,
+                "triangles": m.triangles,
+            }
+            for key, m in park.items()
         }
     (out_dir / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n")
     print(f"\nwrote {out_dir}/manifest.json")

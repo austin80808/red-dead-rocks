@@ -37,7 +37,7 @@ closed.
 
 The sandstone material is applied to the terrain and both rocks. Written but not
 yet run in the level: the bench import and the ml0w scan import (see the script
-table). Not done: the stage, tuning the material (the ground reads pale and the
+table). Stage blockout generated (not yet imported). Not done: tuning the material (the ground reads pale and the
 fine bands shimmer at distance).
 
 ## What it produces
@@ -49,6 +49,9 @@ out/
   Creation_Rock.obj        north monolith, 91.4 m, watertight
   Ship_Rock.obj            south monolith, 61.0 m, watertight
   Benches.obj              70 curved bench rows, 16,808 triangles, terrain frame
+  Stage.obj                stage blockout, 13 parts, 148 triangles, terrain frame
+  Roads.obj, Paths.obj     OSM highways as draped ribbons (21,118 / 23,000 triangles)
+  Parking.obj              24 OSM parking lots as terrain-following patches (22,788 triangles)
   manifest.json            Z scale, bbox, origin, venue, monoliths, attribution
 ```
 
@@ -100,6 +103,39 @@ Axes are X east, Y north, Z up, in centimetres, centred on the origin, with the
 lowest point at Z = 0. Faces wind counter-clockwise seen from above, so normals
 point up.
 
+### Roads, paths and parking
+
+`park.py` turns the OSM `highway=*` and `amenity=parking` ways into three more
+OBJs in the terrain's frame (cm, X east, Y north, Z up, Z=0 at the terrain
+minimum): `Roads.obj`, `Paths.obj` and `Parking.obj`. A file is skipped when the
+data has nothing for it, and each present one is recorded under `park` in
+`manifest.json`.
+
+Ribbons are swept along each way, sampled every 2 m and draped on the *same
+triangles* as `RedRocks_Terrain.obj` (cell-diagonal aware, so no float over or
+sink into the mesh), then lifted by 3 cm (parking), 5 cm (roads) or 7 cm
+(paths) so layers don't z-fight. Widths by `highway=*`, in metres:
+
+| Class | Width |
+|---|---|
+| motorway, trunk | 10 |
+| primary | 8 |
+| secondary | 7 |
+| tertiary, unclassified, residential | 6 |
+| living_street | 4.5 |
+| service (parking aisle 3) | 4 |
+| track | 3.5 |
+| cycleway | 2.5 |
+| footway, pedestrian, bridleway | 2 |
+| path, steps | 1.5 |
+
+`*_link` uses its parent class, and a numeric `width=` tag overrides the table.
+Roads are motorway down to track; cycleway and below are paths.
+`tunnel=*` ways and closed `area=yes` ways are skipped; other `highway` values
+(construction, proposed ...) are ignored. Bridges are draped, with no deck.
+Every face has UVs: on ribbons U is distance along the way divided by its width
+(square texels) and V runs 0 to 1 across; on parking, planar metres / 10.
+
 ### Monoliths
 
 Both flanking rocks are extruded from their **surveyed OSM footprints**, so the
@@ -122,6 +158,38 @@ monoliths are vertical columns; the dip is a property of the bedding and belongs
 in the material as diagonal banding. Shearing the mesh would fake a lean that
 does not exist.
 
+### Stage blockout
+
+`Stage.obj` is a blockout, not a model: boxes and wedges (vertical prisms with a
+convex plan) for the stage deck, roof, four columns, the shell (back wall and
+two splayed wings), the retaining wall behind the stage with a triangular return
+at each end, and the walkway along the top of the bowl. It is one watertight
+`Stage` object in the terrain's frame (cm, X east, Y north, Z up, terrain
+minimum at Z = 0), counter-clockwise outward, with a UV on every face, so it
+needs no transform in Unreal. `manifest.json` records the triangle range of each
+part and every dimension with its source.
+
+It is positioned from the data, not by hand. The stage axis runs from row 1's
+centre to the last row's centre. The deck top is row 1's DEM elevation minus the
+stage drop, its front edge sits 3 m downhill of row 1, and it extends away from
+the audience. The walkway runs along the last row's chord at that row's
+elevation. On the real build the deck top lands within about 1 m of the terrain
+there.
+
+**Only two figures are published; everything else is a rough estimate.** No
+source found gives the stage width or depth, so those are estimates, flagged as
+such in `redrocks.stage.DIMENSIONS` (`kind` is `published`, `derived` or
+`estimate`). Replace them if a tech pack or survey turns up.
+
+| Dimension | Value | Kind | Source |
+|---|---|---|---|
+| Roof top above deck | 12.24 m (40'2") | published | SkyDeck grid height, [IA Stage](https://www.iastage.com/red-rocks-amphitheater/) |
+| Truss 1 / truss 3 behind downstage edge | 3.66 m / 18.90 m | published / derived | 12 ft, then 25 ft apart, [IA Stage](https://www.iastage.com/red-rocks-amphitheater/) |
+| Columns | 4 | published | reduced from twelve, [Structure magazine](https://www.structuremag.org/article/new-stage-roof-rocks-iconic-venue/) |
+| Deck top | row 1 elevation minus 1.2 m | derived + estimate | OSM footprint and DEM via `venue.py`; the 1.2 m drop is an estimate |
+| Stage width × depth | 24.4 × 21.3 m | estimate | not published; depth is the 62 ft truss span plus ~8 ft |
+| Shell, retaining wall, walkway sizes | see `stage.py` | estimate | not measured |
+
 ## Importing into Unreal
 
 The scripts in `unreal/` run headless against the project:
@@ -132,10 +200,23 @@ PROJ="$HOME/Documents/Unreal Projects/RedRocks/RedRocks.uproject"
 "$UE" "$PROJ" -run=pythonscript -script=unreal/import_redrocks.py -unattended -nosplash -stdout
 ```
 
-Run them in this order; each writes a log to `/tmp/redrocks_*.log`:
+**To rebuild the whole level, run one script.** `rebuild_level.py` runs the
+six steps below in order (`import_redrocks.py` through `import_scan.py`), clears
+each step's old log first, stops at the first `ERROR`/`ABORT`/`FAIL` line in its
+`/tmp/redrocks_*.log` (or a missing log), and prints a summary of step, status,
+duration and log path (also saved to `/tmp/redrocks_rebuild.log`):
+
+```bash
+"$UE" "$PROJ" -run=pythonscript -script="$PWD/unreal/rebuild_level.py" -unattended -nosplash -stdout
+```
+
+or, in an open editor, `py "/Users/austin/dev/redrocks-ue/unreal/rebuild_level.py"`.
+It **wipes every actor in the level** (step 1). The scripts can still run one at
+a time, in this order; each writes a log to `/tmp/redrocks_*.log`:
 
 | Script | Does |
 |---|---|
+| `rebuild_level.py` | **entry point:** runs the six scripts below in order, stops at the first failure |
 | `import_redrocks.py` | imports the terrain, rocks and benches OBJs to `/Game/RedRocks` and places them in `Lvl_RedRocks`. **Clears every actor in the level first.** |
 | `setup_lighting.py` | adds sun, sky atmosphere, sky light, height fog, PlayerStart |
 | `configure_level.py` | fixed-exposure post-process volume and a framing camera |
@@ -279,8 +360,8 @@ Cache on local disk, sync the source and built packages to MEGA.
    tune the scan's placement constants by eye and decide whether it replaces the
    extruded monoliths visually, with the monoliths kept as collision.
 2. Tune `MI_Sandstone_Ground`: less exposure, thicker bands.
-3. Stage shell, roof, and retaining walls. None of these exist in any free
-   dataset.
+3. Import `Stage.obj` (see Stage blockout), then replace the blockout with detail.
+   The stage and shell are not in any free dataset.
 4. First-person traversal pass, then multiplayer.
 
 For a *fantasy replication* rather than a survey-accurate twin, the monoliths,
@@ -290,15 +371,17 @@ work, and no amount of geodata substitutes for them.
 ## Tests
 
 ```bash
-.venv/bin/python -m pytest tests -q   # 149 passed
+.venv/bin/python -m pytest tests -q
 ```
 
 Covers the projection (round-trip, axis orientation, distance accuracy), DEM
 sampling and interpolation, the Unreal Z scale formula, heightmap encoding, OSM
 parsing and feature classification, the seating bowl (arc rows, stage centre), curved and ground-following benches
-(mitres, watertightness, terrain-mesh match), monolith geometry, the OBJ
-exports (terrain grid, benches, winding, and a valid UV on every face), and the
+(mitres, watertightness, terrain-mesh match), monolith geometry, roads/paths/parking, the OBJ
+exports (terrain grid, benches, stage blockout, winding, and a valid UV on every face), and the
 CLI build. No network in tests.
 
 The `unreal/` scripts are only checked offline: they must parse, and none may
-pass `unreal.Rotator` angles positionally. Running them needs the editor.
+pass `unreal.Rotator` angles positionally. `rebuild_level.py`'s step order and
+log parsing are unit-tested too (`tests/test_rebuild_level.py`). Running the
+scripts needs the editor.
