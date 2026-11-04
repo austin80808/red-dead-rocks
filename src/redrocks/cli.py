@@ -9,7 +9,7 @@ from pathlib import Path
 import numpy as np
 
 from .dem import BBox, fetch_dem, square_bbox
-from .explore import plan as explore_plan
+from .explore import Route, carve_creek, creek_route, export_water_obj, plan as explore_plan
 from .geo import LocalProjection
 from .benches import export_benches_obj, row_polylines, terrain_base_elevation
 from .landscape import export_landscape
@@ -91,6 +91,17 @@ def build(args: argparse.Namespace) -> int:
     # The benches, stage and spawn stand on the scan's ground where it has
     # one; the walkable terrain mesh (as exported) everywhere else.
     walkable = TerrainSurface(ground_dem, grid)
+    # Cut Bear Creek's bed into the ground so its water shows the whole way.
+    frame = ParkSurface(ground_dem, grid)
+    creek = creek_route(osm, frame.to_xy, walkable, frame.half_x, level="floor")
+    if len(creek.points) > 1:
+        carved = carve_creek(ground_dem, creek, frame.half_x, frame.half_y, floor_m=base)
+        if abs(terrain_base_elevation(carved, grid=grid) - base) < 1e-3:
+            ground_dem = carved
+            walkable = TerrainSurface(ground_dem, grid)
+            print(f"carved {creek.length_m:.0f} m of Bear Creek into the terrain")
+        else:
+            print("skipping the creek carve: it would move the terrain datum")
     seat_ground, ground_info = _seat_ground(args, walkable)
 
     terrain = None
@@ -245,6 +256,13 @@ def build(args: argparse.Namespace) -> int:
         manifest.get("spawn"), manifest.get("stage"), manifest["monoliths"],
     )
     manifest["explore"] = explore
+    if explore.get("tubes"):
+        t = explore["tubes"]
+        water = Route([tuple(p) for p in t["route"]])
+        tris = export_water_obj(water, walkable.base_elevation_m, out_dir / "Water.obj", t["width_m"])
+        manifest.setdefault("park", {})["water"] = {"obj": "Water.obj", "features": 1, "triangles": tris}
+        print(f"  {t['name']}: {t['route_length_m']:.0f} m of creek, dropping {t['route_drop_m']:.0f} m "
+              f"-> Water.obj ({tris} triangles)")
     if explore["carts"]:
         c = explore["carts"]
         print(f"  carts: {c['route_length_m']:.0f} m of road to {c['destination']}, dropping {c['route_drop_m']:.0f} m")

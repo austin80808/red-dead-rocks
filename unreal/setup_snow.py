@@ -190,7 +190,8 @@ def main():
     count = 0
     for path in sorted(paths):
         name = path.split("/")[-1].split(".")[0]
-        if not name.startswith("M_") or name == "M_Snowflake":
+        # Flakes glow, and running water does not hold snow.
+        if not name.startswith("M_") or name in ("M_Snowflake", "M_Water"):
             continue
         mat = unreal.EditorAssetLibrary.load_asset(path.split(".")[0])
         if not isinstance(mat, unreal.Material):

@@ -122,3 +122,72 @@ def pytest_approx(v, rel=1e-6):
     import pytest
 
     return pytest.approx(v, rel=rel)
+
+
+def _creek_osm():
+    nodes = {1000 + i: (0.0, x / 1000.0) for i, x in enumerate(np.linspace(-3000.0, 3000.0, 61))}
+    return OsmData(nodes=nodes, ways=[Way(9, list(nodes), {"waterway": "stream", "name": "Bear Creek"})])
+
+
+def _valley(x, y):
+    # Falls to the east, with a bump the water must not climb.
+    return 2000.0 - 0.05 * x + (5.0 if 100.0 < x < 200.0 else 0.0)
+
+
+def test_creek_route_is_clipped_downstream_and_never_climbs():
+    route = explore.creek_route(_creek_osm(), _xy, _valley, half_extent=1000.0)
+    xs = [p[0] for p in route.points]
+    assert min(xs) >= -1000.0 + explore.CREEK_EDGE_MARGIN_M - 1e-6
+    assert max(xs) <= 1000.0 - explore.CREEK_EDGE_MARGIN_M + 1e-6
+    assert xs[0] < xs[-1]  # flows east, downhill
+    zs = [p[2] for p in route.points]
+    assert all(b <= a + 1e-9 for a, b in zip(zs, zs[1:]))
+
+
+def test_water_ribbon_is_ccw_and_has_uvs(tmp_path):
+    route = explore.Route([(0.0, 0.0, 10.0), (20.0, 0.0, 9.0), (40.0, 0.0, 8.0)])
+    tris = explore.export_water_obj(route, 0.0, tmp_path / "Water.obj", width_m=6.0)
+    assert tris == 4
+    text = (tmp_path / "Water.obj").read_text().splitlines()
+    verts = [tuple(map(float, l.split()[1:])) for l in text if l.startswith("v ")]
+    faces = [[int(t.split("/")[0]) for t in l.split()[1:]] for l in text if l.startswith("f ")]
+    assert len([l for l in text if l.startswith("vt ")]) == len(verts)
+    for f in faces:
+        (ax, ay, _), (bx, by, _), (cx, cy, _) = (verts[i - 1] for i in f)
+        assert (bx - ax) * (cy - ay) - (by - ay) * (cx - ax) > 0  # counter-clockwise from above
+    assert all(abs(v[1]) == 300.0 for v in verts)  # 3 m either side, in cm
+
+
+def test_plan_adds_tubing_before_morrison():
+    osm = _osm()
+    osm.ways.append(_creek_osm().ways[0])
+    osm.nodes.update(_creek_osm().nodes)
+    plan = explore.plan(osm, _xy, _hill, 1600.0, None, None, [], town=(0.0, 1.5))
+    keys = [s["key"] for s in plan["spots"]]
+    assert keys.index("tubing") == keys.index("morrison") - 1
+    assert plan["tubes"]["name"] == "Bear Creek" and plan["tubes"]["route_length_m"] > 1000
+
+
+def test_carve_creek_cuts_a_bed_and_keeps_the_datum():
+    from redrocks.dem import BBox, Dem
+
+    data = np.full((101, 101), 1800.0, dtype=np.float32)
+    data[0, 0] = 1700.0  # the datum, far from the creek
+    dem = Dem(data=data, bbox=BBox(west=0.0, south=0.0, east=0.01, north=0.01))
+    route = explore.Route([(-40.0, 0.0, 1795.0), (40.0, 0.0, 1795.0)])
+    carved = explore.carve_creek(dem, route, half_x=50.0, half_y=50.0, floor_m=1700.0)
+    mid = carved.data[50, 50]
+    assert mid == pytest_approx(1795.0 - explore.CREEK_BED_DEPTH_M, rel=1e-6)
+    assert carved.data[50, 5] == 1800.0 or carved.data[50, 5] >= carved.data[50, 50]
+    assert carved.data[10, 50] == 1800.0  # 40 m off the creek: untouched
+    assert carved.data.min() == 1700.0
+
+
+def test_creek_water_covers_the_ground_and_floor_cuts_it():
+    cover = explore.creek_route(_creek_osm(), _xy, _valley, half_extent=1000.0)
+    floor = explore.creek_route(_creek_osm(), _xy, _valley, half_extent=1000.0, level="floor")
+    for (x, y, zc), (_, _, zf) in zip(cover.points, floor.points):
+        assert zc >= _valley(x, y) - 1e-9  # water never under the ground
+        assert zf <= _valley(x, y) + 1e-9  # the bed is cut to or below it
+    for r in (cover, floor):
+        assert all(b[2] <= a[2] + 1e-9 for a, b in zip(r.points, r.points[1:]))

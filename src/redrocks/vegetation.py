@@ -715,7 +715,7 @@ def paint_atlas(atlas: str, size: int = ATLAS_SIZE, supersample: int = 2):
 # The masks below are the ones setup_environment.py used for the old scrub.
 SCAN_CENTRE_CM = (-3784.0, 5263.0)  # the ml0w scan covers the bowl; it has its own plants
 SCAN_CLEAR_CM = 33000.0
-BLOCK_OBJS = {"Roads": 1, "Paths": 1, "Parking": 1, "Benches": 2, "Stage": 2}  # name -> dilation (cells)
+BLOCK_OBJS = {"Roads": 1, "Paths": 1, "Parking": 1, "Benches": 2, "Stage": 2, "Water": 1}  # name -> dilation (cells)
 BLOCK_CELL_CM = 800.0
 SPACING_CM = 650.0
 SEED = 1941  # the year Red Rocks Amphitheatre opened
