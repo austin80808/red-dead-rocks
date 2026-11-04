@@ -130,10 +130,23 @@ PROJ="$HOME/Documents/Unreal Projects/RedRocks/RedRocks.uproject"
 "$UE" "$PROJ" -run=pythonscript -script=unreal/import_redrocks.py -unattended -nosplash -stdout
 ```
 
-Run them in this order; each writes a log to `/tmp/redrocks_*.log`:
+**To rebuild the whole level, run one script.** `rebuild_level.py` runs the
+six steps below in order (`import_redrocks.py` through `import_scan.py`), clears
+each step's old log first, stops at the first `ERROR`/`ABORT`/`FAIL` line in its
+`/tmp/redrocks_*.log` (or a missing log), and prints a summary of step, status,
+duration and log path (also saved to `/tmp/redrocks_rebuild.log`):
+
+```bash
+"$UE" "$PROJ" -run=pythonscript -script="$PWD/unreal/rebuild_level.py" -unattended -nosplash -stdout
+```
+
+or, in an open editor, `py "/Users/austin/dev/redrocks-ue/unreal/rebuild_level.py"`.
+It **wipes every actor in the level** (step 1). The scripts can still run one at
+a time, in this order; each writes a log to `/tmp/redrocks_*.log`:
 
 | Script | Does |
 |---|---|
+| `rebuild_level.py` | **entry point:** runs the six scripts below in order, stops at the first failure |
 | `import_redrocks.py` | imports the terrain, rocks and benches OBJs to `/Game/RedRocks` and places them in `Lvl_RedRocks`. **Clears every actor in the level first.** |
 | `setup_lighting.py` | adds sun, sky atmosphere, sky light, height fog, PlayerStart |
 | `configure_level.py` | fixed-exposure post-process volume and a framing camera |
@@ -288,4 +301,6 @@ exports (terrain grid, benches, winding, and a valid UV on every face), and the
 CLI build. No network in tests.
 
 The `unreal/` scripts are only checked offline: they must parse, and none may
-pass `unreal.Rotator` angles positionally. Running them needs the editor.
+pass `unreal.Rotator` angles positionally. `rebuild_level.py`'s step order and
+log parsing are unit-tested too (`tests/test_rebuild_level.py`). Running the
+scripts needs the editor.
