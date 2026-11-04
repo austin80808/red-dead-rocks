@@ -90,7 +90,9 @@ def build(args: argparse.Namespace) -> int:
         print(f"  {benches.benches} benches, {benches.triangles} triangles -> {benches.path.name}")
 
         print("\nblocking out the stage ...")
-        stage = export_stage_obj(venue.rows, lines, out_dir / "Stage.obj", base)
+        stage = export_stage_obj(
+            venue.rows, lines, out_dir / "Stage.obj", base, ground=TerrainSurface(dem, grid)
+        )
         print(f"  {len(stage.parts)} parts, {stage.triangles} triangles -> {stage.path.name}")
 
         spawn = player_spawn(
