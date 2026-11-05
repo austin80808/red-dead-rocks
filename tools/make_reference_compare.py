@@ -5,8 +5,9 @@ For each view in docs/media/vegetation-real/views.json, reads
 unreal/shoot_vegetation.py), fetches the view's Wikimedia Commons photo into
 ``--cache`` (never committed), and writes ``<out>/<name>.jpg``: three panels
 cropped to the view's aspect, captioned "Before", "After" and the photo's
-title, author and licence. Each view's ``samples`` pair a pixel in the photo
-with the same feature in the after shot; their median colours and CIE76 ΔE go
+title, author and licence. Each view's ``samples`` pair a pixel (``photo_xy``/``game_xy``)
+or a region (``photo_box``/``game_box`` with ``kind`` "green" or "brown") in the
+photo with the same feature in the after shot; their median colours and CIE76 ΔE go
 to ``<out>/delta_e.json`` and a printed table.
 
     .venv/bin/python tools/make_reference_compare.py --shots out/shots \
@@ -81,6 +82,28 @@ def compose(before: Image.Image, after: Image.Image, photo: Image.Image, caption
     return out
 
 
+def region_hex(img, box, kind: str) -> str:
+    """Median colour, as hex, of the pixels in ``box`` (x0, y0, x1, y1) that look like
+    ``kind``: "green" foliage (not sky) or "brown" bark."""
+    x0, y0, x1, y1 = (int(v) for v in box)
+    r = np.asarray(img, float)[y0:y1, x0:x1, :3].reshape(-1, 3)
+    red, green, blue = r[:, 0], r[:, 1], r[:, 2]
+    if kind == "green":
+        keep = (green >= red * 0.95) & (green > blue * 1.1) & (blue < 200)
+    elif kind == "brown":
+        keep = (red > green) & (green > blue) & (red - blue > 25) & (red < 200)
+    else:
+        raise ValueError(kind)
+    sel = r[keep] if keep.any() else r
+    return "#%02X%02X%02X" % tuple(int(round(v)) for v in np.median(sel, 0))
+
+
+def _sample(img, s: dict, which: str) -> str:
+    if "%s_box" % which in s:
+        return region_hex(img, s["%s_box" % which], s["kind"])
+    return median_hex(img, s["%s_xy" % which])
+
+
 def _photo_caption(photo: dict) -> str:
     return "%s — %s, %s" % (photo["title"], photo["author"], photo["licence"])
 
@@ -107,8 +130,8 @@ def main(argv: list[str] | None = None) -> int:
                 args.panel_width).save(args.out / ("%s.jpg" % name), quality=88)
         rows = {}
         for s in view.get("samples", []):
-            p_hex = median_hex(np.asarray(photo.convert("RGB")), s["photo_xy"])
-            g_hex = median_hex(np.asarray(after.convert("RGB")), s["game_xy"])
+            p_hex = _sample(np.asarray(photo.convert("RGB")), s, "photo")
+            g_hex = _sample(np.asarray(after.convert("RGB")), s, "game")
             rows[s["label"]] = {"photo": p_hex, "game": g_hex, "delta_e": round(delta_e(p_hex, g_hex), 1)}
             print("%-10s %-10s photo %s  game %s  ΔE %5.1f" % (name, s["label"], p_hex, g_hex, rows[s["label"]]["delta_e"]))
         report[name] = rows

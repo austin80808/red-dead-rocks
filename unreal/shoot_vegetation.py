@@ -36,6 +36,9 @@ import unreal
 OUT_DIR = os.environ.get("REDROCKS_OUT_DIR", "/Users/austin/dev/redrocks-ue/out")
 LOG_PATH = os.path.join(os.environ.get("REDROCKS_LOG_DIR", "/tmp"), "redrocks_vegetation_shots.log")
 PREFIX = os.environ.get("REDROCKS_SHOT_PREFIX", "")
+# Perf runs: e.g. REDROCKS_SCALABILITY=2 REDROCKS_SCREEN_PERCENT=75 (the remote-play preset).
+SCALABILITY = os.environ.get("REDROCKS_SCALABILITY", "")
+SCREEN_PERCENT = os.environ.get("REDROCKS_SCREEN_PERCENT", "")
 VIEWS_PATH = os.environ.get("REDROCKS_VIEWS", os.path.join(
     os.path.dirname(os.path.abspath(__file__)), "..", "docs", "media", "vegetation-real", "views.json"))
 HOLD_S = 7.0
@@ -238,6 +241,21 @@ def tick(delta):
                     move.set_editor_property("gravity_scale", 0.0)
                     move.set_movement_mode(unreal.MovementMode.MOVE_FLYING)
                 pawn.set_actor_enable_collision(False)
+                # Clean frames at the real frame rate: no HUD text, and no
+                # background-editor throttle (it pins the editor to ~8 fps).
+                unreal.SystemLibrary.execute_console_command(world, "showhud")
+                unreal.SystemLibrary.execute_console_command(world, "t.MaxFPS 0")
+                if SCALABILITY:
+                    unreal.SystemLibrary.execute_console_command(world, "scalability %s" % SCALABILITY)
+                if SCREEN_PERCENT:
+                    unreal.SystemLibrary.execute_console_command(world, "r.ScreenPercentage %s" % SCREEN_PERCENT)
+                log.append("      scalability %s, screen percentage %s" % (SCALABILITY or "default", SCREEN_PERCENT or "default"))
+                try:
+                    perf = unreal.get_default_object(unreal.EditorPerformanceSettings)
+                    perf.set_editor_property("throttle_cpu_when_not_foreground", False)
+                    log.append("      background throttle off")
+                except Exception as exc:
+                    log.append("      background throttle not changed: %r" % (exc,))
                 if os.environ.get("REDROCKS_HIDE_VEGETATION"):
                     # Baseline for the perf note: the same views without the plants.
                     for actor in unreal.GameplayStatics.get_all_actors_of_class(world, unreal.Actor):
@@ -258,18 +276,24 @@ def tick(delta):
             _hold(pawn, view)
             elapsed = now - state["mark"]
             if elapsed >= HOLD_S - FPS_WINDOW_S:
-                state["deltas"].append(delta)
+                if not state["deltas"]:
+                    state["fps_t0"] = now
+                state["deltas"].append(now)
             if elapsed >= HOLD_S:
-                ds = state["deltas"] or [1.0]
-                fps = len(ds) / sum(ds)
-                worst = 1.0 / max(ds)
+                # Frames counted against the wall clock: Slate clamps each tick's
+                # delta to 1/8 s, so summed deltas cannot report below 8 fps.
+                ts = state["deltas"] or [now - 1.0, now]
+                span = max(ts[-1] - state.get("fps_t0", ts[0]), 1e-3)
+                fps = (len(ts) - 1) / span if len(ts) > 1 else 0.0
+                gaps = [b - a for a, b in zip(ts, ts[1:])] or [span]
+                worst = 1.0 / max(gaps)
                 name = PREFIX + "veg_" + view[0]
                 # GPU time for this view goes to the editor log (search "ProfileGPU"):
                 # frame rate alone is meaningless while macOS throttles a background editor.
                 unreal.SystemLibrary.execute_console_command(world, "ProfileGPU")
                 unreal.SystemLibrary.execute_console_command(world, "HighResShot 1600x900 filename=%s" % name)
                 log.append("ok    view %-9s fps %.1f (worst frame %.1f fps, %d frames) -> %s.png"
-                           % (view[0], fps, worst, len(ds), name))
+                           % (view[0], fps, worst, len(ts), name))
                 state.update(phase="after_shot", mark=now)
             return
         if phase == "after_shot":

@@ -12,18 +12,36 @@
     "licence": "CC BY-SA 4.0"
    },
    "camera": {
-    "x": 0,
-    "y": 0,
-    "z": 0,
-    "pitch": 0,
-    "yaw": 0,
-    "fov": 0
+    "x": 67713,
+    "y": -82352,
+    "z": 5037,
+    "pitch": 3.0,
+    "yaw": 159.0,
+    "fov": 75
    },
    "aspect": [
     16,
     9
    ],
-   "samples": []
+   "samples": [
+    {
+     "label": "scrub oak",
+     "kind": "green",
+     "photo_box": [
+      0,
+      330,
+      860,
+      622
+     ],
+     "game_box": [
+      0,
+      380,
+      1600,
+      720
+     ],
+     "target": "#555D30"
+    }
+   ]
   },
   {
    "name": "ponderosa",
@@ -36,18 +54,53 @@
     "licence": "CC BY 2.0"
    },
    "camera": {
-    "x": 0,
-    "y": 0,
-    "z": 0,
-    "pitch": 0,
-    "yaw": 0,
-    "fov": 0
+    "x": -90891,
+    "y": 118104,
+    "z": 43660,
+    "pitch": 23.1,
+    "yaw": 180.0,
+    "fov": 70
    },
    "aspect": [
     3,
     4
    ],
-   "samples": []
+   "samples": [
+    {
+     "label": "needles",
+     "kind": "green",
+     "photo_box": [
+      150,
+      50,
+      1050,
+      1300
+     ],
+     "game_box": [
+      600,
+      100,
+      1050,
+      560
+     ],
+     "target": "#68744B"
+    },
+    {
+     "label": "trunk",
+     "kind": "brown",
+     "photo_box": [
+      660,
+      1100,
+      700,
+      1400
+     ],
+     "game_box": [
+      785,
+      560,
+      815,
+      800
+     ],
+     "target": "#5A5236"
+    }
+   ]
   },
   {
    "name": "junipers",
@@ -60,18 +113,36 @@
     "licence": "CC BY-SA 4.0"
    },
    "camera": {
-    "x": 0,
-    "y": 0,
-    "z": 0,
-    "pitch": 0,
-    "yaw": 0,
-    "fov": 0
+    "x": 32025,
+    "y": 21766,
+    "z": 15227,
+    "pitch": 0.7,
+    "yaw": -177.7,
+    "fov": 70
    },
    "aspect": [
     4,
     3
    ],
-   "samples": []
+   "samples": [
+    {
+     "label": "juniper",
+     "kind": "green",
+     "photo_box": [
+      540,
+      670,
+      670,
+      840
+     ],
+     "game_box": [
+      880,
+      520,
+      1000,
+      700
+     ],
+     "target": "#505B46"
+    }
+   ]
   },
   {
    "name": "hillsides",
@@ -84,12 +155,12 @@
     "licence": "CC BY-SA 3.0"
    },
    "camera": {
-    "x": 0,
-    "y": 0,
-    "z": 0,
-    "pitch": 0,
-    "yaw": 0,
-    "fov": 0
+    "x": -112000,
+    "y": -22000,
+    "z": 45166,
+    "pitch": -9.0,
+    "yaw": 247.5,
+    "fov": 70
    },
    "aspect": [
     4,

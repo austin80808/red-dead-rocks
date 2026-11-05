@@ -83,3 +83,31 @@ def test_fetch_photo_uses_the_cache(tmp_path, monkeypatch):
         raise AssertionError("should not download a cached photo")
     monkeypatch.setattr(rc.requests, "get", boom)
     assert rc.fetch_photo(_view()["photo"], tmp_path) == cached
+
+
+def test_region_samples_take_the_median_of_matching_pixels():
+    import numpy as np
+    a = np.zeros((40, 40, 3), np.uint8)
+    a[:, :] = (40, 80, 200)          # sky
+    a[10:30, 10:30] = (85, 93, 48)   # foliage
+    a[18:22, 18:22] = (120, 90, 60)  # a brown twig in it
+    assert rc.region_hex(a, (0, 0, 40, 40), "green") == "#555D30"
+    assert rc.region_hex(a, (0, 0, 40, 40), "brown") == "#785A3C"
+
+
+def test_main_reads_box_samples(tmp_path, monkeypatch):
+    shots = tmp_path / "shots"
+    shots.mkdir()
+    for k in ("before", "after"):
+        Image.new("RGB", (160, 90), (85, 93, 48)).save(shots / ("%s_trail.png" % k))
+    photo = tmp_path / "refX.jpg"
+    Image.new("RGB", (160, 90), (85, 93, 48)).save(photo)
+    monkeypatch.setattr(rc, "fetch_photo", lambda p, cache: photo)
+    v = _view()
+    v["samples"] = [{"label": "scrub", "kind": "green", "photo_box": [0, 0, 160, 90], "game_box": [0, 0, 160, 90],
+                     "target": "#555D30"}]
+    vf = tmp_path / "views.json"
+    vf.write_text(json.dumps({"views": [v]}))
+    out = tmp_path / "out"
+    assert rc.main(["--shots", str(shots), "--out", str(out), "--cache", str(tmp_path), "--views", str(vf)]) == 0
+    assert json.loads((out / "delta_e.json").read_text())["trail"]["scrub"]["delta_e"] < 3.0
