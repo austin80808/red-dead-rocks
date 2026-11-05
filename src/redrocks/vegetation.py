@@ -51,6 +51,8 @@ from pathlib import Path
 
 import numpy as np
 
+from .foliage_atlas import ATLASES, CARD_M, paint_atlas  # noqa: F401  (re-exported)
+
 # --------------------------------------------------------------------- meshes
 
 
@@ -567,151 +569,7 @@ def all_models() -> list[Model]:
 
 # ------------------------------------------------------------------- textures
 
-ATLASES = ("Juniper", "Pine", "Oak", "Mahogany")
-ATLAS_SIZE = 1024
-
-
-def _hex(c, jitter, rng):
-    h = c.lstrip("#")
-    rgb = np.array([int(h[i:i + 2], 16) for i in (0, 2, 4)], float)
-    rgb = rgb * rng.uniform(1 - jitter, 1 + jitter) + rng.normal(scale=jitter * 30, size=3)
-    return tuple(int(v) for v in np.clip(rgb, 0, 255)) + (255,)
-
-
-def _paint_juniper(draw, rng, s):
-    """A juniper spray: a twig of rope-like branchlets of overlapping scales."""
-    def cord(p0, angle, length, width, depth):
-        steps = max(3, int(length / (width * 0.7)))
-        x, y = p0
-        for i in range(steps):
-            a = angle + rng.normal(scale=0.08)
-            x += math.cos(a) * length / steps
-            y -= math.sin(a) * length / steps
-            r = width * (1.0 - 0.45 * i / steps)
-            col = _hex(rng.choice(["#6F8A78", "#7E9886", "#5D7767", "#8DA294", "#667F62"]), 0.1, rng)
-            draw.ellipse([x - r, y - r * 1.25, x + r, y + r * 1.25], fill=col)
-            if depth > 0 and i % 2 == 1 and i < steps - 1:
-                side = 1 if (i // 2) % 2 else -1
-                cord((x, y), angle + side * rng.uniform(0.45, 0.8), length * rng.uniform(0.3, 0.42),
-                     width * 0.8, depth - 1)
-        return x, y
-
-    draw.line([(s * 0.5, s * 0.99), (s * 0.5, s * 0.8)], fill=(92, 70, 50, 255), width=int(s * 0.02))
-    cord((s * 0.5, s * 0.82), math.pi / 2 + rng.normal(scale=0.1), s * 0.62, s * 0.012, 3)
-    for _ in range(int(rng.integers(2, 6))):
-        x, y = rng.uniform(0.25, 0.75) * s, rng.uniform(0.15, 0.6) * s
-        r = s * 0.016
-        draw.ellipse([x - r, y - r, x + r, y + r], fill=_hex("#8EA3BF", 0.06, rng))
-
-
-def _paint_pine(draw, rng, s):
-    """A ponderosa tuft: a twig ending in a brush of long needles in threes."""
-    tip = (s * 0.5 + rng.normal(scale=s * 0.02), s * 0.5)
-    draw.line([(s * 0.5, s * 0.99), tip], fill=(96, 66, 42, 255), width=int(s * 0.03))
-    for _ in range(170):
-        f = rng.uniform(0.0, 1.0)
-        x0 = s * 0.5 + (tip[0] - s * 0.5) * (0.35 + 0.65 * f)
-        y0 = s * 0.99 + (tip[1] - s * 0.99) * (0.35 + 0.65 * f)
-        a = math.pi / 2 + rng.normal(scale=0.55 + 0.25 * (1 - f))
-        length = s * rng.uniform(0.3, 0.48)
-        col = _hex(rng.choice(["#4C6A2E", "#5E7C35", "#6C8A3E", "#3F5A27"]), 0.1, rng)
-        bend = rng.normal(scale=0.12)
-        pts = [(x0 + math.cos(a + bend * t) * length * t, y0 - math.sin(a + bend * t) * length * t)
-               for t in np.linspace(0, 1, 6)]
-        draw.line(pts, fill=col, width=max(2, int(s * 0.007)))
-    r = s * 0.02
-    draw.ellipse([tip[0] - r, tip[1] - r * 1.5, tip[0] + r, tip[1] + r], fill=(130, 92, 60, 255))
-
-
-def _paint_leaves(draw, rng, s, mahogany: bool):
-    """Oak: lobed leaves along forked twigs. Mahogany: small narrow leaves in
-    tufts and a few of its feathery, curling seed plumes."""
-    twig = (104, 84, 70, 255) if mahogany else (88, 64, 46, 255)
-    palette = (["#6C7556", "#7C8466", "#5D664A", "#8A8E70"] if mahogany
-               else ["#4F6B2B", "#5E7A33", "#6B7F3A", "#47602A", "#7D8640"])
-
-    def leaf(x, y, a, size):
-        col = _hex(rng.choice(palette), 0.1, rng)
-        if mahogany:
-            pts = []
-            for t in np.linspace(0, 2 * math.pi, 14):
-                px, py = math.cos(t) * size, math.sin(t) * size * 0.32
-                pts.append((x + px * math.cos(a) - py * math.sin(a), y - (px * math.sin(a) + py * math.cos(a))))
-            draw.polygon(pts, fill=col)
-        else:
-            for k in range(5):  # lobes along the midrib
-                t = (k + 0.5) / 5
-                cx, cy = x + math.cos(a) * size * t * 1.6, y - math.sin(a) * size * t * 1.6
-                r = size * (0.33 + 0.25 * math.sin(math.pi * t))
-                draw.ellipse([cx - r, cy - r, cx + r, cy + r], fill=col)
-
-    def twig_fn(p0, angle, length, width, depth):
-        x, y = p0
-        steps = 6
-        for i in range(steps):
-            a = angle + rng.normal(scale=0.12)
-            nx, ny = x + math.cos(a) * length / steps, y - math.sin(a) * length / steps
-            draw.line([(x, y), (nx, ny)], fill=twig, width=max(2, int(width)))
-            x, y = nx, ny
-            if i >= 1:
-                n = 5 if mahogany else 3
-                for _ in range(n):
-                    leaf(x, y, a + rng.choice([-1, 1]) * rng.uniform(0.4, 1.2),
-                         s * (0.07 if mahogany else 0.065) * rng.uniform(0.75, 1.2))
-            if depth > 0 and i in (2, 4):
-                twig_fn((x, y), angle + rng.choice([-1, 1]) * rng.uniform(0.4, 0.8), length * 0.55,
-                        width * 0.7, depth - 1)
-
-    twig_fn((s * 0.5, s * 0.99), math.pi / 2 + rng.normal(scale=0.12), s * 0.68, s * 0.014, 2)
-    if mahogany:
-        for _ in range(int(rng.integers(2, 5))):
-            x, y = rng.uniform(0.25, 0.75) * s, rng.uniform(0.1, 0.5) * s
-            pts = []
-            for t in np.linspace(0, 1, 16):
-                pts.append((x + s * 0.12 * t + s * 0.02 * math.sin(t * 9),
-                            y - s * 0.1 * t + s * 0.02 * math.cos(t * 9)))
-            draw.line(pts, fill=(226, 218, 204, 255), width=max(2, int(s * 0.006)))
-
-
-def paint_atlas(atlas: str, size: int = ATLAS_SIZE, supersample: int = 2):
-    """RGBA uint8 array (size, size, 4): the species' 2x2 leaf-card atlas.
-
-    Each quarter is one spray, twig at the bottom of the tile. Transparent
-    texels carry the blurred colour of their neighbours, so mips and filtering
-    never bleed black into the edges.
-    """
-    from PIL import Image, ImageDraw, ImageFilter
-
-    if atlas not in ATLASES:
-        raise ValueError(atlas)
-    rng = np.random.default_rng(zlib.crc32(atlas.encode()))
-    tile = size // 2 * supersample
-    img = Image.new("RGBA", (tile * 2, tile * 2), (0, 0, 0, 0))
-    for t in range(4):
-        layer = Image.new("RGBA", (tile, tile), (0, 0, 0, 0))
-        draw = ImageDraw.Draw(layer)
-        if atlas == "Juniper":
-            _paint_juniper(draw, rng, tile)
-        elif atlas == "Pine":
-            _paint_pine(draw, rng, tile)
-        else:
-            _paint_leaves(draw, rng, tile, atlas == "Mahogany")
-        # Tile t sits at UV (t % 2, t // 2) quarters; image rows run top-down
-        # while V runs bottom-up, so tile row 0 is the bottom half of the image.
-        img.paste(layer, ((t % 2) * tile, (1 - t // 2) * tile))
-    # Resample premultiplied so the transparent black never darkens the edges.
-    img = img.convert("RGBa").resize((size, size), Image.LANCZOS).convert("RGBA")
-    rgba = np.asarray(img).astype(np.float32)
-    alpha = rgba[..., 3:4] / 255.0
-    pre = Image.fromarray(np.clip(rgba[..., :3] * alpha, 0, 255).astype(np.uint8))
-    a_img = Image.fromarray((alpha[..., 0] * 255).astype(np.uint8))
-    blur = np.asarray(pre.filter(ImageFilter.GaussianBlur(24))).astype(np.float32)
-    blur_a = np.asarray(a_img.filter(ImageFilter.GaussianBlur(24))).astype(np.float32)[..., None] / 255.0
-    mean = (rgba[..., :3] * alpha).sum((0, 1)) / max(float(alpha.sum()), 1e-3)
-    fill = np.where(blur_a > 1e-3, blur / np.maximum(blur_a, 1e-3), mean)
-    rgb = np.where(alpha > 0.02, rgba[..., :3], fill)
-    out = np.concatenate([np.clip(rgb, 0, 255), rgba[..., 3:4]], axis=2)
-    return out.astype(np.uint8)
+ATLAS_SIZE = 1024  # leaf atlases are painted by redrocks.foliage_atlas, at real size
 
 
 # ------------------------------------------------------------------ placement

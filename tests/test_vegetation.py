@@ -12,7 +12,9 @@ import numpy as np
 import pytest
 
 from redrocks import cli
+from redrocks import foliage_atlas as fa
 from redrocks import vegetation as veg
+from redrocks import vegetation_metrics as vm
 
 UNREAL = Path(__file__).resolve().parent.parent / "unreal"
 
@@ -117,6 +119,27 @@ def test_atlases_have_cutout_alpha_and_no_black_fringe(atlas):
     for ty in (0, 128):
         for tx in (0, 128):
             assert (alpha[ty:ty + 128, tx:tx + 128] > 128).mean() > 0.02
+
+
+@pytest.mark.parametrize("atlas", veg.ATLASES)
+def test_atlas_paints_at_real_size(atlas):
+    sizes = fa.painted_sizes(atlas)
+    lo, hi = fa.SIZE_M[atlas]
+    main = sizes.get("leaf") or sizes.get("spray") or sizes.get("needle")
+    assert main and lo <= np.median(main) <= hi and min(main) >= lo * 0.7 and max(main) <= hi * 1.3
+    if atlas == "Juniper":
+        b = sizes["branchlet"]
+        assert 0.001 <= np.median(b) <= 0.002
+
+
+@pytest.mark.parametrize("atlas", ["Juniper", "Pine", "Oak"])
+def test_atlas_colour_is_near_the_photo(atlas):
+    assert vm.delta_e(fa.mean_colour(fa.paint_atlas(atlas, 256)), fa.PHOTO_COLOUR[atlas]) <= 20
+
+
+def test_mahogany_is_greyer_and_lighter_than_oak():
+    oak, mah = (vm.hex_to_lab(fa.mean_colour(fa.paint_atlas(a, 256))) for a in ("Oak", "Mahogany"))
+    assert mah[0] > oak[0] and np.hypot(*mah[1:]) < np.hypot(*oak[1:])
 
 
 def _slope_grid(n=61, size=240000.0, fn=lambda x, y: 0.0):
