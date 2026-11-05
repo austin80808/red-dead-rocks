@@ -685,6 +685,10 @@ SCAN_CENTRE_CM = (-3784.0, 5263.0)  # the ml0w scan covers the bowl; it has its 
 SCAN_CLEAR_CM = 33000.0
 BLOCK_OBJS = {"Roads": 1, "Paths": 1, "Parking": 1, "Benches": 2, "Stage": 2, "Water": 1}  # name -> dilation (cells)
 BLOCK_CELL_CM = 800.0
+# Shrubs may line these right up to their edge (canopy never over them), on a 2 m grid;
+# trees keep the coarse 8 m mask (their trunks collide).
+FINE_BLOCK_OBJS = ("Roads", "Paths", "Parking", "Water")
+FINE_CELL_CM = 200.0
 SPACING_CM = 650.0
 SEED = 1941  # the year Red Rocks Amphitheatre opened
 MAX_TILT_DEG = 4.0
@@ -765,6 +769,32 @@ def value_noise(x, y, cell, seed):
     return a * (1 - ty) + b * ty
 
 
+def mesh_cells(path, cell: float = FINE_CELL_CM) -> set:
+    """Grid cells covered by an OBJ's triangles (sampled at half a cell), not just its vertices."""
+    verts, faces = [], []
+    with open(path) as fh:
+        for line in fh:
+            if line.startswith("v "):
+                verts.append(line.split()[1:3])
+            elif line.startswith("f "):
+                idx = [int(c.split("/")[0]) - 1 for c in line.split()[1:]]
+                faces += [(idx[0], idx[i], idx[i + 1]) for i in range(1, len(idx) - 1)]
+    if not faces:
+        return set()
+    v = np.asarray(verts, float)
+    out = set()
+    for a, b, c in faces:
+        pa, pb, pc = v[a], v[b], v[c]
+        n = int(math.ceil(max(np.linalg.norm(pb - pa), np.linalg.norm(pc - pa), np.linalg.norm(pc - pb)) / (cell / 2)))
+        n = max(n, 1)
+        i, j = np.meshgrid(np.arange(n + 1), np.arange(n + 1))
+        keep = i + j <= n
+        u, w = i[keep] / n, j[keep] / n
+        pts = pa + np.outer(u, pb - pa) + np.outer(w, pc - pa)
+        out.update(map(tuple, np.floor(pts / cell).astype(np.int64).tolist()))
+    return out
+
+
 def blocked_cells(verts: np.ndarray, cell: float = BLOCK_CELL_CM, dilate: int = 1) -> set:
     out = set()
     if len(verts) == 0:
@@ -800,8 +830,8 @@ def _smooth(lo, hi, x):
 
 
 THICKET_LEVEL = 0.55          # in a thicket where the (adjusted) thicket field is at least this
-THICKET_SPACING_CM = 380.0    # jittered grid for shrubs inside thickets
-OPENING_SHRUB_P = 0.35        # chance a 6.5 m candidate in the open grows a lone shrub
+THICKET_SPACING_CM = 410.0    # jittered grid for shrubs inside thickets
+OPENING_SHRUB_P = 0.18        # chance a 6.5 m candidate in the open grows a lone shrub
 GROVE_SEED_P = 0.4            # share of pine picks that seed a grove
 GROVE_GAP_CM = 2200.0         # no new grove seed this close to a pine
 GROVE_RADIUS_CM = 1200.0
@@ -846,10 +876,10 @@ def _dilate(cells: set, n: int) -> set:
     return out
 
 
-def _cells_free(xs, ys, blocked: set) -> np.ndarray:
+def _cells_free(xs, ys, blocked: set, cell: float = BLOCK_CELL_CM) -> np.ndarray:
     if not blocked:
         return np.ones(len(np.atleast_1d(xs)), bool)
-    cells = np.floor(np.stack([np.atleast_1d(xs), np.atleast_1d(ys)], 1) / BLOCK_CELL_CM).astype(np.int64)
+    cells = np.floor(np.stack([np.atleast_1d(xs), np.atleast_1d(ys)], 1) / cell).astype(np.int64)
     return np.array([tuple(c) not in blocked for c in cells.tolist()], bool)
 
 
@@ -876,7 +906,7 @@ def _add_rows(out: dict, models: dict, ground: Ground, rng, names, px, py, tilt)
                        round(float(sxy[k]), 3), round(float(s[k]), 3)])
 
 
-def place(ground: Ground, blocked: set, models: dict, seed: int = SEED) -> dict:
+def place(ground: Ground, blocked: set, models: dict, seed: int = SEED, shrub_masks=None) -> dict:
     """Instances by model name: [[x, y, z, yaw, pitch, roll, scale_xy, scale_z], ...] (cm, deg).
 
     ``models`` maps model name to its Model (for trunk radius, species and
@@ -885,6 +915,11 @@ def place(ground: Ground, blocked: set, models: dict, seed: int = SEED) -> dict:
     openings between keep a few lone shrubs. Junipers stand singly or in
     twos and threes, more on rocky south-facing ground; ponderosa grows in
     groves of 3-8 on the upper and north-facing slopes.
+
+    Trees avoid ``blocked`` (8 m cells). Shrubs avoid it too, widened by their
+    reach, unless ``shrub_masks`` = (coarse 8 m cells, fine 2 m cells) is
+    given: then they avoid the coarse cells widened by their reach, and grow
+    up to the fine ones (paths, roads...) with their canopy never over them.
     """
     from .vegetation_metrics import footprint_radius_m
 
@@ -896,7 +931,16 @@ def place(ground: Ground, blocked: set, models: dict, seed: int = SEED) -> dict:
     out = {name: [] for name in models}
     reach = max([footprint_radius_m(models[n]) * 100.0 * SCALE[n.rsplit("_", 1)[0]][1] * 1.08
                  for n in models if n.rsplit("_", 1)[0] in SHRUBS] or [0.0])
-    shrub_blocked = _dilate(blocked, int(math.ceil(reach / BLOCK_CELL_CM))) if blocked else set()
+    if shrub_masks is None:
+        shrub_blocked = _dilate(blocked, int(math.ceil(reach / BLOCK_CELL_CM))) if blocked else set()
+        shrub_fine = set()
+    else:
+        coarse, fine = shrub_masks
+        shrub_blocked = _dilate(coarse, int(math.ceil(reach / BLOCK_CELL_CM))) if coarse else set()
+        shrub_fine = _dilate(fine, int(math.ceil((reach + 50.0) / FINE_CELL_CM))) if fine else set()
+
+    def shrub_free(px, py):
+        return _cells_free(px, py, shrub_blocked) & _cells_free(px, py, shrub_fine, FINE_CELL_CM)
 
     def usable(px, py, min_nz, mask):
         px, py = np.atleast_1d(px), np.atleast_1d(py)
@@ -981,7 +1025,7 @@ def place(ground: Ground, blocked: set, models: dict, seed: int = SEED) -> dict:
 
     # Lone shrubs scattered through the grassy openings between thickets.
     lone = (~thick) & (rng.uniform(size=x.shape) < OPENING_SHRUB_P * np.clip(w_shrub / 1.5, 0, 1))
-    lone &= usable(x, y, MIN_NZ["shrub"], shrub_blocked)
+    lone &= usable(x, y, MIN_NZ["shrub"], set()) & shrub_free(x, y)
     for k in np.flatnonzero(lone):
         add(pick("Mahogany" if rng.uniform() < 0.25 + 0.5 * rocky[k] else "Oak"), x[k], y[k], MAX_TILT_DEG)
 
@@ -993,13 +1037,13 @@ def place(ground: Ground, blocked: set, models: dict, seed: int = SEED) -> dict:
     sy = (tyy + rng.uniform(0, THICKET_SPACING_CM, tyy.shape)).ravel()
     inside = in_thicket(ground, sx, sy, seed)
     sx, sy = sx[inside], sy[inside]
-    free = _cells_free(sx, sy, shrub_blocked)
+    free = shrub_free(sx, sy)
     sx, sy = sx[free], sy[free]
     s_rocky = _smooth(0.97, 0.84, ground.normal(sx, sy)[2])
     roll = rng.uniform(size=len(sx))
     for qx, qy, rr, rk in zip(sx, sy, roll, s_rocky):
-        p_mah = 0.08 + 0.2 * rk
-        sp = "Mahogany" if rr < p_mah else "Oak" if rr < p_mah + 0.18 else "OakPatch"
+        p_mah = 0.05 + 0.15 * rk
+        sp = "Mahogany" if rr < p_mah else "Oak" if rr < p_mah + 0.1 else "OakPatch"
         add(pick(sp), qx, qy, MAX_TILT_DEG)
 
     _add_rows(out, models, ground, rng, names, px, py, tilt)
@@ -1036,13 +1080,20 @@ def export(out_dir: Path, terrain_obj: Path | None = None, avoid_dir: Path | Non
             info["atlases"][atlas] = name + ".png"
     if terrain_obj is not None:
         ground = Ground(read_obj_vertices(terrain_obj))
-        blocked = set()
+        blocked, hard, fine = set(), set(), set()
         for name, dilate in BLOCK_OBJS.items():
             path = Path(avoid_dir or Path(terrain_obj).parent) / (name + ".obj")
             if path.exists():
-                blocked |= blocked_cells(read_obj_vertices(path), dilate=dilate)
-        blocked |= sled_run_cells(Path(avoid_dir or Path(terrain_obj).parent) / "manifest.json")
-        info["instances"] = place(ground, blocked, models, seed=seed)
+                cells = blocked_cells(read_obj_vertices(path), dilate=dilate)
+                blocked |= cells
+                if name in FINE_BLOCK_OBJS:
+                    fine |= mesh_cells(path)
+                else:
+                    hard |= cells
+        sled = sled_run_cells(Path(avoid_dir or Path(terrain_obj).parent) / "manifest.json")
+        blocked |= sled
+        hard |= sled
+        info["instances"] = place(ground, blocked, models, seed=seed, shrub_masks=(hard, fine))
         counts = {}
         for name, rows in info["instances"].items():
             sp = name.rsplit("_", 1)[0]

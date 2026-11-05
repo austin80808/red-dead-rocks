@@ -509,3 +509,35 @@ def test_snow_runs_after_vegetation_and_covers_veg_materials():
     snow = (UNREAL / "setup_snow.py").read_text()
     assert 'GAME_DIR = "/Game/RedRocks"' in snow and "list_assets(GAME_DIR, recursive=True" in snow
     assert 'ASSET_DIR = "/Game/RedRocks/Vegetation"' in (UNREAL / "setup_vegetation.py").read_text()
+
+
+def test_scrub_lines_paths_without_overhanging_them(models):
+    by_name = {mm.name: mm for mm in models}
+    g = veg.Ground(_slope_grid(n=41, size=160000.0, fn=lambda x, y: 0.05 * x + 20000.0))
+    path = np.asarray([(-80000.0 + i * 100.0, 30000.0 + 20.0 * math.sin(i / 40.0), 0.0) for i in range(1600)])
+    coarse = veg.blocked_cells(path, dilate=1)
+    fine = veg.blocked_cells(path, cell=veg.FINE_CELL_CM, dilate=0)
+    out = veg.place(g, coarse, by_name, shrub_masks=(set(), fine))
+    near = 0
+    for name, rows in out.items():
+        if not name.startswith(SHRUBS):
+            continue
+        r = vm.footprint_radius_m(by_name[name]) * 100
+        for x, y, z, yaw, pitch, roll, sxy, sz in rows:
+            for dx, dy in ((r * sxy, 0), (-r * sxy, 0), (0, r * sxy), (0, -r * sxy), (0, 0)):
+                c = (int(math.floor((x + dx) / veg.FINE_CELL_CM)), int(math.floor((y + dy) / veg.FINE_CELL_CM)))
+                assert c not in fine, name
+            near += abs(y - 30000.0) < 600.0
+    assert near > 20  # scrub grows right up to the path edge
+    for name, rows in out.items():  # trees still keep the coarse mask (their trunks collide)
+        if not name.startswith(SHRUBS):
+            for x, y, *_ in rows:
+                assert (int(math.floor(x / veg.BLOCK_CELL_CM)), int(math.floor(y / veg.BLOCK_CELL_CM))) not in coarse
+
+
+def test_mesh_cells_cover_a_triangle_not_just_its_corners(tmp_path):
+    obj = tmp_path / "t.obj"
+    obj.write_text("v 0 0 0\nv 2000 0 0\nv 0 2000 0\nf 1/1/1 2/1/1 3/1/1\n")
+    cells = veg.mesh_cells(obj, cell=200.0)
+    assert (5, 0) in cells and (0, 5) in cells and (3, 3) in cells  # edges and interior, between the corners
+    assert (8, 8) not in cells  # outside the hypotenuse
