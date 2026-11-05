@@ -469,7 +469,7 @@ PONDEROSA_FORMS = ("young", "mature", "mature", "mature", "old")  # by variant i
 
 
 def _ponderosa(name, index) -> Model:
-    """A Front Range ponderosa: a straight trunk clear for 40-60 % of its height,
+    """A Front Range ponderosa: a straight trunk clear for about a third of its height,
     crooked branches that dip and turn up at the tips, and needles only in round
     tufts at the branch tips and forks, with sky between them.
 
@@ -497,7 +497,7 @@ def _ponderosa(name, index) -> Model:
     def trunk_at(z):
         return np.array([np.interp(z, trunk[:, 2], trunk[:, 0]), np.interp(z, trunk[:, 2], trunk[:, 1]), z])
 
-    crown_base = height * rng.uniform(0.47, 0.56)
+    crown_base = height * rng.uniform(0.37, 0.42)
     # Dead stubs on the clear lower trunk: ponderosas self-prune.
     for _ in range(int(rng.integers(4, 8))):
         z = rng.uniform(0.2 * height, crown_base)
@@ -545,22 +545,22 @@ def _ponderosa(name, index) -> Model:
     golden = math.pi * (3 - math.sqrt(5))
     az = rng.uniform(0, 2 * math.pi)
     z = crown_base
-    top_z = height * 0.97
+    top_z = height * 0.95
     while z < top_z:
         tt = (z - crown_base) / (height - crown_base)
         for _ in range(int(rng.integers(2, 5))):
             az += golden + rng.normal(scale=0.35)
             if form == "young":
-                length = 0.3 + 3.6 * (1 - tt) ** 1.3
+                length = 0.3 + 4.4 * (1 - tt) ** 1.3
             elif form == "old":
-                length = 4.2 * (0.75 + 0.25 * (1 - tt))
+                length = 5.0 * (0.75 + 0.25 * (1 - tt))
             else:
-                length = 4.2 * (1 - 0.75 * tt ** 1.2)
+                length = 6.0 * (1 - 0.85 * tt ** 0.9)
             length *= rng.uniform(0.75, 1.15)
-            rise = (-0.15 + 0.55 * tt) if form != "old" else (-0.1 + 0.2 * tt)
+            rise = (-0.12 + 0.3 * tt) if form != "old" else (-0.1 + 0.2 * tt)
             d = np.array([math.cos(az), math.sin(az), rise + rng.normal(scale=0.08)])
             r0 = 0.10 * (length / 3.6) ** 0.8 + 0.03
-            limb(trunk_at(z + rng.uniform(-0.15, 0.15)), d, length, r0, 0.22, 0.4 * (1 - tt), 1)
+            limb(trunk_at(z + rng.uniform(-0.15, 0.15)), d, length, r0, 0.22 * (1 - 0.6 * tt), 0.28 * (1 - tt), 1)
         z += rng.uniform(0.6, 1.1) * (1.0 if form != "young" else 0.8)
     if form == "old":
         for _ in range(int(rng.integers(2, 4))):  # flat upper limbs make the old tree's flat top
@@ -618,7 +618,7 @@ def _shrub(name, index, mahogany: bool) -> Model:
             rho = math.sqrt(rng.uniform()) * 0.95
             p = crown_c + d * crown_r * rho
             p[2] = max(p[2], 0.14 * height)
-            _clump(meshes, rng, p, 0.24 * rng.uniform(0.85, 1.15), 12 if rho > 0.55 else 0, card_w, crown_c,
+            _clump(meshes, rng, p, 0.2 * rng.uniform(0.85, 1.15), 18 if rho > 0.55 else 0, card_w, crown_c,
                    crown_r, 0.65, subdiv=2, tilt_up=0.4, squash=0.85, on_surface=True)
     return Model("%s_%d" % (name, index), "mountain_mahogany" if mahogany else "gambel_oak",
                  atlas, height, 0.045, meshes)
@@ -646,7 +646,7 @@ def _oak_patch(name, index) -> Model:
         top = height * (1.0 - 0.45 * u * u)  # the dome falls toward the patch edge
         p = np.array([math.cos(a) * ax * u, math.sin(a) * ay * u, rng.uniform(0.12, 1.0) * top])
         outer = u > 0.75 or p[2] > top * 0.75
-        _clump(meshes, rng, p, 0.26 * rng.uniform(0.85, 1.15), 12 if outer else 0, card_w, crown_c, crown_r,
+        _clump(meshes, rng, p, 0.22 * rng.uniform(0.85, 1.15), 18 if outer else 0, card_w, crown_c, crown_r,
                0.65, subdiv=2, tilt_up=0.4, squash=0.8, on_surface=True)
     return Model("%s_%d" % (name, index), "gambel_oak", "Oak", height, 0.04, meshes)
 

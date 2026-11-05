@@ -82,7 +82,7 @@ def test_model_heights_match_the_species(species, lo, hi):
 def test_ponderosa_trunk_is_clear_low_and_scaled_instances_reach_12_to_25_m():
     m = veg.build_model("Ponderosa", 0)
     leaves = m.parts["Leaves"].positions()
-    assert leaves[:, 2].min() >= 0.4 * m.height_m  # no needles on the lower trunk
+    assert leaves[:, 2].min() >= 0.3 * m.height_m  # no needles on the lower trunk
     lo, hi = veg.SCALE["Ponderosa"]
     assert 12.0 <= lo * m.height_m and hi * m.height_m <= 25.0
 
@@ -309,7 +309,7 @@ def test_ponderosa_has_five_variants():
 @pytest.mark.parametrize("i", PINES)
 def test_ponderosa_crown_base_and_trunk(i):
     p = veg.build_model("Ponderosa", i)
-    assert 0.40 <= vm.crown_base_fraction(p) <= 0.60
+    assert 0.30 <= vm.crown_base_fraction(p) <= 0.60  # ref02: the crown starts about 28 % up
     lo, hi = veg.SCALE["Ponderosa"]
     d = vm.trunk_diameter_at(p, 1.4)
     assert d * lo >= 0.35 and d * hi <= 0.80
@@ -478,7 +478,8 @@ def test_shrub_parts_cull_together_and_crowns_never(sv):
 
 
 def test_ponderosa_bark_is_dark_grey_brown_at_distance(sv):
-    assert sv.BARK["Ponderosa"][2] == "#5A5236"
+    far = vm.hex_to_lab(sv.BARK["Ponderosa"][2])
+    assert far[0] < 40 and np.hypot(far[1], far[2]) < 12  # dark, low-chroma grey-brown
     for group, (near_light, near_dark, far, plate, stretch, contrast) in sv.BARK.items():
         assert vm.hex_to_lab(far)[0] < vm.hex_to_lab(near_light)[0]  # far reads darker than sunlit plates
 
@@ -489,7 +490,8 @@ def test_foliage_carries_the_atlas_colour_and_photo_cores(sv):
             assert min(vm.hex_rgb(tint)) >= 0.88 * 255  # within ~10 % of white: the atlas carries the colour
         if atlas in fa.PHOTO_COLOUR:
             photo = vm.hex_rgb(fa.PHOTO_COLOUR[atlas])
-            assert np.allclose(vm.hex_rgb(ca), photo * 0.8, atol=2) and np.allclose(vm.hex_rgb(cb), photo * 0.95, atol=2)
+            ga, gb = sv.CORE_GAIN[atlas]
+            assert np.allclose(vm.hex_rgb(ca), photo * ga, atol=2) and np.allclose(vm.hex_rgb(cb), photo * gb, atol=2)
 
 
 def test_snow_runs_after_vegetation_and_covers_veg_materials():

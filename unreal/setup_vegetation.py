@@ -54,17 +54,21 @@ SHRUB_FADE_CM = (32000, 40000)  # shrub leaves and stems: start, end of the cull
 # Near is within FAR_START_CM; past FAR_END_CM the bark is the far colour (the
 # ponderosa's is the photo's trunk colour at distance, #5A5236).
 BARK = {
-    "Ponderosa": ("#B06C40", "#2E211B", "#5A5236", 28.0, 0.4, 1.0),
+    "Ponderosa": ("#B06C40", "#2E211B", "#4E463A", 28.0, 0.4, 1.0),
     "Juniper": ("#857A6E", "#3B332D", "#5E564E", 9.0, 0.12, 0.8),
     "Shrub": ("#7A746C", "#433E38", "#605B54", 6.0, 0.3, 0.5),
 }
 FAR_START_CM, FAR_END_CM = 600.0, 1500.0
 # Leaf tint pair per atlas (multiplies the atlas, which is painted in the photo
 # colours, so the tints stay near white; picked per instance), crown core
-# colour pair (0.8x and 0.95x the photo colour), subsurface colour.
+# colour pair (CORE_GAIN x the photo colour: below 1 for dense crowns whose
+# cores sit in shade, above 1 for the open ponderosa, whose cores read as the
+# lit needles of each tuft), subsurface colour. Tuned against the photo
+# captures (docs/media/vegetation-real/delta_e.json).
+CORE_GAIN = {"Juniper": (0.8, 0.95), "Pine": (0.95, 1.1), "Oak": (0.8, 0.95), "Mahogany": (0.8, 0.95)}
 FOLIAGE = {
     "Juniper": (("#F4F4F4", "#E6EAE2"), ("#404937", "#4C5643"), "#6E7F48"),
-    "Pine": (("#F4F4F0", "#ECEEE4"), ("#535D3C", "#636E47"), "#7A8A3A"),
+    "Pine": (("#F4F4F0", "#ECEEE4"), ("#636E47", "#738053"), "#6E8048"),
     "Oak": (("#F6F6F0", "#ECEEE2"), ("#4A5226", "#57612D"), "#9AAA40"),
     "Mahogany": (("#F2F2EE", "#E8EAE2"), ("#5F6352", "#71766A"), "#8E9460"),
 }
