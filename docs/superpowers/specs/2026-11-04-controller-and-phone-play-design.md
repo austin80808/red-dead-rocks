@@ -397,3 +397,53 @@ backend to use.
 | WebRTC doesn't pick the Tailscale route | Checked in the spike; if it fails, use TURN for tailnet too. |
 | `InputController=Host` means something other than "first peer" | Checked in the spike; otherwise the bridge ignores input from all but the first peer it heard from. |
 | Clash with the terraced-seating branch in `RRExplorer.cpp` | Small edits away from the movement block; rebase on whichever merges second. |
+
+## Appendix: spike results (2026-11-04)
+
+The spike ran in a throwaway copy, `RedRocks-spike`, on the M4 MacBook Air (macOS 27.0). Austin's iPhone connected
+over the tailnet.
+
+### What worked
+
+| Question | Answer |
+|---|---|
+| Does Epic's Mac encoder path work on M4? | **Yes.** Live H.264 at 1280×720, with no `RHI.cpp` assert and no dark frames. The third-party fix isn't needed. |
+| Launch flags | `-game -windowed -ResX=1280 -ResY=720 -PixelStreamingConnectionURL=ws://127.0.0.1:8888 -PixelStreamingEncoderCodec=H264 -PixelStreamingInputController=Host -ExecCmds="t.MaxFPS 30,scalability 2,r.ScreenPercentage 75"`. The rule: take a cvar name, drop the dots, and change `PixelStreaming2` to `PixelStreaming`. The log confirmed each setting came "from command line". |
+| Signalling server | PixelStreamingInfrastructure `UE5.8` at `9a43ab95565c49c261ffe1aa5ec1fe3075282ebc`, on Node 22.23.4 (Homebrew `node@22`). Install with `npm install --no-audit --no-fund --ignore-scripts -w Common -w Signalling -w SignallingWebServer -w Frontend/library -w Frontend/ui-library -w Frontend/implementations/typescript`, build with `npm run build:all:cjs`, then run `node dist/index.js --serve --http_root www --player_port 8080 --streamer_port 8888` from `SignallingWebServer/`. The page is `/player.html`; `/` returns 404. |
+| Reaching `UPixelStreaming2Input` through reflection | **Works.** `FindObject<UClass>("/Script/PixelStreaming2.PixelStreaming2Input")`, then `NewObject`, `RegisterComponent`, and `FMulticastDelegateProperty::AddDelegate` on `OnInputEvent`. Calling `SendPixelStreaming2Response` through `ProcessEvent` works too. |
+| Message round trip | **Works.** The page's `emitUIInteraction({ping: 1})` came back as `{"echo":{"ping":1}}` through `addResponseEventListener`. |
+| `InputController=Host` | **The first peer controls.** The iPhone connected first. A later viewer's `emitUIInteraction` never reached the game: the log has no line for it, and nothing came back. |
+| iPhone Safari over the tailnet | **Works.** The video plays and dragging turns the view, served on `https://austins-macbook-air.tailb31dd2.ts.net:10443/player.html`. Ports 443 and 8443 on that name already proxy other services, so remote play uses **10443**. |
+| Route the video took | The phone was on home Wi-Fi, and WebRTC picked a direct LAN IPv6 path: 212 MB over the `fdfe:` address, almost nothing over 100.x. **Over cellular through Tailscale: not tested** (skipped). It's still a risk for plan 2. |
+
+### Frame rate: the game is the limit, not the stream
+
+Stream fps at the top of the bowl, capped at 30, at 1280×720:
+
+| Settings | fps |
+|---|---|
+| Epic, 100% | 13.8 |
+| Epic, 75% | 18.0 |
+| High, 100% | 18.3 |
+| Medium, 100% | 25.5 |
+| Low, 100% | 24.8 |
+| **High, 75%** | **27.0** |
+| High, 75%, `sg.FoliageQuality 2` | 26.0 |
+
+- **Where the time goes:** `stat unit` at High/75% read Frame 39 ms, Game 7.4 ms, Draw (render thread) 39 ms,
+  GPU 37 ms. Both the render thread and the GPU are near 40 ms, so Low is no faster than Medium.
+- **Warning in the log:** the engine kept logging `[VSM] Non-Nanite Marking Job Queue overflow`. The likely cause is
+  the ~100k non-Nanite tree instances.
+- **Heat run:** 24 minutes at High/75% while Austin moved around from his phone. Mean fps per minute ranged 17.5–26.7,
+  about 22 overall, with no steady slide over time. The view mattered more than heat.
+
+### What changes for plan 2
+
+- **Preset:** remote play launches at High and 75%, at about 22–27 fps. The spec's target of 30 isn't reachable on
+  this Mac until the performance pass (issue #25) cuts the render thread, mostly the trees. **Plan 2 ships at about
+  25 fps, and issue #25 is the path to 30.**
+- **Never pass `-AllowPixelStreamingCommands` outside localhost.** `PythonScriptPlugin` is enabled, so a browser
+  console command could run `py` on the Mac.
+- **The tailnet isn't only Austin's devices.** `tailscale serve` exposes the page to every device on the tailnet,
+  including a shared Windows machine and a tagged device. Plan 2 needs a gate even on the tailnet: either a Tailscale
+  ACL limiting port 10443 to Austin's devices, or the same Cloudflare Access sign-in.
