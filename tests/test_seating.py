@@ -357,6 +357,7 @@ def test_build_writes_the_seating_meshes_and_their_manifest(monkeypatch, tmp_pat
         assert b[key] == f"{name}.obj" and (out / b[key]).exists()
     assert b["rows"] == manifest["venue"]["rows"] == 70
     assert len(b["tread_levels_m"]) == 70 and b["clearance_m"] == pytest.approx(0.45)
+    assert b["rows_trimmed"] == 0  # nothing stands in this fake bowl's aisles
     assert np.all(np.diff(b["tread_levels_m"]) >= MIN_RISE_M - 1e-6)
     assert manifest["handrail"]["obj"] == "Handrail.obj" and (out / "Handrail.obj").exists()
     assert manifest["stairs"]["obj"] == "Stairs.obj" and manifest["stairs"]["parts"] == 3 * 2 * 70
@@ -382,3 +383,64 @@ def test_build_cuts_the_seating_out_of_the_scan_fade(monkeypatch, tmp_path):
     # No fade mask given: no cut, and an old one is not left behind.
     out, manifest = _cli_build(monkeypatch, tmp_path, with_fade=False)
     assert not (out / "scan_fade.png").exists() and "scan_cut" not in manifest
+
+
+# ---- rows end where the aisle has room ------------------------------------------
+
+def test_rows_stop_short_of_an_obstacle_at_their_end():
+    from shapely.geometry import Point, box
+
+    from redrocks.seating import AISLE_CLEAR_M, AISLE_HALF_WIDTH_M, trim_row_ends
+
+    rows, lines = rows_and_lines()
+    # A tower over the start end of rows 10-20 (the arcs start at -30 degrees).
+    start = lines[15][0]
+    tower = box(start[0] - 3.0, start[1] - 6.0, start[0] + 3.0, start[1] + 6.0)
+    trimmed = trim_row_ends(lines, tower)
+    for k, (old, new) in enumerate(zip(lines, trimmed)):
+        assert np.allclose(new[-1], old[-1])  # the far end is clear: untouched
+        if tower.distance(Point(*old[0])) > AISLE_CLEAR_M + AISLE_HALF_WIDTH_M + 0.1:
+            assert np.allclose(new[0], old[0], atol=1e-6)
+        elif tower.distance(Point(*old[0])) < AISLE_HALF_WIDTH_M:
+            # Shorter, and the aisle beside the new end clears the tower.
+            assert np.hypot(*(new[0] - old[0])) > 0.5
+            assert tower.distance(Point(*new[0])) >= AISLE_HALF_WIDTH_M - 0.3
+            # Still on the row's arc.
+            assert np.hypot(*new[0]) == pytest.approx(R0 + k * GAP, abs=0.01)
+
+
+def test_trimming_never_takes_more_than_part_of_a_row():
+    from shapely.geometry import box
+
+    from redrocks.seating import MAX_TRIM_FRACTION, trim_row_ends
+
+    rows, lines = rows_and_lines()
+    everything = box(-1000, -1000, 1000, 1000)
+    trimmed = trim_row_ends(lines, everything)
+    for old, new in zip(lines, trimmed):
+        lo = float(np.hypot(*np.diff(old, axis=0).T).sum())
+        ln = float(np.hypot(*np.diff(new, axis=0).T).sum())
+        assert ln >= lo * (1 - 2 * MAX_TRIM_FRACTION) - 0.3
+
+
+def test_no_obstacles_no_trim():
+    from redrocks.seating import trim_row_ends
+
+    rows, lines = rows_and_lines()
+    assert all(np.array_equal(a, b) for a, b in zip(lines, trim_row_ends(lines, None)))
+
+
+def test_obstacles_are_buildings_and_whatever_stands_tall_in_the_scan():
+    from shapely.geometry import Point, box
+
+    from redrocks.seating import seating_obstacles
+
+    xs = np.arange(0.0, 50.0) + 0.5
+    e, n = np.meshgrid(xs, xs)
+    ground = np.full(e.shape, 100.0)
+    top = ground + 0.3
+    top[(np.abs(e - 10) < 2) & (np.abs(n - 10) < 2)] = 104.0  # a rock fin
+    tower = box(30, 30, 35, 36)
+    obs = seating_obstacles(ScanHeights(top, 0.0, 0.0, 1.0), ScanHeights(ground, 0.0, 0.0, 1.0), [tower])
+    assert obs.contains(Point(10, 10)) and obs.contains(Point(32, 33))
+    assert not obs.contains(Point(20, 20))

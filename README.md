@@ -11,6 +11,14 @@ them into a UE 5.8 project and build the level.
 
 The local checkout lives at `~/dev/redrocks-ue`.
 
+## Progress
+
+![The view up the bowl from the stage, stage by stage: first walkable level, look pass, benches on the scan, explorable realm, terraced seating](docs/media/progress.gif)
+
+*The same view from the stage, one frame per stage of the project. Each stage
+adds a frame to `docs/media/progress/stages.json`; `tools/make_progress_gif.py`
+rebuilds the GIF.*
+
 ## Status
 
 Working: DEM fetch, heightmap and terrain-mesh export, OSM ingest,
@@ -114,15 +122,25 @@ builds exactly that from the venue rows, in the terrain's frame:
 | `Bench_Brackets.obj` | a steel strap every 2.4 m (at the middle row) under the boards, at the **same bearings about the stage in every row**, so they line up into the radial lines the top-row photo shows converging on the stage |
 | `Handrail.obj` (from `stage.py`) | posts and a top rail on the walkway parapet behind the last row |
 
+**Rows end at their aisles.** The OSM theatre outline runs into the rock walls
+and the two stone stage towers, so `trim_row_ends` pulls each row's ends in until
+the aisle beside them (2.6 m out, 2 m wide) is clear of buildings and of anything
+the scan shows standing over 1 m tall (`seating_obstacles`, from `scan_top.npz`
+and `scan_ground.npz`), never more than 30 % of a row from each end. On the real
+data 64 rows give up 479 m between them.
+
 **Tread levels.** The scan's surface is too smooth to show the rows (its radial
 profile has no row-spaced signal above 1 cm), so the levels come from the bowl's
 profile: the median scan ground across each row's band, smoothed by a quadratic
 in the row number, with rows whose band holds something else (rows
 68, 69, 70: the top plateau) left out of the fit. The rises run
 0.36 m at the bottom to 0.54 m at the top, 31.0 m in all
-against the official 100 ft (30.5 m). The explorer's step height is 58 cm, so you
-walk straight up the rows (people do, in the side photo); the planks and
-brackets have no collision.
+against the official 100 ft (30.5 m). You climb the bowl the way people do: up
+the aisle stairs at the row ends, two steps a row (`unreal/playtest_explore.py`'s
+`seating` scenario follows them step by step from the stage to the top row,
+using `stage.aisles` in the manifest). The explorer's step height is 58 cm, so
+walking straight up the rows works too; the planks and brackets have no
+collision.
 
 **Clearance and the scan cut.** The scan chunks keep complex collision, and the
 scan's surface in the bowl is a smooth ramp a few tenths over its fitted ground.
@@ -324,22 +342,9 @@ scan and the scan's ragged edge floated as shelves. Two halves fix it (#17):
 `--scan` the USD, or a points cache (`.npz`, key `P`) to skip `usd-core`. Re-run it whenever the `FIT_*` constants in `import_scan.py`
 change, then `redrocks build` and `rebuild_level.py`.
 
-| Before | After |
-|---|---|
-| ![](docs/media/scan-blend/before_low_bowl.jpg) | ![](docs/media/scan-blend/after_low_bowl.jpg) |
-| ![](docs/media/scan-blend/before_edge_w.jpg) | ![](docs/media/scan-blend/after_edge_w.jpg) |
-| ![](docs/media/scan-blend/before_edge_ne.jpg) | ![](docs/media/scan-blend/after_edge_ne.jpg) |
-| ![](docs/media/scan-blend/before_obl_n.jpg) | ![](docs/media/scan-blend/after_obl_n.jpg) |
-
-Benches on the scan (the strip of green terrain north of and above the bowl is
-gone, the rows sit on the scan's bowl, the top walkway on its plateau):
-
-| Before | After |
-|---|---|
-| ![](docs/media/benches-on-scan/before_obl_n.jpg) | ![](docs/media/benches-on-scan/after_obl_n.jpg) |
-| ![](docs/media/benches-on-scan/before_mid_across.jpg) | ![](docs/media/benches-on-scan/after_mid_across.jpg) |
-| ![](docs/media/benches-on-scan/before_obl_top.jpg) | ![](docs/media/benches-on-scan/after_obl_top.jpg) |
-| ![](docs/media/benches-on-scan/before_spawn.jpg) | ![](docs/media/benches-on-scan/after_spawn.jpg) |
+How it changed is in the Progress GIF at the top (the scan blend's own
+before/after shots are in `docs/media/scan-blend/` and
+`docs/media/benches-on-scan/`).
 
 ## Vegetation
 
@@ -374,11 +379,7 @@ open rocky slopes, oak and mahogany lower down and on gentler ground. Nothing
 grows on cliffs (steeper than 33 degrees for shrubs, 37 for pines, 40 for junipers), in the scanned bowl, or on
 roads, paths, parking, benches and the stage (the masks the old scrub used).
 
-| Before (sphere-clump scrub) | After |
-|---|---|
-| ![](docs/media/vegetation/before_hillside.jpg) | ![](docs/media/vegetation/after_hillside.jpg) |
-| ![](docs/media/vegetation/before_aerial.jpg) | ![](docs/media/vegetation/after_aerial.jpg) |
-| ![](docs/media/vegetation/before_bowl_top.jpg) | ![](docs/media/vegetation/after_bowl_top.jpg) |
+![The hillsides from the air: junipers, ponderosa and scrub](docs/media/vegetation/after_aerial.jpg)
 
 Regenerate the shots with `unreal/shoot_vegetation.py` (needs the editor GUI;
 it also runs `ProfileGPU` at each view and logs the frame rate).
@@ -399,7 +400,7 @@ project), and everything below is placed from the map by `redrocks build`
 | **Sled when it snows** | Press N and it snows: flakes fall, the ground, benches, roads and trees whiten (every material reads `MPC_Weather`'s `Snow`), the sun dims and the fog closes in. Sleds on the sled hill (a 318 m run, 89 m drop, cleared of trees) only run well on snow. Carts drift on it. |
 | **Tube Bear Creek** | Inner tubes wait where Bear Creek enters the world in its canyon. E grabs one; the current carries you 4.5 km and 175 m down through Morrison, lazy on the flats and quick through the riffles. W paddles, A/D steer, and the tube turns slowly as it goes. The creek is `Water.obj`, a ribbon along OSM's Bear Creek whose level never runs uphill. |
 | **Night and a concert** | Press T: the sun sets, a moon rises, exposure opens up, and the stage rig plays: eight moving heads sweeping the rows and six beams fanning into the haze, changing colour every bar at 124 BPM. T again for morning. |
-| **Go places** | Number keys teleport: 1 stage, 2 top of the bowl, 3 the climb, 4 Creation Rock summit, 5 shopping carts, 6 sled hill, 7 the high ridge (2403 m, the longest wingsuit flight), 8 Bear Creek tubing, 9 Morrison. H shows the controls, V swaps to a third-person camera, R respawns. |
+| **Go places** | Number keys teleport (1 lands on the stage deck, not its roof; 2 on the top walkway): 1 stage, 2 top of the bowl, 3 the climb, 4 Creation Rock summit, 5 shopping carts, 6 sled hill, 7 the high ridge (2403 m, the longest wingsuit flight), 8 Bear Creek tubing, 9 Morrison. H shows the controls, V swaps to a third-person camera, R respawns. |
 
 | Climb Creation Rock | Wingsuit off the summit |
 |---|---|
@@ -472,7 +473,7 @@ once after pulling (the editor also offers to when it opens):
 
 Open the project, make sure `Lvl_RedRocks` is the open level, and press **Play** (green ▶).
 You spawn on the stage deck facing up the bowl, with the credits beside you.
-WASD to walk, mouse to look, Space to jump. Walk straight up the rows: every riser is under your step height.
+WASD to walk, mouse to look, Space to jump. Climb the aisle stairs at either end of the rows (or straight up the rows: every riser is under your step height).
 Press **C** to open or close the credits screen (a "C Credits" hint sits in the bottom-left corner).
 
 ![The credits screen, opened with C during play](docs/media/redrocks_credits_open.png)

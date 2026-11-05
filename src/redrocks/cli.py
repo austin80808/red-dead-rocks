@@ -18,7 +18,9 @@ from .osm import fetch_osm
 from .spawn import player_spawn
 from .stage import DIMENSIONS, export_stage_obj
 from .park import TerrainSurface as ParkSurface, export_park
-from .seating import SCAN_CLEARANCE_M, export_seating, seating_fade, seating_layout
+from .seating import (
+    SCAN_CLEARANCE_M, export_seating, seating_fade, seating_layout, seating_obstacles, trim_row_ends,
+)
 from .scan_blend import (
     FADE_M, FALLOFF_M, MARGIN_M, ScanGround, ScanHeights, blend_summary, conform_dem,
 )
@@ -128,6 +130,11 @@ def build(args: argparse.Namespace) -> int:
         print("\nbuilding the terraced seating ...")
         # On the scan, treads clear its surface (its chunks keep collision).
         on_scan = ground_info != "terrain mesh"
+        # Rows end at their aisles, clear of the stage towers and the rock walls.
+        lines, trim_info = _trim_rows(args, osm, venue_way, projection, lines, seat_ground if on_scan else None)
+        if trim_info["rows"]:
+            print(f"  {trim_info['rows']} rows pulled in at their ends ({trim_info['metres']:.0f} m in all) "
+                  f"so their aisles clear {trim_info['buildings']} buildings and the scan's rock")
         layout = seating_layout(
             venue.rows, lines, ground=seat_ground, floor=walkable,
             clearance_m=SCAN_CLEARANCE_M if on_scan else 0.0,
@@ -248,6 +255,8 @@ def build(args: argparse.Namespace) -> int:
             "rows_ignored": layout.info["rows_ignored"],
             "rise_m": {k: layout.info[k] for k in ("rise_min_m", "rise_max_m", "rise_mean_m", "total_rise_m")},
             "tread_levels_m": [round(v, 3) for v in layout.levels],
+            "rows_trimmed": trim_info["rows"],
+            "trimmed_m": round(trim_info["metres"], 1),
         }
     if scan_cut is not None:
         manifest["scan_cut"] = scan_cut
@@ -280,6 +289,9 @@ def build(args: argparse.Namespace) -> int:
             "base_elevation_m": round(stage.base_elevation_m, 3),
             "deck_top_elevation_m": round(stage.deck_top_elevation_m, 3),
             "walkway_elevation_m": round(stage.walkway_elevation_m, 3),
+            "walkway_east_m": round(stage.walkway_centre[0], 3),
+            "walkway_north_m": round(stage.walkway_centre[1], 3),
+            "aisles": {side: [list(p) for p in steps] for side, steps in stage.aisles.items()},
             "front_edge_east_m": round(stage.front_edge_east, 3),
             "front_edge_north_m": round(stage.front_edge_north, 3),
             "axis_east_north": [round(stage.axis[0], 6), round(stage.axis[1], 6)],
@@ -322,6 +334,34 @@ def build(args: argparse.Namespace) -> int:
     (out_dir / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n")
     print(f"\nwrote {out_dir}/manifest.json")
     return 0
+
+
+def _trim_rows(args, osm, venue_way, projection, lines, seat_ground):
+    """(row lines with their ends pulled in clear of the aisles' obstacles, summary)."""
+    from shapely.geometry import LineString, Polygon
+
+    bowl = Polygon([projection.to_local(*osm.nodes[n])[:2] for n in venue_way.node_ids])
+    near = bowl.buffer(15.0)
+    buildings = []
+    for way in osm.ways:
+        # Roofs in the bowl (the sound booth, the stage roof) are not in the aisles' way.
+        if "building" not in way.tags or way.tags.get("building") == "roof":
+            continue
+        try:
+            poly = Polygon([projection.to_local(*osm.nodes[n])[:2] for n in way.node_ids])
+        except (KeyError, ValueError):
+            continue
+        if poly.is_valid and poly.intersects(near):
+            buildings.append(poly)
+    top = ground = None
+    top_path = Path(getattr(args, "scan_top", "") or "")
+    if seat_ground is not None and top_path.name and top_path.is_file():
+        top = ScanHeights.load(top_path)
+        ground = getattr(seat_ground, "ground", None)
+    obstacles = seating_obstacles(top, ground, buildings, within=near)
+    trimmed = trim_row_ends(lines, obstacles)
+    cut = [LineString(a).length - LineString(b).length for a, b in zip(lines, trimmed)]
+    return trimmed, {"rows": sum(1 for c in cut if c > 1e-6), "metres": float(sum(cut)), "buildings": len(buildings)}
 
 
 def _sound_booth(osm, venue_way, projection):

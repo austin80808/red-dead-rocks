@@ -565,3 +565,46 @@ def test_without_a_footprint_the_booth_stays_a_blockout_and_has_no_roof(tmp_path
     mesh = export_stage_obj(rows, lines, tmp_path / "Stage.obj", BASE)
     assert "foh_platform" in mesh.parts and mesh.booth_path is None
     assert not (tmp_path / "Booth.obj").exists()
+
+
+def test_aisles_list_every_stair_step_up_both_sides(tmp_path):
+    """The play-test (and anyone scripting a walk) follows these up the row-end stairs."""
+    mesh, verts, faces, rows, levels = terraced(tmp_path)
+    for side in ("start", "end"):
+        steps = mesh.aisles[side]
+        assert len(steps) == 2 * len(rows)
+        z = [p[2] for p in steps]
+        assert z == sorted(z)  # each step a little higher than the one before
+        assert z[1] == pytest.approx(levels[0], abs=1e-3) and z[-1] == pytest.approx(levels[-1], abs=1e-3)
+        # Beside the rows' ends: past the 40 m half-width, on this side.
+        xs = [p[0] for p in steps]
+        assert all(abs(x) > 40.0 for x in xs) and len({np.sign(x) for x in xs}) == 1
+
+
+def test_aisle_path_turns_a_corner_where_the_rows_widen(tmp_path):
+    """Rows that widen put the next stair further out; heading straight there would
+    cut across this row's band through its stair's cheek wall, so the path first
+    steps up onto the next row's tread, then walks out along it to that stair."""
+    rows, _ = make_rows(6)
+    lines = [np.array([[-10.0 - 2.0 * i, 100.0 + i], [10.0 + 2.0 * i, 100.0 + i]]) for i in range(6)]
+    levels = [1800.5 + 0.45 * i for i in range(6)]
+    mesh = export_stage_obj(rows, lines, tmp_path / "Stage.obj", BASE, levels=levels)
+    for side, path in mesh.aisles.items():
+        assert [p[2] for p in path] == sorted(p[2] for p in path)
+        # A corner on each of rows 2-6's treads (inside the row, not on its stair)
+        # stands in for that row's first stair step, which the path goes past.
+        on_tread = [p for p in path if abs(p[0]) < 10.0 + 2.0 * np.floor(p[1] - 100.0)]
+        assert len(on_tread) == 5 and len(path) == 2 * 6
+        for a, b in zip(path, path[1:]):
+            if abs(b[0]) > abs(a[0]) + 0.3:  # an outward move stays within one row's band
+                assert np.floor(a[1] - 100.0) == np.floor(b[1] - 100.0)
+
+
+def test_aisle_path_keeps_to_the_inner_half_of_each_stair(tmp_path):
+    """Away from the curb on the aisle's outer side, so a walker that runs wide on a turn stays on the stairs."""
+    mesh, verts, faces, rows, levels = terraced(tmp_path)
+    stair_outer = 40.0 + 0.12 + dim("stair_width")  # make_rows' rows end at +-40 m
+    for side, path in mesh.aisles.items():
+        for e, n, z in path:
+            assert 40.0 + 0.12 < abs(e) < 40.0 + 0.12 + dim("stair_width") / 2 + 1e-6
+            assert stair_outer - abs(e) >= stage.AISLE_INSET_M + dim("stair_width") / 2 - 1e-6

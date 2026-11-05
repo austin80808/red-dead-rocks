@@ -4,6 +4,7 @@ import json
 import math
 
 import numpy as np
+import pytest
 
 from redrocks import explore
 from redrocks.osm import OsmData, Way
@@ -193,3 +194,19 @@ def test_creek_water_covers_the_ground_and_floor_cuts_it():
         assert zf <= _valley(x, y) + 1e-9  # the bed is cut to or below it
     for r in (cover, floor):
         assert all(b[2] <= a[2] + 1e-9 for a, b in zip(r.points, r.points[1:]))
+
+
+def test_top_of_the_bowl_spot_is_on_the_walkway():
+    """The stage blockout knows where the top walkway is; the spot goes there,
+    not a guessed 72 m up the axis (that landed around row 56)."""
+    osm = OsmData(nodes={}, ways=[])
+    stage = {"axis_east_north": [-0.9, -0.4], "front_edge_east_m": 20.0, "front_edge_north_m": 10.0,
+             "walkway_elevation_m": 1964.0, "walkway_east_m": -60.0, "walkway_north_m": -25.0}
+    plan = explore.plan(osm, _xy, _hill, 1600.0, None, stage, [], town=(0.0, 1.5))
+    top = next(s for s in plan["spots"] if s["key"] == "bowl_top")
+    assert (top["east_m"], top["north_m"]) == (-60.0, -25.0)
+    # Older manifests without the walkway centre keep the axis estimate.
+    del stage["walkway_east_m"], stage["walkway_north_m"]
+    plan = explore.plan(osm, _xy, _hill, 1600.0, None, stage, [], town=(0.0, 1.5))
+    top = next(s for s in plan["spots"] if s["key"] == "bowl_top")
+    assert top["east_m"] == pytest.approx(20.0 + 72.0 * -0.9 / np.hypot(0.9, 0.4), abs=0.01)  # rounded to cm

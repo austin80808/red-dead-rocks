@@ -49,6 +49,7 @@ from typing import Callable, Sequence
 
 import numpy as np
 import shapely
+import shapely.prepared
 from shapely.geometry import LineString, Polygon
 from shapely.ops import unary_union
 
@@ -105,6 +106,17 @@ BRACKET_BACK_M = 0.205
 BRACKET_DROP_M = 0.05
 BRACKET_PROUD_M = 0.003
 BRACKET_END_MARGIN_M = 0.4
+
+# Rows end at their aisles: a row stops where the aisle beside its end (stage.py's
+# stair gap, 1.8 m stairs and cheek wall, AISLE_CLEAR_M out from the end and
+# AISLE_HALF_WIDTH_M either side) would run into a building (the stage towers)
+# or into something the scan shows standing OBSTACLE_TALL_M over its ground (a
+# rock wall, a tree). Never more than MAX_TRIM_FRACTION of a row from each end.
+AISLE_CLEAR_M = 2.6
+AISLE_HALF_WIDTH_M = 1.0
+OBSTACLE_TALL_M = 1.0
+MAX_TRIM_FRACTION = 0.3
+TRIM_STEP_M = 0.25
 
 # Scan cut.
 CUT_TEXEL_M = 0.5
@@ -217,6 +229,63 @@ def _fronts(polylines: Sequence[np.ndarray]) -> list[np.ndarray]:
 def _median_ground(lines: Sequence[np.ndarray], ground: Ground) -> float:
     zs = [ground(float(x), float(y)) for line in lines for x, y in _densify(line, SAMPLE_STEP_M)]
     return float(np.median(zs))
+
+
+# ---- row ends and aisles -----------------------------------------------------------
+
+def seating_obstacles(top: ScanHeights | None, ground: ScanHeights | None, buildings=(), within=None):
+    """What an aisle cannot run through: buildings, and every 1 m cell where the
+    scan's top stands ``OBSTACLE_TALL_M`` over its ground (``within`` limits the
+    cells, e.g. to around the bowl). None when there is nothing."""
+    from shapely.geometry import box
+
+    shapes = [b for b in buildings if b is not None and not b.is_empty]
+    if top is not None and ground is not None and top.shape == ground.shape:
+        with np.errstate(invalid="ignore"):
+            tall = (top.heights - ground.heights) > OBSTACLE_TALL_M
+        for i, j in zip(*np.nonzero(tall)):
+            x, y = top.x0 + j * top.cell, top.y0 + i * top.cell
+            if within is None or within.contains(shapely.Point(x + top.cell / 2, y + top.cell / 2)):
+                shapes.append(box(x, y, x + top.cell, y + top.cell))
+    return unary_union(shapes) if shapes else None
+
+
+def _end_trim(line: LineString, from_start: bool, obstacles) -> float:
+    """How far to pull one end of a row in so its aisle is clear."""
+    length = line.length
+    for s in np.arange(0.0, MAX_TRIM_FRACTION * length, TRIM_STEP_M):
+        a = s if from_start else length - s
+        b = a + 0.1 if from_start else a - 0.1
+        p = np.array(line.interpolate(a).coords[0])
+        q = np.array(line.interpolate(b).coords[0])
+        out = (p - q) / max(float(np.hypot(*(p - q))), 1e-9)
+        aisle = LineString([p, p + out * AISLE_CLEAR_M]).buffer(AISLE_HALF_WIDTH_M)
+        if not aisle.intersects(obstacles):
+            return float(s)
+    return float(MAX_TRIM_FRACTION * length)
+
+
+def trim_row_ends(polylines: Sequence[np.ndarray], obstacles) -> list[np.ndarray]:
+    """Each row's line with its ends pulled in until the aisle beside them is clear."""
+    from shapely.ops import substring
+
+    if obstacles is None or obstacles.is_empty:
+        return [np.asarray(p, dtype=float) for p in polylines]
+    prepared = shapely.prepared.prep(obstacles)
+    out = []
+    for pts in polylines:
+        pts = np.asarray(pts, dtype=float)[:, :2]
+        line = LineString(pts)
+        if not prepared.intersects(line.buffer(AISLE_CLEAR_M + AISLE_HALF_WIDTH_M)):
+            out.append(pts)
+            continue
+        s0 = _end_trim(line, True, obstacles)
+        s1 = _end_trim(line, False, obstacles)
+        if s0 == 0.0 and s1 == 0.0:
+            out.append(pts)
+            continue
+        out.append(np.array(substring(line, s0, line.length - s1).coords)[:, :2])
+    return out
 
 
 # ---- tread levels ----------------------------------------------------------------

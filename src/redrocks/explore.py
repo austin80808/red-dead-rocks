@@ -308,9 +308,13 @@ def plan(osm: OsmData, to_xy, elevation, half_extent: float, spawn: dict | None,
         ax, ay = stage["axis_east_north"]
         n = math.hypot(ax, ay) or 1.0
         ax, ay = ax / n, ay / n
-        # The walkway is about 70 m up the bowl from the stage front, on its axis.
-        tx = stage["front_edge_east_m"] + 72.0 * ax
-        ty = stage["front_edge_north_m"] + 72.0 * ay
+        # On the top walkway, where the stage blockout put it; older manifests
+        # without it: an estimate 72 m up the axis (it lands around row 56).
+        if "walkway_east_m" in stage:
+            tx, ty = stage["walkway_east_m"], stage["walkway_north_m"]
+        else:
+            tx = stage["front_edge_east_m"] + 72.0 * ax
+            ty = stage["front_edge_north_m"] + 72.0 * ay
         spots.append(Spot("bowl_top", "Top of the bowl", "The whole amphitheatre below you.",
                           tx, ty, stage["walkway_elevation_m"], yaw_deg(-ax, -ay)))
 

@@ -177,12 +177,14 @@ def _start_scenario(pawn, world, name):
     elif name == "seating":
         pawn.rr_go(SPOT["stage"])
         R.steps = [("settle", R.wait(SETTLE_S)),
-                   ("from_stage", seat_view("seating_stage", 0.0, 6.0)),
+                   ("from_stage", seat_view("seating_stage", _aim_up, 6.0)),
+                   ("to_aisle", seat_to_aisle),
+                   ("settle_aisle", R.wait(3.0)),
                    ("walk_low", seat_walk(0.5)),
-                   ("mid_across", seat_view("seating_mid", 65.0, 6.0)),
+                   ("mid_across", seat_view("seating_mid", _aim_across, 4.0)),
                    ("walk_high", seat_walk(1.0)),
                    ("walk_end", seat_walk_end),
-                   ("from_top", seat_view("seating_top", 180.0, -16.0))]
+                   ("from_top", seat_view("seating_top", _aim_down, -16.0))]
     elif name == "morrison":
         pawn.rr_go(SPOT["morrison"])
         R.steps = [("settle", R.wait(SETTLE_S + 3.0)), ("look", morrison_shot)]
@@ -221,26 +223,33 @@ def climb_end(now, pawn, world):
 
 
 # ---- seating -----------------------------------------------------------------
-# Walk from the stage straight up the terraced rows to the top (no jumping:
-# every riser is under the explorer's step height) and photograph the three
-# views the Commons photos were taken from: up from the stage, across the rows
-# from mid-bowl, down from the top row.
+# Walk from the stage up one of the row-end aisles, stair step by stair step
+# (manifest stage.aisles, from redrocks.stage), with no jumping, and photograph
+# the three views the Commons photos were taken from: up from the stage, across
+# the rows from mid-aisle, down from the top row.
 
-def _seat_target():
-    """The top of the bowl, moved 12 m sideways away from the sound booth so the
-    walk goes up beside it (the booth sits on the centre line, around row 13)."""
-    top = next(sp for sp in explore["spots"] if sp["key"] == "bowl_top")
-    stage = next(sp for sp in explore["spots"] if sp["key"] == "stage")
-    x, y = top["east_m"], top["north_m"]
-    booth = manifest.get("booth")
-    if booth:
-        ux, uy = x - stage["east_m"], y - stage["north_m"]
-        n = math.hypot(ux, uy)
-        side = (-uy / n, ux / n)
-        bx, by = booth["east_m"] - stage["east_m"], booth["north_m"] - stage["north_m"]
-        away = -1.0 if bx * side[0] + by * side[1] > 0 else 1.0
-        x, y = x + away * 12.0 * side[0], y + away * 12.0 * side[1]
-    return x * 100.0, y * 100.0
+def _aisle():
+    """The more continuous of the two aisles: the smallest sideways jump between steps."""
+    aisles = (manifest.get("stage") or {}).get("aisles") or {}
+    best, best_jump = [], None
+    for steps in aisles.values():
+        if len(steps) < 2:
+            continue
+        jump = max(math.hypot(b[0] - a[0], b[1] - a[1]) for a, b in zip(steps, steps[1:]))
+        if best_jump is None or jump < best_jump:
+            best, best_jump = steps, jump
+    return [(e * 100.0, n * 100.0) for e, n, _ in best]
+
+
+def _other_aisle_at(fraction):
+    """A point on the far aisle, ``fraction`` of the way up: what 'across the rows' looks at."""
+    aisles = list(((manifest.get("stage") or {}).get("aisles") or {}).values())
+    mine = _aisle()
+    for steps in aisles:
+        pts = [(e * 100.0, n * 100.0) for e, n, _ in steps]
+        if pts and pts != mine:
+            return pts[min(len(pts) - 1, int(fraction * len(pts)))]
+    return None
 
 
 def _seat_levels_cm():
@@ -255,14 +264,13 @@ def _yaw_to(pawn, x, y):
     return math.degrees(math.atan2(y - loc.y, x - loc.x))
 
 
-def seat_view(name, dyaw, pitch):
-    """Face up the bowl (plus dyaw), wait for streaming, shoot, then wait a moment."""
+def seat_view(name, aim, pitch):
+    """Stop, aim (a function of the pawn giving a yaw), wait for streaming, shoot."""
     def fn(now, pawn, world):
         if "view_at" not in R.s:
             pawn.script_move(unreal.Vector2D(0.0, 0.0), False)
             R.s["view_at"] = now
-            tx, ty = _seat_target()
-            pawn.script_look(_yaw_to(pawn, tx, ty) + dyaw, pitch)
+            pawn.script_look(aim(pawn), pitch)
             return False
         if now - R.s["view_at"] > 5.0 and not R.s.get("view_shot"):
             _shot(world, name, ui=False)
@@ -276,35 +284,98 @@ def seat_view(name, dyaw, pitch):
     return fn
 
 
+def _aim_up(pawn):
+    path = _aisle()
+    i = min(R.s.get("wp", 0), len(path) - 1)
+    return _yaw_to(pawn, *path[min(i + 4, len(path) - 1)]) if path else pawn.get_actor_rotation().yaw
+
+
+def _aim_across(pawn):
+    far = _other_aisle_at(0.5)
+    return _yaw_to(pawn, *far) if far else pawn.get_actor_rotation().yaw + 90.0
+
+
+def _aim_down(pawn):
+    stage = next(sp for sp in explore["spots"] if sp["key"] == "stage")
+    return _yaw_to(pawn, stage["east_m"] * 100.0, stage["north_m"] * 100.0)
+
+
+def seat_to_aisle(now, pawn, world):
+    """Stand at the foot of the aisle, 1.2 m before its first step (the stage
+    front is still a blockout, too tight to walk round from the deck)."""
+    path = _aisle()
+    steps = ((manifest.get("stage") or {}).get("aisles") or {})
+    first = next((v[0] for v in steps.values() if [(e * 100.0, n * 100.0) for e, n, _ in v] == path), None)
+    if not path or first is None:
+        return True
+    (x0, y0), (x1, y1) = path[0], path[1]
+    d = math.hypot(x1 - x0, y1 - y0) or 1.0
+    base = (manifest.get("benches") or {}).get("base_elevation_m", 0.0)
+    z = (first[2] - base) * 100.0 + 130.0
+    pawn.set_actor_location(unreal.Vector(x0 - (x1 - x0) / d * 120.0, y0 - (y1 - y0) / d * 120.0, z), False, True)
+    note("at the foot of the aisle (%.0f, %.0f)" % (x0 / 100.0, y0 / 100.0))
+    return True
+
+
 def seat_walk(fraction):
-    """Walk toward the top-of-bowl spot until ``fraction`` of the rows' rise is climbed."""
+    """Follow the aisle's stair steps until ``fraction`` of the rows' rise is climbed."""
     def fn(now, pawn, world):
         loc = pawn.get_actor_location()
         lo, hi = _seat_levels_cm()
+        path = _aisle()
+        if not path:
+            note("no aisles in the manifest")
+            R.s["stuck"] = True
+            return True
         if "z0" not in R.s:
             R.s["z0"] = loc.z
             R.s["t_walk"] = now
+            R.s["wp"] = 0
         if R.s.get("walk_frac") != fraction:  # a new leg: the view before it stood still
             R.s["walk_frac"] = fraction
-            R.s["stall"] = (now, loc.z)
-        tx, ty = _seat_target()
-        pawn.script_look(_yaw_to(pawn, tx, ty), 0.0)
-        pawn.script_move(unreal.Vector2D(0.0, 1.0), False)
+            R.s["stall"] = (now, loc.z, R.s["wp"])
+        # Next point once this one is reached, or passed (we are beyond it along
+        # the leg to the next): never a shortcut past a corner.
+        i = R.s["wp"]
+        while i + 1 < len(path):
+            ax, ay = path[i]
+            bx, by = path[i + 1]
+            reached = math.hypot(ax - loc.x, ay - loc.y) < 60.0
+            passed = (loc.x - ax) * (bx - ax) + (loc.y - ay) * (by - ay) > 0.0 and \
+                math.hypot(ax - loc.x, ay - loc.y) < 150.0
+            if not (reached or passed):
+                break
+            i += 1
+        R.s["wp"] = i
+        yaw = _yaw_to(pawn, *path[i])
+        pawn.script_look(yaw, 0.0)
+        # Slow down into a sharp turn, as anyone on stairs would: full pace on
+        # straights, about half within 1.5 m of a waypoint where the path bends.
+        speed = 1.0
+        if i + 1 < len(path) and math.hypot(path[i][0] - loc.x, path[i][1] - loc.y) < 150.0:
+            ax, ay = path[i][0] - loc.x, path[i][1] - loc.y
+            bx, by = path[i + 1][0] - path[i][0], path[i + 1][1] - path[i][1]
+            na, nb = math.hypot(ax, ay) or 1.0, math.hypot(bx, by) or 1.0
+            if (ax * bx + ay * by) / (na * nb) < 0.7:
+                speed = 0.5
+        pawn.script_move(unreal.Vector2D(0.0, speed), False)
         R.s["modes"].add(_mode(pawn))
         R.s["maxz"] = max(R.s["maxz"], loc.z)
         _film(world, now, "seating")
-        if loc.z > R.s["stall"][1] + 20.0:
-            R.s["stall"] = (now, loc.z)
+        if loc.z > R.s["stall"][1] + 20.0 or i > R.s["stall"][2]:
+            R.s["stall"] = (now, loc.z, i)
         elif now - R.s["stall"][0] > 8.0:
-            note("stuck at z=%.0f (%.0f cm above the start) for 8 s" % (loc.z, loc.z - R.s["z0"]))
+            note("stuck at (%.2f, %.2f) z=%.0f by step %d of %d (heading for %.2f, %.2f) for 8 s"
+                 % (loc.x / 100.0, loc.y / 100.0, loc.z, i, len(path), path[i][0] / 100.0, path[i][1] / 100.0))
             R.s["stuck"] = True
             return True
         feet = loc.z - pawn.capsule_component.get_scaled_capsule_half_height()
         goal = lo + fraction * (hi - lo) - 50.0
         if int(now - R.s["t_walk"]) % 10 == 0 and int(now - R.s["t_walk"]) not in R.s.setdefault("noted", set()):
             R.s["noted"].add(int(now - R.s["t_walk"]))
-            note("t=%3ds feet z=%.0f (rows %.0f..%.0f) mode %s" % (now - R.s["t_walk"], feet, lo, hi, _mode(pawn)))
-        return feet >= goal or math.hypot(tx - loc.x, ty - loc.y) < 300.0 or now - R.s["t_walk"] > 150.0
+            note("t=%3ds step %d/%d at (%.1f, %.1f) feet z=%.0f (rows %.0f..%.0f) mode %s"
+                 % (now - R.s["t_walk"], i, len(path), loc.x / 100.0, loc.y / 100.0, feet, lo, hi, _mode(pawn)))
+        return feet >= goal or now - R.s["t_walk"] > 180.0
     return fn
 
 
@@ -313,10 +384,10 @@ def seat_walk_end(now, pawn, world):
     lo, hi = _seat_levels_cm()
     gain = (R.s["maxz"] - R.s["z0"]) / 100.0
     need = (hi - lo) / 100.0 - 1.0
-    check("walked up the rows without jumping", not R.s.get("stuck") and gain >= need
+    check("walked up the aisle stairs without jumping", not R.s.get("stuck") and gain >= need
           and R.s["modes"] <= {"WALK"},
-          "gained %.1f m of the rows' %.1f m in %.0f s, modes %s"
-          % (gain, (hi - lo) / 100.0, now - R.s["t_walk"], sorted(R.s["modes"])))
+          "gained %.1f m of the rows' %.1f m in %.0f s by step %d, modes %s"
+          % (gain, (hi - lo) / 100.0, now - R.s["t_walk"], R.s.get("wp", 0), sorted(R.s["modes"])))
     return True
 
 

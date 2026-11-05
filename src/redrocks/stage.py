@@ -53,6 +53,7 @@ Sources:
 from __future__ import annotations
 
 import math
+import re
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Callable, Sequence
@@ -186,8 +187,10 @@ DIMENSIONS: tuple[Dimension, ...] = (
               "Estimate: front-to-back tread depth of each half-row step on the bowl side stairs."),
     Dimension("stair_wall_thickness", 0.35, "estimate",
               "Estimate: thickness of the stepped stone cheek walls flanking the outer edges of the bowl stairs."),
-    Dimension("stair_wall_height", 0.40, "estimate",
-              "Estimate: curb height of the outer cheek wall above each row's upper stair tread."),
+    Dimension("stair_wall_height", 0.15, "estimate",
+              "Estimate: curb height of the outer cheek wall above each row's upper stair tread. "
+              "Low enough to step over: low in the bowl the aisle drifts outward row by row, and "
+              "0.40 m walls made a sawtooth that blocked it."),
     Dimension("walkway_width", 4.0, "estimate",
               "Rough estimate, not measured: top-of-bowl promenade. The scan shows a flat plateau behind the top "
               "row with no edge that fixes a walkway width."),
@@ -218,6 +221,8 @@ class Part:
     plan: np.ndarray
     z0: float
     z1: float
+    # Row-end stair steps: (uphill unit, outward unit, the row's band depth), for the aisle path.
+    frame: tuple | None = None
 
 
 @dataclass
@@ -235,6 +240,10 @@ class StageMesh:
     handrail_path: Path | None = None
     booth_path: Path | None = None
     booth_deck_elevation_m: float | None = None
+    walkway_centre: tuple[float, float] | None = None
+    # Every row-end stair step's centre (east, north, top elevation in absolute
+    # metres) up each side of the bowl, bottom first: the aisles people walk up.
+    aisles: dict[str, list[tuple[float, float, float]]] = field(default_factory=dict)
     stairs_path: Path | None = None
     stairs_parts: dict[str, tuple[int, int]] = field(default_factory=dict)
     stairs_triangles: int = 0
@@ -550,7 +559,7 @@ def stage_parts(
                 parts.append(Part(
                     f"stair_{side_tag}_r{row.index}_s{step_k}",
                     _rect(p_end, n_up, u_out, stair_gap, stair_gap + stair_w, y0, y1),
-                    z_base, z_step_top))
+                    z_base, z_step_top, frame=(tuple(n_up), tuple(u_out), band)))
             # Stepped stone cheek/planter wall flanking the outer edge of this row's stair treads.
             parts.append(Part(
                 f"stair_wall_{side_tag}_r{row.index}",
@@ -753,6 +762,8 @@ def export_stage_obj(
         handrail_triangles=handrail_tris,
         booth_path=booth_path,
         booth_deck_elevation_m=booth_deck,
+        walkway_centre=tuple(float(v) for v in next(p.plan for p in parts if p.name == "walkway").mean(axis=0)),
+        aisles=_aisles(stairs, base_elevation_m),
         stairs_path=stairs_path if stairs else None,
         stairs_parts=stairs_ranges,
         stairs_triangles=stairs_tris,
@@ -821,6 +832,58 @@ def booth_roof_parts(parts: Sequence[Part], booth: np.ndarray, a: np.ndarray) ->
     o = BOOTH_ROOF_OVERHANG_M
     out.append(Part("roof", _rect(centre, up, along, -hw - o, hw + o, -depth / 2 - o, depth / 2 + o),
                     z1, z1 + BOOTH_ROOF_THICK_M))
+    return out
+
+
+# An aisle path turns a corner when the next row's stair is this much further out.
+AISLE_CORNER_M = 0.3
+# The corner is this far up onto the next row's tread.
+AISLE_CORNER_IN_M = 0.6
+# The path keeps this far in from each stair's centre line, toward the rows, so
+# a walker running wide on a turn stays on the stairs, not over the outer curb.
+AISLE_INSET_M = 0.4
+
+
+def _aisles(stairs: Sequence[Part], base_elevation_m: float) -> dict[str, list[tuple[float, float, float]]]:
+    """A walkable path up each side of the bowl: every row's two stair steps,
+    bottom row first (east, north, top elevation in absolute metres).
+
+    Where the next row reaches further out (the rows widen low in the bowl),
+    heading straight for its stair would cut across this row's band and its
+    stair's cheek wall. There the path turns a corner instead: up onto the next
+    row's tread beside this stair, then out along that tread to the next stair's
+    upper step (going past its lower one, which sits half a step down).
+    """
+    steps: dict[str, dict[int, dict[int, Part]]] = {}
+    for part in stairs:
+        m = re.fullmatch(r"stair_(start|end)_r(\d+)_s(\d+)", part.name)
+        if m and part.frame is not None:
+            steps.setdefault(m.group(1), {}).setdefault(int(m.group(2)), {})[int(m.group(3))] = part
+
+    def centre(part):
+        u_out = np.asarray(part.frame[1], dtype=float)
+        return np.asarray(part.plan, dtype=float).mean(axis=0) - u_out * AISLE_INSET_M
+
+    out: dict[str, list[tuple[float, float, float]]] = {}
+    for side, rows in steps.items():
+        path: list[tuple[float, float, float]] = []
+        order = sorted(rows)
+        for k, idx in enumerate(order):
+            row = rows[idx]
+            for step_k in sorted(row):
+                if step_k == 1 and path and path[-1][3] == "corner":
+                    continue  # the corner leads straight to this row's upper step
+                c = centre(row[step_k])
+                path.append((float(c[0]), float(c[1]), row[step_k].z1 + base_elevation_m, "step"))
+            if k + 1 < len(order):
+                nxt = rows[order[k + 1]]
+                top = row[max(row)]
+                n_up, u_out, band = (np.asarray(v, dtype=float) if i < 2 else v for i, v in enumerate(top.frame))
+                here, there = centre(top), centre(nxt[min(nxt)])
+                if float((there - here) @ u_out) > AISLE_CORNER_M:
+                    c = here + n_up * (0.25 * band + AISLE_CORNER_IN_M)
+                    path.append((float(c[0]), float(c[1]), nxt[max(nxt)].z1 + base_elevation_m, "corner"))
+        out[side] = [(round(e, 3), round(n, 3), round(z, 3)) for e, n, z, _ in path]
     return out
 
 
