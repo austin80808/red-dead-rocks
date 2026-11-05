@@ -1,0 +1,43 @@
+{
+ "about": "Median frame times (ms) over 300 frames after a 100-frame warm-up, standalone game (-game, 1280x720, scalability High, 75 % screen percentage: the remote-play preset) on the M4 MacBook Air, CSV profiler. Spot 2 = top of the bowl, spot 7 = the high ridge (RRGo). Budget: at most 15 % slower than before.",
+ "spots": {
+  "2": {
+   "before": {
+    "frames": 300,
+    "FrameTime": 47.3,
+    "GameThreadTime": 1.8,
+    "RenderThreadTime": 47.3,
+    "GPUTime": 44.9,
+    "fps": 21.1
+   },
+   "after": {
+    "frames": 300,
+    "FrameTime": 50.5,
+    "GameThreadTime": 2.1,
+    "RenderThreadTime": 50.6,
+    "GPUTime": 45.8,
+    "fps": 19.8
+   },
+   "fps_change_percent": -6.2
+  },
+  "7": {
+   "before": {
+    "frames": 300,
+    "FrameTime": 44.7,
+    "GameThreadTime": 2.1,
+    "RenderThreadTime": 44.9,
+    "GPUTime": 43.1,
+    "fps": 22.4
+   },
+   "after": {
+    "frames": 300,
+    "FrameTime": 43.8,
+    "GameThreadTime": 1.6,
+    "RenderThreadTime": 43.0,
+    "GPUTime": 41.6,
+    "fps": 22.8
+   },
+   "fps_change_percent": 1.8
+  }
+ }
+}

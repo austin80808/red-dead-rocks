@@ -286,45 +286,80 @@ gone, the rows sit on the scan's bowl, the top walkway on its plateau):
 
 ## Vegetation
 
-The hillsides carry about 100,000 procedural plants: Rocky Mountain and one-seed
-juniper, ponderosa pine, Gambel (scrub) oak and mountain mahogany. Nothing is
-downloaded: `redrocks.vegetation` grows every model from a seed and paints its
-leaf textures with Pillow, and `redrocks vegetation --out out` writes them to
+The hillsides carry about 245,000 procedural plants, modelled on summer photos
+of Red Rocks Park: Rocky Mountain and one-seed juniper, ponderosa pine, Gambel
+(scrub) oak and mountain mahogany. Nothing is downloaded: `redrocks.vegetation`
+grows every model from a seed, `redrocks.foliage_atlas` paints the leaf textures
+with Pillow at real size, and `redrocks vegetation --out out` writes them to
 `out/vegetation/` with `vegetation.json`, the list of instances.
 
-| Species | Model | Instances scale to | Looks like |
+| Species | Models | Instances | Looks like |
 |---|---|---|---|
-| Rocky Mountain juniper | `JuniperRM_0..2`, 5.0 m | 3-6 m | one gnarly trunk, dense irregular conical crown, blue-green |
-| One-seed juniper | `JuniperOS_0..2`, 3.6 m | 2-4.5 m | 2-4 stems from the base, broad rounded crown to the ground |
-| Ponderosa pine | `Ponderosa_0..3`, 18 m | 10-24 m | orange plated trunk clear for half its height, upturned branches, needle tufts |
-| Gambel oak | `Oak_0..2`, 1.6 m | 1-2 m | many thin stems, dense leafy dome, in clonal thickets |
-| Mountain mahogany | `Mahogany_0..2`, 1.9 m | 1.1-2 m | fewer stems, open grey-green, feathery seed plumes |
+| Rocky Mountain juniper | `JuniperRM_0..2`, 5.0 m | 3-6 m | a dense, almost solid oval-to-conical mass, dark grey-green, shaggy edge |
+| One-seed juniper | `JuniperOS_0..2`, 3.6 m | 2-4 m | several stems, a broad rounded crown down to the ground |
+| Ponderosa pine | `Ponderosa_0..4`, 18 m | 12-25 m | a straight trunk clear for about a third of its height; crooked limbs that dip and turn up; needles only in foxtail tufts at the branch and twig tips, sky between the tiers. 0 young and conical, 1-3 mature, 4 old and flat-topped |
+| Gambel oak | `Oak_0..2`, 2.6 m | 1.5-4 m | many stems, leafy almost to the ground |
+| Gambel oak patch | `OakPatch_0..2`, 2.6 m | 3-6 m across | a clonal thicket: many stems under one continuous canopy |
+| Mountain mahogany | `Mahogany_0..2`, 2.1 m | 1-3 m | twiggy and open, small grey-green leaves, feathery seed plumes |
+
+**Leaves are drawn at real size.** Each atlas tile is one leaf card of a known
+width (juniper 0.32 m, pine 0.48 m, oak 0.38 m, mahogany 0.28 m) and the
+painter works in metres: oak leaves 5-12 cm with rounded lobes, mahogany
+leaves 2-3.5 cm, ponderosa needles 10-18 cm, juniper sprays of 1-2 mm
+branchlets. Opaque crown cores carry each plant's mass and the masked cards
+clothe them, so the costly masked overdraw stays on the outer shell.
 
 Each model is three OBJs (cm, with UVs and normals on every face):
 **Trunk** (closed tapered tubes, watertight; the only part with collision, and
-only on trees), **Crown** (a lumpy core per foliage clump that gives the canopy
-mass at distance) and **Leaves** (crossed cards into a 2x2 atlas per species,
-their normals bent out from the crown so it shades as a volume).
-`unreal/setup_vegetation.py` imports them with Nanite (no hand-made LODs), builds
-`M_Veg_Bark` (world-space plates and fissures), `M_Veg_Leaves` (masked,
+only on trees), **Crown** (the opaque cores) and **Leaves** (cards into the 2x2
+atlas, their normals bent out from the crown so it shades as a volume).
+`unreal/setup_vegetation.py` imports them with Nanite, builds `M_Veg_Bark`
+(world-space plates and fissures that blend to one dark grey-brown from 6 to
+15 m away, as ponderosa trunks look in photos), `M_Veg_Leaves` (masked,
 two-sided, Two Sided Foliage) and `M_Veg_Crown`, and fills one instanced-mesh
-component per model part on a `Vegetation` actor.
+component per model part on a `Vegetation` actor. Run `setup_snow.py` after it
+(`rebuild_level.py` does), since it rebuilds the materials the snow is wired into.
 
 **Where they grow** (`redrocks.vegetation.place`, seeded, so every rebuild is
-the same): candidates every 6.5 m, kept in thickets by noise with open meadows
-between; ponderosa on the upper slopes and north-facing ground, junipers on the
-open rocky slopes, oak and mahogany lower down and on gentler ground. Nothing
-grows on cliffs (steeper than 33 degrees for shrubs, 37 for pines, 40 for junipers), in the scanned bowl, or on
-roads, paths, parking, benches and the stage (the masks the old scrub used).
+the same):
 
-| Before (sphere-clump scrub) | After |
-|---|---|
-| ![](docs/media/vegetation/before_hillside.jpg) | ![](docs/media/vegetation/after_hillside.jpg) |
-| ![](docs/media/vegetation/before_aerial.jpg) | ![](docs/media/vegetation/after_aerial.jpg) |
-| ![](docs/media/vegetation/before_bowl_top.jpg) | ![](docs/media/vegetation/after_bowl_top.jpg) |
+- **Scrub thickets** (`in_thicket`): oak patches, oak and mahogany on a
+  jittered 4.1 m grid cover the lower slopes and draws with about 60 %
+  canopy; the grassy openings between keep a few lone bushes.
+- **Junipers** stand singly or in twos and threes, more on rocky
+  south-facing ground. **Ponderosa** grows in groves of 3-8 on the upper
+  and north-facing slopes.
+- Nothing grows on cliffs (steeper than 33 degrees for shrubs, 37 for pines,
+  40 for junipers) or in the scanned bowl. Trees keep 8 m off roads, paths,
+  parking, benches, the stage and the sled run; scrub grows right up to the
+  edge of roads and paths (2 m cells from their triangles) without its
+  canopy ever reaching over them.
+- Shrub crowns are never culled, so the hillsides read as covered from the
+  air; shrub leaves and stems fade out from 320 to 400 m.
 
-Regenerate the shots with `unreal/shoot_vegetation.py` (needs the editor GUI;
-it also runs `ProfileGPU` at each view and logs the frame rate).
+**Side by side with Red Rocks Park** (before | after | photo; colour error
+ΔE of the sampled foliage and bark in [`delta_e.json`](docs/media/vegetation-real/delta_e.json)):
+
+![Trail through scrub oak toward a rock fin](docs/media/vegetation-real/trail.jpg)
+![A lone ponderosa](docs/media/vegetation-real/ponderosa.jpg)
+![Junipers in front of red rock](docs/media/vegetation-real/junipers.jpg)
+![The hillsides from above](docs/media/vegetation-real/hillsides.jpg)
+
+Photos from Wikimedia Commons:
+[Red Rocks Park in Denver](https://commons.wikimedia.org/wiki/File:Red_Rocks_Park_in_Denver.jpg) (Bigmacthealmanac, CC BY-SA 4.0),
+[Conifer (Red Rocks Park, west of Denver, Colorado, USA)](https://commons.wikimedia.org/wiki/File:Conifer_(Red_Rocks_Park,_west_of_Denver,_Colorado,_USA).jpg) (James St. John, CC BY 2.0),
+[Trail views in Red Rocks Park, Morrison, Colorado](https://commons.wikimedia.org/wiki/File:Trail_views_in_Red_Rocks_Park,_Morrison,_Colorado.jpg) (Lovemedead, CC BY-SA 4.0),
+[RedRocks.jpg](https://commons.wikimedia.org/wiki/File:RedRocks.jpg) (Hogs555, CC BY-SA 3.0).
+Because they contain those photos, the four composites in
+`docs/media/vegetation-real/` are CC BY-SA. The photos themselves are not
+committed: `tools/make_reference_compare.py` fetches them into `out/refs/`.
+
+Regenerate the comparisons: shoot `before_`/`after_` with
+`unreal/shoot_vegetation.py` (needs the editor GUI; the four photo-matched
+cameras are in `docs/media/vegetation-real/views.json`), then
+`python tools/make_reference_compare.py --shots out/shots --out docs/media/vegetation-real --cache out/refs`.
+
+![The hillsides from the air](docs/media/vegetation/after_aerial.jpg)
 
 ## Explore it
 
