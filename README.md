@@ -409,7 +409,7 @@ before/after shots are in `docs/media/scan-blend/` and
 
 ## Vegetation
 
-The hillsides carry about 245,000 procedural plants, modelled on summer photos
+The hillsides carry about 237,000 procedural plants, modelled on summer photos
 of Red Rocks Park: Rocky Mountain and one-seed juniper, ponderosa pine, Gambel
 (scrub) oak and mountain mahogany. Nothing is downloaded: `redrocks.vegetation`
 grows every model from a seed, `redrocks.foliage_atlas` paints the leaf textures
