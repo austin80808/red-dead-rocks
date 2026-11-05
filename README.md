@@ -241,7 +241,14 @@ is left-handed (X forward, Y right, Z up; a yaw of +90 turns you right), so the
 goes through it, and `tests/test_level_frame.py` pins it (a point due north of
 the stage is on your left when you face east; from the stage looking up the
 bowl Creation Rock is on your right, Ship Rock on your left). Until
-2026-11-04 the level put north on +Y and was a mirror image of Red Rocks.
+2026-11-04 the level put north on +Y and was a mirror image of Red Rocks:
+
+![The seating photo view before and after: the rock and rows swap sides to match the real place](docs/media/level-frame/seating_mid.jpg)
+
+*The play-test's view of the
+[Commons seating photo](https://commons.wikimedia.org/wiki/File:Red_Rock_Amphitheatre_Seatings.jpg):
+the real one has the rock on the left and the rows sweeping in from the right,
+like the fixed level. More pairs in `docs/media/level-frame/`.*
 
 ### Roads, paths and parking
 
