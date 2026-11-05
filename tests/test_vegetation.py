@@ -225,3 +225,30 @@ def test_instance_rows_use_keyword_rotations(sv):
 def test_out_dir_can_be_overridden(monkeypatch):
     src = (UNREAL / "setup_vegetation.py").read_text()
     assert 'os.environ.get("REDROCKS_OUT_DIR", "/Users/austin/dev/redrocks-ue/out")' in src
+
+
+@pytest.fixture(scope="module")
+def shots():
+    saved = sys.modules.get("unreal")
+    sys.modules["unreal"] = types.ModuleType("unreal")
+    try:
+        spec = importlib.util.spec_from_file_location("shoot_vegetation_under_test", UNREAL / "shoot_vegetation.py")
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        return mod
+    finally:
+        if saved is None:
+            del sys.modules["unreal"]
+        else:
+            sys.modules["unreal"] = saved
+
+
+def test_matched_views_skip_unset_cameras_and_carry_fov(shots):
+    views = [{"name": "trail", "camera": {"x": 1.0, "y": 2.0, "z": 3.0, "pitch": -5.0, "yaw": 90.0, "fov": 70.0}},
+             {"name": "ponderosa", "camera": {"x": 0, "y": 0, "z": 0, "pitch": 0, "yaw": 0, "fov": 0}}]
+    assert shots.matched_views(views) == [
+        ("trail", (1.0, 2.0, 3.0), {"pitch": -5.0, "yaw": 90.0, "roll": 0.0}, 70.0)]
+
+
+def test_shot_views_default_to_the_repo_views_file(shots):
+    assert Path(shots.VIEWS_PATH).resolve() == (UNREAL.parent / "docs/media/vegetation-real/views.json").resolve()

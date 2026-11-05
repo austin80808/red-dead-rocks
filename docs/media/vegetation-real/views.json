@@ -1,0 +1,101 @@
+{
+ "about": "Game views framed to match Wikimedia Commons photos of Red Rocks Park. unreal/shoot_vegetation.py shoots every view whose camera is set (cm, degrees); tools/make_reference_compare.py builds before | after | photo composites and samples' ΔE. Photos are fetched at run time, never committed.",
+ "views": [
+  {
+   "name": "trail",
+   "photo": {
+    "id": "ref09",
+    "title": "Red Rocks Park in Denver",
+    "page": "https://commons.wikimedia.org/wiki/File:Red_Rocks_Park_in_Denver.jpg",
+    "file_url": "https://thumb.wikimedia.org/wikipedia/commons/thumb/1/13/Red_Rocks_Park_in_Denver.jpg/1280px-Red_Rocks_Park_in_Denver.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=thumbnail",
+    "author": "Bigmacthealmanac",
+    "licence": "CC BY-SA 4.0"
+   },
+   "camera": {
+    "x": 0,
+    "y": 0,
+    "z": 0,
+    "pitch": 0,
+    "yaw": 0,
+    "fov": 0
+   },
+   "aspect": [
+    16,
+    9
+   ],
+   "samples": []
+  },
+  {
+   "name": "ponderosa",
+   "photo": {
+    "id": "ref02",
+    "title": "Conifer (Red Rocks Park, west of Denver, Colorado, USA)",
+    "page": "https://commons.wikimedia.org/wiki/File:Conifer_(Red_Rocks_Park,_west_of_Denver,_Colorado,_USA).jpg",
+    "file_url": "https://thumb.wikimedia.org/wikipedia/commons/thumb/8/89/Conifer_%28Red_Rocks_Park%2C_west_of_Denver%2C_Colorado%2C_USA%29.jpg/1280px-Conifer_%28Red_Rocks_Park%2C_west_of_Denver%2C_Colorado%2C_USA%29.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=thumbnail",
+    "author": "James St. John",
+    "licence": "CC BY 2.0"
+   },
+   "camera": {
+    "x": 0,
+    "y": 0,
+    "z": 0,
+    "pitch": 0,
+    "yaw": 0,
+    "fov": 0
+   },
+   "aspect": [
+    3,
+    4
+   ],
+   "samples": []
+  },
+  {
+   "name": "junipers",
+   "photo": {
+    "id": "ref15",
+    "title": "Trail views in Red Rocks Park, Morrison, Colorado",
+    "page": "https://commons.wikimedia.org/wiki/File:Trail_views_in_Red_Rocks_Park,_Morrison,_Colorado.jpg",
+    "file_url": "https://thumb.wikimedia.org/wikipedia/commons/thumb/2/2c/Trail_views_in_Red_Rocks_Park%2C_Morrison%2C_Colorado.jpg/1280px-Trail_views_in_Red_Rocks_Park%2C_Morrison%2C_Colorado.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=thumbnail",
+    "author": "Lovemedead",
+    "licence": "CC BY-SA 4.0"
+   },
+   "camera": {
+    "x": 0,
+    "y": 0,
+    "z": 0,
+    "pitch": 0,
+    "yaw": 0,
+    "fov": 0
+   },
+   "aspect": [
+    4,
+    3
+   ],
+   "samples": []
+  },
+  {
+   "name": "hillsides",
+   "photo": {
+    "id": "ref12",
+    "title": "RedRocks",
+    "page": "https://commons.wikimedia.org/wiki/File:RedRocks.jpg",
+    "file_url": "https://thumb.wikimedia.org/wikipedia/commons/thumb/0/00/RedRocks.jpg/1280px-RedRocks.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=thumbnail",
+    "author": "Hogs555",
+    "licence": "CC BY-SA 3.0"
+   },
+   "camera": {
+    "x": 0,
+    "y": 0,
+    "z": 0,
+    "pitch": 0,
+    "yaw": 0,
+    "fov": 0
+   },
+   "aspect": [
+    4,
+    3
+   ],
+   "samples": []
+  }
+ ]
+}

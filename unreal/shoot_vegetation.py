@@ -16,6 +16,9 @@ Views (each held 7 s so auto exposure settles; FPS is the mean over the last 3 s
   hillside  a juniper and a ponderosa a few metres apart, from 20 m, eye level
             (picked from out/vegetation/vegetation.json)
   aerial    (0, -45000, 45000) cm, pitch -42, yaw 90
+  then every view in docs/media/vegetation-real/views.json whose camera is set
+  (REDROCKS_VIEWS overrides the path): the spots framed to match the Commons
+  photos, shot at the view's field of view.
 The pawn flies with gravity and collision off. REDROCKS_HIDE_VEGETATION=1
 hides the Vegetation actor for a baseline. At each shot ProfileGPU writes the
 view's GPU frame breakdown to the editor log. Screenshots:
@@ -33,6 +36,8 @@ import unreal
 OUT_DIR = os.environ.get("REDROCKS_OUT_DIR", "/Users/austin/dev/redrocks-ue/out")
 LOG_PATH = os.path.join(os.environ.get("REDROCKS_LOG_DIR", "/tmp"), "redrocks_vegetation_shots.log")
 PREFIX = os.environ.get("REDROCKS_SHOT_PREFIX", "")
+VIEWS_PATH = os.environ.get("REDROCKS_VIEWS", os.path.join(
+    os.path.dirname(os.path.abspath(__file__)), "..", "docs", "media", "vegetation-real", "views.json"))
 HOLD_S = 7.0
 FPS_WINDOW_S = 3.0
 SETTLE_S = 6.0
@@ -100,6 +105,25 @@ def _ground(world, x, y, ignore):
     return t[4].z if t and t[0] else None
 
 
+def matched_views(views):
+    """(name, (x, y, z), rotation, fov) for each photo-matched view whose camera is set."""
+    out = []
+    for v in views:
+        c = v["camera"]
+        if not any(c[k] for k in ("x", "y", "z")):
+            continue
+        out.append((v["name"], (float(c["x"]), float(c["y"]), float(c["z"])),
+                    {"pitch": float(c["pitch"]), "yaw": float(c["yaw"]), "roll": 0.0}, float(c["fov"])))
+    return out
+
+
+def _matched_from_file():
+    if not os.path.exists(VIEWS_PATH):
+        return []
+    with open(VIEWS_PATH) as fh:
+        return matched_views(json.load(fh)["views"])
+
+
 def _views(world, pawn):
     views = []
     m = _manifest()
@@ -148,6 +172,7 @@ def _views(world, pawn):
         views.append(("hillside", (cx, cy, cz), {"pitch": pitch, "yaw": look, "roll": 0.0}))
         log.append("      hillside pair: juniper (%.0f, %.0f), pine (%.0f, %.0f)" % (jx, jy, px, py))
     views.append(("aerial", (0.0, -45000.0, 45000.0), {"pitch": -42.0, "yaw": 90.0, "roll": 0.0}))
+    views += _matched_from_file()
     return views
 
 
@@ -175,9 +200,15 @@ def _game_world():
 
 
 def _hold(pawn, view):
-    _, (x, y, z), rot = view
+    (x, y, z), rot = view[1], view[2]
     pawn.set_actor_location(unreal.Vector(x, y, z - PAWN_EYE_OFFSET_CM), False, True)
     pawn.get_controller().set_control_rotation(unreal.Rotator(**rot))
+
+
+def _set_fov(world, view):
+    """Lock the camera to a matched view's field of view; 0 unlocks it (the default)."""
+    fov = view[3] if len(view) > 3 else 0.0
+    unreal.SystemLibrary.execute_console_command(world, "fov %.1f" % fov)
 
 
 def tick(delta):
@@ -221,6 +252,9 @@ def tick(delta):
                 _finish()
                 return
             view = views[state["view"]]
+            if state.get("fov_for") != state["view"]:
+                _set_fov(world, view)
+                state["fov_for"] = state["view"]
             _hold(pawn, view)
             elapsed = now - state["mark"]
             if elapsed >= HOLD_S - FPS_WINDOW_S:
@@ -247,4 +281,5 @@ def tick(delta):
         _finish()
 
 
-handle = unreal.register_slate_post_tick_callback(tick)
+if hasattr(unreal, "register_slate_post_tick_callback"):  # not when tests import the helpers
+    handle = unreal.register_slate_post_tick_callback(tick)
