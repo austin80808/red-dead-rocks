@@ -30,8 +30,9 @@ scan the rises run 0.36 m at the bottom to 0.53 m at the top and add up to
 the bowl is a smooth ramp a few tenths above its fitted ground. Treads lifted
 ``SCAN_CLEARANCE_M`` (0.45 m) over the profile keep that ramp under them, or
 within 15 cm of them, in 97 % of the bowl's 0.5 m cells (measured against the
-raw scan points). The scan's collision in the seating is switched off in
-Unreal (setup_gameplay.py), so what is left under the treads cannot trip anyone.
+raw scan points). What stands taller under the rows (a few scanned objects,
+up to 3 m, under rows 13 and 63-69) still collides until the scan's collision is
+cut out of the seating in Unreal.
 
 **The scan cut.** ``seating_fade`` writes a copy of the scan's plan-view fade
 mask with the seating cut out, at ``CUT_TEXEL_M``, so the terraces replace the

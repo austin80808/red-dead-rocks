@@ -130,23 +130,26 @@ builds exactly that from the venue rows, in the terrain's frame:
 
 ![Terraced seating: from the stage, across the rows from the aisle, from the aisle down to the stage, from the top walkway, and under snow](docs/media/seating/seating_shots.gif)
 
-**Rows end at their aisles, and nothing pokes through them.** The OSM theatre
+**Rows end at their aisles: one staircase up each side.** The OSM theatre
 outline runs into the rock walls and the two stone stage towers, so
 `trim_row_ends` pulls each row's ends in until the aisle beside them (2.6 m
 out, 2 m wide) is clear of buildings and of anything the scan shows standing
 over 1 m tall (`seating_obstacles`, from `scan_top.npz` and `scan_ground.npz`).
-Each trim tapers into the rows around it (0.6 m a row), so the ends make a
-smooth aisle line instead of notches; no end loses more than 30 % of its row.
-On the real data 70 rows give up 635 m between them.
-Inside a row, `split_around` cuts the terrace either side of anything standing
-in it, and wherever the scan (whose chunks keep their collision) stands more
-than a step (0.55 m) over that row's tread: 9 extra pieces on the real data.
-The gaps keep the scan, so what blocks you is something you can see.
+Then, from row 4 up, each side's row ends are brought onto one line, the lower
+envelope of where each row may end with a slope of 1 m a row, so the row-end
+stairs make one continuous flight (consecutive steps at most 1.7 m apart, an
+outer stone wall along it) instead of jogging row by row. Rows run unbroken
+between their aisles. On the real data 68 rows give up 657 m
+between them. Below row 4 the aisles start in the stage blockout's front corner;
+that waits for the stage pass.
 
 `tools/check_seating_clear.py` checks a build: no terrain, rock, wall,
 building, path, road, lot or water vertex above a tread, no plant within 1 m of
 the seating, no scan visible inside it, and no hidden scan more than a step over
-a tread. It exits 1 when anything pokes through. The current build is clear.
+a tread. It exits 1 when anything pokes through. On the current build everything
+passes except the last: under rows 63-69 (top, left of centre) and at row 13 the
+hidden scan holds objects up to 3 m tall, which still collide until the scan's
+collision is cut out of the seating (next).
 
 **Tread levels.** The scan's surface is too smooth to show the rows (its radial
 profile has no row-spaced signal above 1 cm), so the levels come from the bowl's
