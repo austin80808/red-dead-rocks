@@ -329,7 +329,7 @@ findings note.
 **Passes when** the video reaches the iPhone over Tailscale at 30 fps or better for 10 minutes without a crash, and
 the message round trip works.
 
-**If Epic's Mac path crashes or streams dark frames:** repeat with the MIT third-party backend. The bridge doesn't
+**If Epic's Mac path crashes or streams dark frames:** read the MIT third-party project's source, write its fix ourselves in our own module (copy the back buffer into a texture the encoder can read, before encoding), and repeat. We don't download or run its code: it has one commit, three stars and no review. The bridge doesn't
 depend on Pixel Streaming's gamepad forwarding, so either backend works. If both fail, stop and bring it back to
 Austin.
 
@@ -391,7 +391,7 @@ backend to use.
 
 | Risk | Plan |
 |---|---|
-| Epic's Pixel Streaming Mac path is broken on M4 | The spike tests it first; fall back to the MIT backend; then stop and ask. |
+| Epic's Pixel Streaming Mac path is broken on M4 | The spike tests it first; then we write the third-party fix ourselves; then stop and ask. |
 | The fanless Air throttles | 720p at 30 fps; the spike measures 20 minutes hot; remote-only scalability steps. |
 | iOS Safari quirks (autoplay, the Gamepad API) | "Tap to play"; HTTPS everywhere; both checked in the spike and on the checklist. |
 | WebRTC doesn't pick the Tailscale route | Checked in the spike; if it fails, use TURN for tailnet too. |
