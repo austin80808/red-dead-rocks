@@ -122,12 +122,23 @@ builds exactly that from the venue rows, in the terrain's frame:
 | `Bench_Brackets.obj` | a steel strap every 2.4 m (at the middle row) under the boards, at the **same bearings about the stage in every row**, so they line up into the radial lines the top-row photo shows converging on the stage |
 | `Handrail.obj` (from `stage.py`) | posts and a top rail on the walkway parapet behind the last row |
 
-**Rows end at their aisles.** The OSM theatre outline runs into the rock walls
-and the two stone stage towers, so `trim_row_ends` pulls each row's ends in until
-the aisle beside them (2.6 m out, 2 m wide) is clear of buildings and of anything
-the scan shows standing over 1 m tall (`seating_obstacles`, from `scan_top.npz`
-and `scan_ground.npz`), never more than 30 % of a row from each end. On the real
-data 64 rows give up 479 m between them.
+**Rows end at their aisles, and nothing pokes through them.** The OSM theatre
+outline runs into the rock walls and the two stone stage towers, so
+`trim_row_ends` pulls each row's ends in until the aisle beside them (2.6 m
+out, 2 m wide) is clear of buildings and of anything the scan shows standing
+over 1 m tall (`seating_obstacles`, from `scan_top.npz` and `scan_ground.npz`).
+Each trim tapers into the rows around it (0.6 m a row), so the ends make a
+smooth aisle line instead of notches; no end loses more than 30 % of its row.
+On the real data 70 rows give up 635 m between them.
+Inside a row, `split_around` cuts the terrace either side of anything standing
+in it, and wherever the scan (whose chunks keep their collision) stands more
+than a step (0.55 m) over that row's tread: 9 extra pieces on the real data.
+The gaps keep the scan, so what blocks you is something you can see.
+
+`tools/check_seating_clear.py` checks a build: no terrain, rock, wall,
+building, path, road, lot or water vertex above a tread, no plant within 1 m of
+the seating, no scan visible inside it, and no hidden scan more than a step over
+a tread. It exits 1 when anything pokes through. The current build is clear.
 
 **Tread levels.** The scan's surface is too smooth to show the rows (its radial
 profile has no row-spaced signal above 1 cm), so the levels come from the bowl's

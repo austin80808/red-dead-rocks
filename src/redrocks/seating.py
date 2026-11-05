@@ -30,14 +30,15 @@ scan the rises run 0.36 m at the bottom to 0.53 m at the top and add up to
 the bowl is a smooth ramp a few tenths above its fitted ground. Treads lifted
 ``SCAN_CLEARANCE_M`` (0.45 m) over the profile keep that ramp under them, or
 within 15 cm of them, in 97 % of the bowl's 0.5 m cells (measured against the
-raw scan points); most of the rest is the scan's tall things (2 %), which
-``seating_fade`` leaves visible.
+raw scan points); most of the rest is something standing in a row (2 %),
+which the row splits around (``split_around``).
 
 **The scan cut.** ``seating_fade`` writes a copy of the scan's plan-view fade
 mask with the seating cut out, at ``CUT_TEXEL_M``, so the terraces replace the
-scan's ramp. Cells where the scan stands more than ``TALL_M`` over the tread
-(a booth, a tree, the rocks at the row ends) keep the scan visible, so what
-blocks the player is something they can see.
+scan's ramp and nothing of the scan shows through a tread. Rows stop short of
+anything the scan shows standing in them (``trim_row_ends`` at their ends,
+``split_around`` in the middle), so what blocks the player is something they
+can see.
 """
 
 from __future__ import annotations
@@ -117,12 +118,22 @@ AISLE_HALF_WIDTH_M = 1.0
 OBSTACLE_TALL_M = 1.0
 MAX_TRIM_FRACTION = 0.3
 TRIM_STEP_M = 0.25
+# A row's trim tapers into its neighbours by at most this much per row, so one
+# row cut back by a rock leaves no notch for the aisle stairs to jog around.
+TRIM_TAPER_M = 0.6
+
+# Rows split around something standing in them (a scanned object inside a
+# row): each piece stops SPLIT_CLEAR_M short of it; pieces shorter than
+# MIN_PIECE_M are dropped.
+SPLIT_CLEAR_M = 0.5
+MIN_PIECE_M = 3.0
+# ... and wherever the scan (whose chunks keep collision) stands more than a
+# step over the row's own tread: hidden, it would be an invisible ledge.
+SPLIT_ABOVE_TREAD_M = 0.55
 
 # Scan cut.
 CUT_TEXEL_M = 0.5
-CUT_INSET_M = 0.25  # the scan overlaps the terraces' outer edges by this much
-TALL_M = 0.6
-TALL_GROW_M = 1.0
+CUT_MARGIN_M = 0.15  # the cut reaches this far past the terraces' (and stairs') edges
 
 
 @dataclass
@@ -167,6 +178,7 @@ class SeatingMesh:
     front_steps: int
     brackets: int
     base_elevation_m: float
+    pieces: int = 0  # terraces: rows, plus the extra pieces of rows split around things
 
 
 # ---- geometry helpers ----------------------------------------------------------
@@ -266,25 +278,34 @@ def _end_trim(line: LineString, from_start: bool, obstacles) -> float:
 
 
 def trim_row_ends(polylines: Sequence[np.ndarray], obstacles) -> list[np.ndarray]:
-    """Each row's line with its ends pulled in until the aisle beside them is clear."""
+    """Each row's line with its ends pulled in until the aisle beside them is clear.
+
+    Each end's trim (metres along the row) is then tapered into the rows around
+    it, at most ``TRIM_TAPER_M`` less per row away from it, so the row ends make
+    a smooth aisle line. Tapering only ever trims more, so every aisle stays
+    clear; no end loses more than ``MAX_TRIM_FRACTION`` of its row.
+    """
     from shapely.ops import substring
 
+    lines = [np.asarray(p, dtype=float)[:, :2] for p in polylines]
     if obstacles is None or obstacles.is_empty:
-        return [np.asarray(p, dtype=float) for p in polylines]
+        return lines
     prepared = shapely.prepared.prep(obstacles)
+    shapes = [LineString(p) for p in lines]
+    trims = np.zeros((len(lines), 2))
+    for i, line in enumerate(shapes):
+        if prepared.intersects(line.buffer(AISLE_CLEAR_M + AISLE_HALF_WIDTH_M)):
+            trims[i] = (_end_trim(line, True, obstacles), _end_trim(line, False, obstacles))
+    idx = np.arange(len(lines))
+    tapered = np.max(trims[None, :, :] - TRIM_TAPER_M * np.abs(idx[:, None] - idx[None, :])[:, :, None], axis=1)
     out = []
-    for pts in polylines:
-        pts = np.asarray(pts, dtype=float)[:, :2]
-        line = LineString(pts)
-        if not prepared.intersects(line.buffer(AISLE_CLEAR_M + AISLE_HALF_WIDTH_M)):
-            out.append(pts)
-            continue
-        s0 = _end_trim(line, True, obstacles)
-        s1 = _end_trim(line, False, obstacles)
+    for i, (pts, line) in enumerate(zip(lines, shapes)):
+        cap = MAX_TRIM_FRACTION * line.length
+        s0, s1 = (float(min(max(t, 0.0), cap)) for t in tapered[i])
         if s0 == 0.0 and s1 == 0.0:
             out.append(pts)
-            continue
-        out.append(np.array(substring(line, s0, line.length - s1).coords)[:, :2])
+        else:
+            out.append(np.array(substring(line, s0, line.length - s1).coords)[:, :2])
     return out
 
 
@@ -378,6 +399,54 @@ def _circle_centre(lines: Sequence[np.ndarray]) -> tuple[float, float] | None:
     return cx, cy
 
 
+def _ledges(t: Terrace, top: ScanHeights | None):
+    """Cells under terrace ``t`` where the scan stands a step over its tread."""
+    from shapely.geometry import box
+
+    if top is None:
+        return None
+    plan = t.plan()
+    x0, y0, x1, y1 = plan.bounds
+    j0, j1 = int((x0 - top.x0) // top.cell), int((x1 - top.x0) // top.cell) + 1
+    i0, i1 = int((y0 - top.y0) // top.cell), int((y1 - top.y0) // top.cell) + 1
+    j0, i0 = max(j0, 0), max(i0, 0)
+    sub = top.heights[i0:i1, j0:j1]
+    if sub.size == 0:
+        return None
+    with np.errstate(invalid="ignore"):
+        high = sub > t.level_m + SPLIT_ABOVE_TREAD_M
+    cells = []
+    for i, j in zip(*np.nonzero(high)):
+        x, y = top.x0 + (j0 + j) * top.cell, top.y0 + (i0 + i) * top.cell
+        cell = box(x, y, x + top.cell, y + top.cell)
+        if cell.intersects(plan):
+            cells.append(cell)
+    return unary_union(cells) if cells else None
+
+
+def split_around(terraces: Sequence[Terrace], obstacles) -> list[Terrace]:
+    """Each terrace whose plan runs into an obstacle, cut into the pieces of its
+    row line that stay ``SPLIT_CLEAR_M`` clear of it (pieces under
+    ``MIN_PIECE_M`` dropped). Untouched terraces pass through as they are."""
+    from shapely.geometry import MultiLineString
+
+    prepared = shapely.prepared.prep(obstacles)
+    out: list[Terrace] = []
+    for t in terraces:
+        if not prepared.intersects(t.plan()):
+            out.append(t)
+            continue
+        # Clear of the obstacle over the whole tread: buffer it by the tread
+        # depth too, then keep the row line outside.
+        keep_out = obstacles.buffer(SPLIT_CLEAR_M + t.depth_m)
+        rest = LineString(t.front).difference(keep_out)
+        pieces = list(rest.geoms) if isinstance(rest, MultiLineString) else ([rest] if not rest.is_empty else [])
+        for k, piece in enumerate(p for p in pieces if p.length >= MIN_PIECE_M):
+            pts = np.array(piece.coords)[:, :2]
+            out.append(Terrace(f"{t.name}_{k + 1}", pts, t.up, t.depth_m, t.level_m, t.row_index))
+    return out
+
+
 def _front_steps(row1: Terrace, ground: Ground) -> list[Terrace]:
     """Steps down from row 1 toward the stage while it stands too high."""
     steps: list[Terrace] = []
@@ -399,8 +468,16 @@ def seating_layout(
     floor: Ground | None = None,
     clearance_m: float = 0.0,
     top_depth_m: float | None = None,
+    obstacles=None,
+    top: ScanHeights | None = None,
 ) -> SeatingLayout:
-    """Where every terrace goes and how high. ``floor`` is only used by the export."""
+    """Where every terrace goes and how high. ``floor`` is only used by the export.
+
+    With ``obstacles`` (``seating_obstacles``), a row whose terrace would run
+    into one is split into pieces either side of it (``split_around``); with
+    ``top`` (the scan's highest point per cell), so is a row wherever the scan
+    stands more than ``SPLIT_ABOVE_TREAD_M`` over its tread.
+    """
     levels, info = tread_levels(rows, polylines, ground, clearance_m)
     fronts = _fronts(polylines)
     ups, depths = _up_sides(fronts), _depths(fronts)
@@ -412,6 +489,14 @@ def seating_layout(
     ]
     steps = _front_steps(terraces[0], ground) if ground is not None else []
     info["front_steps"] = len(steps)
+    if (obstacles is not None and not obstacles.is_empty) or top is not None:
+        before = len(terraces)
+        split: list[Terrace] = []
+        for t in terraces:
+            parts = [g for g in (obstacles, _ledges(t, top)) if g is not None and not g.is_empty]
+            split += split_around([t], unary_union(parts)) if parts else [t]
+        terraces = split
+        info["row_pieces_added"] = len(terraces) - before
     return SeatingLayout(terraces, steps, levels, info, _circle_centre(fronts))
 
 
@@ -608,7 +693,8 @@ def export_seating(
                                             "Red Rocks bench brackets, lined up about the stage; cm")
     else:
         paths.pop("Bench_Brackets")
-    return SeatingMesh(paths, tris, len(layout.rows), len(layout.front_steps), len(brackets), base)
+    rows = len({t.row_index for t in layout.rows})
+    return SeatingMesh(paths, tris, rows, len(layout.front_steps), len(brackets), base, len(layout.rows))
 
 
 # ---- scan cut --------------------------------------------------------------------
@@ -627,15 +713,18 @@ def seating_fade(
     place: dict,
     layout: SeatingLayout,
     top: ScanHeights | None = None,
+    extra=None,
 ) -> tuple[np.ndarray, dict]:
     """The scan's fade mask with the seating cut out, and its placement.
 
     ``alpha`` and ``place`` are the scan's mask (row 0 = north) and placement
     JSON from ``tools/scan_heights.py``. The result covers the same extent at
-    ``CUT_TEXEL_M`` texels: 0 over the terraces (inset ``CUT_INSET_M`` from
-    their outer edge), the original elsewhere. With ``top`` (the scan's highest
-    point per cell), cells where the scan stands more than ``TALL_M`` over the
-    tread, grown by ``TALL_GROW_M``, keep the original too.
+    ``CUT_TEXEL_M`` texels: 0 over the terraces and ``extra`` plans (the
+    row-end stairs, the sound booth), ``CUT_MARGIN_M`` past their edges so no
+    sliver of scan shows along them; the original elsewhere. Nothing of the scan shows inside
+    the seating: anything standing in a row has split the row around it
+    (``split_around``), so it sits in a gap, outside the cut. ``top`` is
+    accepted for compatibility and unused.
     """
     width_m, height_m = place["width_cm"] / 100.0, place["height_cm"] / 100.0
     nx, ny = int(round(width_m / CUT_TEXEL_M)), int(round(height_m / CUT_TEXEL_M))
@@ -645,37 +734,14 @@ def seating_fade(
     north = place["y1_cm"] / 100.0 - (np.arange(ny) + 0.5) * ty
     e, n = np.meshgrid(east, north)
 
-    plans = [t.plan() for t in layout.terraces]
-    level = np.full((ny, nx), np.nan)
-    for t, plan in zip(layout.terraces, plans):
-        level[shapely.contains_xy(plan, e, n)] = t.level_m
-    cut = shapely.contains_xy(unary_union(plans).buffer(-CUT_INSET_M), e, n)
-
-    tall_cells = 0
-    if top is not None:
-        j = np.floor((e - top.x0) / top.cell).astype(int)
-        i = np.floor((n - top.y0) / top.cell).astype(int)
-        inside = (i >= 0) & (i < top.shape[0]) & (j >= 0) & (j < top.shape[1])
-        z = np.full((ny, nx), np.nan)
-        z[inside] = top.heights[i[inside], j[inside]]
-        with np.errstate(invalid="ignore"):
-            tall = np.nan_to_num(z - level, nan=-np.inf) > TALL_M
-        grow = int(math.ceil(TALL_GROW_M / CUT_TEXEL_M))
-        yy, xx = np.mgrid[-grow:grow + 1, -grow:grow + 1]
-        grown = np.zeros_like(tall)
-        padded = np.pad(tall, grow)
-        for dy, dx in zip(yy.ravel(), xx.ravel()):
-            if dy * dy + dx * dx <= grow * grow:
-                grown |= padded[grow + dy:grow + dy + ny, grow + dx:grow + dx + nx]
-        tall_cells = int((cut & grown).sum())
-        cut &= ~grown
+    plans = [t.plan() for t in layout.terraces] + [p for p in (extra or []) if p is not None]
+    cut = shapely.contains_xy(unary_union(plans).buffer(CUT_MARGIN_M), e, n)
 
     out[cut] = 0.0
     meta = dict(place)
     meta["texels"] = [nx, ny]
     meta["seating_cut"] = {
-        "texel_m": CUT_TEXEL_M, "inset_m": CUT_INSET_M, "tall_m": TALL_M,
+        "texel_m": CUT_TEXEL_M, "margin_m": CUT_MARGIN_M,
         "cut_m2": round(float(cut.sum()) * tx * ty, 1),
-        "kept_tall_m2": round(tall_cells * tx * ty, 1),
     }
     return out, meta

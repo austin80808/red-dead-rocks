@@ -15,7 +15,6 @@ from redrocks.seating import (
     PLANK_BACK_M,
     PLANK_OVERHANG_M,
     PLANK_TOP_M,
-    TALL_M,
     export_seating,
     seating_fade,
     seating_layout,
@@ -286,19 +285,32 @@ def test_scan_is_cut_out_over_the_terraces_only():
     assert texel(out, meta, mid * np.cos(np.radians(45)), mid * np.sin(np.radians(45))) == 1.0  # past the row ends
 
 
-def test_tall_scanned_things_in_the_bowl_stay_visible():
+def test_rows_split_around_something_standing_in_them():
+    """A scanned object in the middle of a row (gear, a tree): the row stops
+    either side of it and the gap keeps the scan, so nothing pokes through a
+    tread and what blocks the player is something they can see."""
+    from shapely.geometry import Point
+
+    rows, lines = rows_and_lines()
+    mid = R0 + 20 * GAP
+    thing = Point(mid, 0.0).buffer(0.8)  # in row 21, on the centre line
+    layout = seating_layout(rows, lines, ground=bowl, clearance_m=0.45, obstacles=thing)
+    row21 = [t for t in layout.rows if t.row_index == 21]
+    assert len(row21) == 2 and all(t.plan().distance(thing) >= 0.4 for t in row21)
+    assert len([t for t in layout.rows if t.row_index == 30]) == 1
+    alpha, place = fade_inputs()
+    out, meta = seating_fade(alpha, place, layout)
+    assert texel(out, meta, mid + 0.6, 0.0) == 1.0  # the gap: scan shown
+    assert texel(out, meta, mid + 0.6, 6.0) == 0.0  # the row beside it: cut
+
+
+def test_inside_the_seating_the_scan_is_always_cut():
     rows, lines = rows_and_lines()
     layout = seating_layout(rows, lines, ground=bowl, clearance_m=0.45)
     alpha, place = fade_inputs()
+    out, meta = seating_fade(alpha, place, layout)
     mid = R0 + 20 * GAP + GAP / 2
-    xs = np.arange(-20.0, 100.0) + 0.5
-    e, n = np.meshgrid(xs, np.arange(-60.0, 60.0) + 0.5)
-    top = np.vectorize(bowl)(e, n) + 0.3
-    booth = (np.abs(e - mid) < 1.5) & (np.abs(n) < 1.5)
-    top[booth] = layout.levels[20] + TALL_M + 1.0
-    out, meta = seating_fade(alpha, place, layout, top=ScanHeights(top, -20.0, -60.0, 1.0))
-    assert texel(out, meta, mid, 0.0) == 1.0  # the booth
-    assert texel(out, meta, mid, 8.0) == 0.0  # the seats beside it
+    assert texel(out, meta, mid, 0.0) == 0.0 and "kept_tall_m2" not in meta["seating_cut"]
 
 
 # ---- the build -----------------------------------------------------------------
@@ -355,7 +367,9 @@ def test_build_writes_the_seating_meshes_and_their_manifest(monkeypatch, tmp_pat
     b = manifest["benches"]
     for key, name in (("obj", "Benches"), ("planks_obj", "Bench_Planks"), ("brackets_obj", "Bench_Brackets")):
         assert b[key] == f"{name}.obj" and (out / b[key]).exists()
-    assert b["rows"] == manifest["venue"]["rows"] == 70
+    # This fake scan slopes along the rows, so a few rows split (or drop) where it
+    # stands a step over their level tread; every venue row is counted once.
+    assert 60 <= b["rows"] <= manifest["venue"]["rows"] == 70 and b["pieces"] >= b["rows"]
     assert len(b["tread_levels_m"]) == 70 and b["clearance_m"] == pytest.approx(0.45)
     assert b["rows_trimmed"] == 0  # nothing stands in this fake bowl's aisles
     assert np.all(np.diff(b["tread_levels_m"]) >= MIN_RISE_M - 1e-6)
@@ -399,7 +413,7 @@ def test_rows_stop_short_of_an_obstacle_at_their_end():
     trimmed = trim_row_ends(lines, tower)
     for k, (old, new) in enumerate(zip(lines, trimmed)):
         assert np.allclose(new[-1], old[-1])  # the far end is clear: untouched
-        if tower.distance(Point(*old[0])) > AISLE_CLEAR_M + AISLE_HALF_WIDTH_M + 0.1:
+        if abs(k - 15) > 20:  # beyond the taper's reach (redrocks.seating.TRIM_TAPER_M)
             assert np.allclose(new[0], old[0], atol=1e-6)
         elif tower.distance(Point(*old[0])) < AISLE_HALF_WIDTH_M:
             # Shorter, and the aisle beside the new end clears the tower.
@@ -444,3 +458,44 @@ def test_obstacles_are_buildings_and_whatever_stands_tall_in_the_scan():
     obs = seating_obstacles(ScanHeights(top, 0.0, 0.0, 1.0), ScanHeights(ground, 0.0, 0.0, 1.0), [tower])
     assert obs.contains(Point(10, 10)) and obs.contains(Point(32, 33))
     assert not obs.contains(Point(20, 20))
+
+
+def test_one_rows_trim_tapers_into_its_neighbours():
+    """A rock cutting one row back leaves no notch: the rows beside it step in
+    gradually, so their ends (and the aisle stairs on them) make a smooth line."""
+    from shapely.geometry import Point
+
+    from redrocks.seating import TRIM_TAPER_M, trim_row_ends
+
+    rows, lines = rows_and_lines()
+    k = 20
+    rock = Point(*lines[k][0]).buffer(0.4)  # small: only row 20's aisle hits it
+    trimmed = trim_row_ends(lines, rock)
+    starts = []
+    for old, new in zip(lines, trimmed):
+        a0 = np.arctan2(old[0, 1], old[0, 0])
+        a1 = np.arctan2(new[0, 1], new[0, 0])
+        starts.append((a1 - a0) * np.hypot(*old[0]))  # metres trimmed off the start
+    starts = np.array(starts)
+    assert starts[k] > 1.0
+    assert np.abs(np.diff(starts)).max() <= TRIM_TAPER_M + 0.05
+    assert starts[0] == pytest.approx(0.0, abs=1e-6) and starts[-1] == pytest.approx(0.0, abs=1e-6)
+
+
+def test_rows_split_where_the_scan_stands_a_step_above_their_tread():
+    """Hidden scan that stands higher than a step over the tread would be an
+    invisible ledge (its chunks keep collision); the row splits there instead."""
+    from redrocks.seating import SPLIT_ABOVE_TREAD_M
+
+    rows, lines = rows_and_lines()
+    probe = seating_layout(rows, lines, ground=bowl, clearance_m=0.45)
+    level21 = next(t.level_m for t in probe.rows if t.row_index == 21)
+    xs = np.arange(-20.0, 100.0) + 0.5
+    e, n = np.meshgrid(xs, np.arange(-60.0, 60.0) + 0.5)
+    top = np.vectorize(bowl)(e, n)  # under the treads everywhere ...
+    mid = R0 + 20 * GAP + 0.6
+    bump = (np.abs(e - mid) < 0.6) & (np.abs(n) < 1.5)
+    top[bump] = level21 + SPLIT_ABOVE_TREAD_M + 0.2  # ... but a ledge in row 21
+    layout = seating_layout(rows, lines, ground=bowl, clearance_m=0.45, top=ScanHeights(top, -20.0, -60.0, 1.0))
+    assert len([t for t in layout.rows if t.row_index == 21]) == 2
+    assert len([t for t in layout.rows if t.row_index == 22]) == 1

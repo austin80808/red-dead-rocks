@@ -131,23 +131,24 @@ def build(args: argparse.Namespace) -> int:
         # On the scan, treads clear its surface (its chunks keep collision).
         on_scan = ground_info != "terrain mesh"
         # Rows end at their aisles, clear of the stage towers and the rock walls.
-        lines, trim_info = _trim_rows(args, osm, venue_way, projection, lines, seat_ground if on_scan else None)
+        lines, trim_info, obstacles, scan_top = _trim_rows(args, osm, venue_way, projection, lines,
+                                                           seat_ground if on_scan else None)
         if trim_info["rows"]:
             print(f"  {trim_info['rows']} rows pulled in at their ends ({trim_info['metres']:.0f} m in all) "
                   f"so their aisles clear {trim_info['buildings']} buildings and the scan's rock")
         layout = seating_layout(
             venue.rows, lines, ground=seat_ground, floor=walkable,
-            clearance_m=SCAN_CLEARANCE_M if on_scan else 0.0,
+            clearance_m=SCAN_CLEARANCE_M if on_scan else 0.0, obstacles=obstacles, top=scan_top,
         )
         seating = export_seating(layout, out_dir, base, ground=seat_ground, floor=walkable)
         i = layout.info
         print(f"  {seating.terraces} rows + {seating.front_steps} front steps, {seating.brackets} brackets; "
               f"rises {i['rise_min_m']:.2f}..{i['rise_max_m']:.2f} m, {i['total_rise_m']:.1f} m in all"
-              + (f"; rows {i['rows_ignored']} left out of the fit" if i["rows_ignored"] else ""))
+              + (f"; rows {i['rows_ignored']} left out of the fit" if i["rows_ignored"] else "")
+              + (f"; {i['row_pieces_added']} row pieces split around things standing in rows"
+                 if i.get("row_pieces_added") else ""))
         for name, path in seating.paths.items():
             print(f"  {seating.triangles[name]:,} triangles -> {path.name}")
-        if on_scan:
-            scan_cut = _cut_scan_fade(args, layout, out_dir)
 
         print("\nblocking out the stage ...")
         booth_way, booth_plan = _sound_booth(osm, venue_way, projection)
@@ -155,6 +156,8 @@ def build(args: argparse.Namespace) -> int:
                                  levels=layout.levels, booth=booth_plan)
         print(f"  {len(stage.parts)} parts, {stage.triangles} triangles -> {stage.path.name}")
         print(f"  {stage.handrail_triangles} triangles -> {stage.handrail_path.name}")
+        if on_scan:
+            scan_cut = _cut_scan_fade(args, layout, out_dir, extra=stage.cut_plans)
         if stage.booth_path is not None:
             print(f"  sound booth on OSM way {booth_way.id}, deck {stage.booth_deck_elevation_m:.2f} m "
                   f"-> {stage.booth_path.name}")
@@ -244,6 +247,7 @@ def build(args: argparse.Namespace) -> int:
             "planks_obj": seating.paths["Bench_Planks"].name,
             "brackets_obj": seating.paths["Bench_Brackets"].name if "Bench_Brackets" in seating.paths else None,
             "rows": seating.terraces,
+            "pieces": seating.pieces,
             "front_steps": seating.front_steps,
             "brackets": seating.brackets,
             "triangles": seating.triangles["Benches"],
@@ -256,6 +260,7 @@ def build(args: argparse.Namespace) -> int:
             "rise_m": {k: layout.info[k] for k in ("rise_min_m", "rise_max_m", "rise_mean_m", "total_rise_m")},
             "tread_levels_m": [round(v, 3) for v in layout.levels],
             "rows_trimmed": trim_info["rows"],
+            "row_pieces_added": layout.info.get("row_pieces_added", 0),
             "trimmed_m": round(trim_info["metres"], 1),
         }
     if scan_cut is not None:
@@ -361,7 +366,8 @@ def _trim_rows(args, osm, venue_way, projection, lines, seat_ground):
     obstacles = seating_obstacles(top, ground, buildings, within=near)
     trimmed = trim_row_ends(lines, obstacles)
     cut = [LineString(a).length - LineString(b).length for a, b in zip(lines, trimmed)]
-    return trimmed, {"rows": sum(1 for c in cut if c > 1e-6), "metres": float(sum(cut)), "buildings": len(buildings)}
+    info = {"rows": sum(1 for c in cut if c > 1e-6), "metres": float(sum(cut)), "buildings": len(buildings)}
+    return trimmed, info, obstacles, top
 
 
 def _sound_booth(osm, venue_way, projection):
@@ -391,7 +397,7 @@ def _sound_booth(osm, venue_way, projection):
     return None, None
 
 
-def _cut_scan_fade(args, layout, out_dir: Path) -> dict | None:
+def _cut_scan_fade(args, layout, out_dir: Path, extra=None) -> dict | None:
     """out/scan_fade.png and .json: the scan's fade mask with the seating cut out."""
     from PIL import Image
 
@@ -403,15 +409,15 @@ def _cut_scan_fade(args, layout, out_dir: Path) -> dict | None:
     alpha = np.asarray(Image.open(png).convert("L"), dtype=float) / 255.0
     top_path = Path(getattr(args, "scan_top", "") or "")
     top = ScanHeights.load(top_path) if top_path.name and top_path.is_file() else None
-    cut, meta = seating_fade(alpha, place, layout, top=top)
+    cut, meta = seating_fade(alpha, place, layout, top=top, extra=extra)
     img = np.round(cut * 255.0).astype(np.uint8)
     Image.fromarray(np.dstack([img, img, img]), "RGB").save(out_dir / "scan_fade.png")
     meta["about"] = (f"{place.get('about', 'ml0w scan opacity')}; seating cut out by redrocks build "
                      f"from {png.name}" + (f" and {top_path.name}" if top is not None else ""))
     (out_dir / "scan_fade.json").write_text(json.dumps(meta, indent=2) + "\n")
     info = meta["seating_cut"]
-    print(f"  scan cut out over {info['cut_m2']:,.0f} m^2 of seating, {info['kept_tall_m2']:,.0f} m^2 of "
-          f"tall scan kept -> scan_fade.png ({meta['texels'][0]}x{meta['texels'][1]})")
+    print(f"  scan cut out over {info['cut_m2']:,.0f} m^2 of seating -> scan_fade.png "
+          f"({meta['texels'][0]}x{meta['texels'][1]})")
     return info
 
 

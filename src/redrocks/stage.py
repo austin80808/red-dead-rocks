@@ -58,7 +58,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Callable, Sequence
 
-from shapely.geometry import LineString, Point
+from shapely.geometry import LineString, Point, Polygon
 
 import numpy as np
 
@@ -246,6 +246,8 @@ class StageMesh:
     aisles: dict[str, list[tuple[float, float, float]]] = field(default_factory=dict)
     stairs_path: Path | None = None
     stairs_parts: dict[str, tuple[int, int]] = field(default_factory=dict)
+    # Plan polygons (local metres) of the stairs and the booth deck: the scan is cut out under them too.
+    cut_plans: list = field(default_factory=list)
     stairs_triangles: int = 0
     handrail_triangles: int = 0
 
@@ -766,6 +768,8 @@ def export_stage_obj(
         aisles=_aisles(stairs, base_elevation_m),
         stairs_path=stairs_path if stairs else None,
         stairs_parts=stairs_ranges,
+        cut_plans=[Polygon(np.asarray(p.plan, dtype=float)) for p in parts
+                   if p.name.startswith(("stair_", "foh_", "stage_step_"))],
         stairs_triangles=stairs_tris,
     )
 
