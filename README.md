@@ -166,11 +166,16 @@ in the row number, with rows whose band holds something else (rows
 68, 69, 70: the top plateau) left out of the fit. The rises run
 0.36 m at the bottom to 0.54 m at the top, 31.0 m in all
 against the official 100 ft (30.5 m). You climb the bowl the way people do: up
-the aisle stairs at the row ends, two steps a row (`unreal/playtest_explore.py`'s
-`seating` scenario follows them step by step from the stage to the top row,
-using `stage.aisles` in the manifest). The explorer's step height is 58 cm, so
-walking straight up the rows works too; the planks and brackets have no
-collision.
+the aisle stairs at the row ends, two steps a row. `unreal/playtest_explore.py`'s
+`seating` scenario walks one aisle from row 8 to the top walkway on
+`stage.aisles` from the manifest, walking only, no jumps or climbs: 28.7 m up in
+115 s, within about 25 cm of the stair line. Below row 8 the aisles start in the
+stage blockout's front corner, which is for the stage pass. The walker steers
+by pure pursuit (it aims 70 cm ahead along the stair line), and it paces itself
+to the editor's tick: the play-test steers once per Slate tick, about 3 Hz with
+this level, and at full speed (5.2 m/s) it covered 1.7 m between steers and ran
+off the aisle at every bend. The explorer's step height is 58 cm, so walking
+straight up the rows works too; the planks and brackets have no collision.
 
 **Clearance and the scan cut.** The scan chunks keep complex collision, and the
 scan's surface in the bowl is a smooth ramp a few tenths over its fitted ground.
