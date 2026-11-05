@@ -465,11 +465,22 @@ def _juniper(name, index, one_seed: bool) -> Model:
                  "Juniper", height, base_r, meshes)
 
 
+PONDEROSA_FORMS = ("young", "mature", "mature", "mature", "old")  # by variant index
+
+
 def _ponderosa(name, index) -> Model:
+    """A Front Range ponderosa: a straight trunk clear for 40-60 % of its height,
+    crooked branches that dip and turn up at the tips, and needles only in round
+    tufts at the branch tips and forks, with sky between them.
+
+    Forms by index: 0 young and conical, 1-3 mature and irregular, 4 old and
+    flat-topped (long limbs to the top).
+    """
     rng = np.random.default_rng(_seed(name, index))
+    form = PONDEROSA_FORMS[index]
     meshes = {p: Mesh() for p in PARTS}
-    height = 18.0 * rng.uniform(0.92, 1.08)
-    base_r = 0.38 * rng.uniform(0.9, 1.1)
+    height = 18.0 * rng.uniform(0.96, 1.06)
+    base_r = 0.27 * rng.uniform(0.94, 1.06)
     k = 15
     sway = rng.normal(scale=0.25, size=(2,))
     trunk = []
@@ -486,7 +497,7 @@ def _ponderosa(name, index) -> Model:
     def trunk_at(z):
         return np.array([np.interp(z, trunk[:, 2], trunk[:, 0]), np.interp(z, trunk[:, 2], trunk[:, 1]), z])
 
-    crown_base = height * rng.uniform(0.42, 0.55)
+    crown_base = height * rng.uniform(0.47, 0.56)
     # Dead stubs on the clear lower trunk: ponderosas self-prune.
     for _ in range(int(rng.integers(4, 8))):
         z = rng.uniform(0.2 * height, crown_base)
@@ -495,43 +506,71 @@ def _ponderosa(name, index) -> Model:
         path = _wobbly_path(rng, trunk_at(z), d, rng.uniform(0.3, 0.9), 3, 0.05)
         add_tube(meshes["Trunk"], path, [0.045, 0.03, 0.012], 5, rng=rng)
 
-    n_branches = int(rng.integers(34, 44))
+    card_w = CARD_M["Pine"]
     tips = []
-    golden = math.pi * (3 - math.sqrt(5))
-    az0 = rng.uniform(0, 2 * math.pi)
-    for b in range(n_branches):
-        f = (b + rng.uniform(0.0, 0.8)) / n_branches
-        z = crown_base + f * (height * 0.97 - crown_base)
-        if rng.uniform() < 0.12:
-            continue  # gaps in the whorls
-        az = az0 + b * golden + rng.normal(scale=0.3)
-        tt = (z - crown_base) / (height - crown_base)
-        length = 3.6 * (1 - 0.7 * tt ** 1.5) * rng.uniform(0.7, 1.2)
-        rise = -0.12 + 0.6 * tt + rng.normal(scale=0.08)
-        d = np.array([math.cos(az), math.sin(az), rise])
-        path = _wobbly_path(rng, trunk_at(z), d, length, 6, 0.18, curve_up=0.18, droop=0.35 * (1 - tt))
+
+    def tuft(tip, along, n_lo=6, n_hi=11):
+        """A round foxtail of needle cards around a branch tip, reaching out along the branch."""
+        c = np.asarray(tip, float) + _unit(along) * 0.15 + rng.normal(scale=0.12, size=3) + np.array([0, 0, 0.1])
+        _clump(meshes, rng, c, 0.2, int(rng.integers(n_lo, n_hi)), card_w, c - _unit(along) * 1.2,
+               np.array([1.2, 1.2, 1.0]), 0.3, subdiv=1, tilt_up=0.9, squash=0.8, spread=1.2)
+
+    def twig(start, direction, length):
+        """A short lateral twig with its own tuft: most of a ponderosa's needles."""
+        path = _wobbly_path(rng, start, direction, length, 3, 0.05, curve_up=0.3)
+        add_tube(meshes["Trunk"], path, [0.022, 0.015, 0.008], 4, rng=rng)
         tips.append(path[-1])
-        r0 = 0.08 * (length / 3.6) ** 0.8 + 0.02
-        add_tube(meshes["Trunk"], path, [r0 * (1 - 0.8 * i / 5) + 0.008 for i in range(6)], 6, rng=rng)
-        crown_c = trunk_at(z)
-        n_tufts = int(rng.integers(5, 8)) + (length > 2.5)
-        for i in range(n_tufts):
-            s = 0.3 + 0.7 * (i + rng.uniform(0, 0.6)) / n_tufts
-            s = min(s, 1.0)
-            p = path[0] + (path[-1] - path[0]) * s
-            # Follow the drooping path, not the chord.
-            idx = min(int(s * (len(path) - 1)), len(path) - 2)
-            frac = s * (len(path) - 1) - idx
-            p = path[idx] * (1 - frac) + path[idx + 1] * frac
-            p = p + rng.normal(scale=0.35, size=3) + np.array([0.0, 0.0, 0.2])
-            _clump(meshes, rng, p, 0.36, 7, 1.15, crown_c, np.array([1.5, 1.5, 1.0]), 0.3,
-                   subdiv=1, tilt_up=0.9, squash=0.75, spread=0.6)
+        tuft(path[-1], path[-1] - path[0], 10, 15)
+
+    def limb(start, direction, length, r0, curve_up, droop, depth):
+        path = _wobbly_path(rng, start, direction, length, 7, 0.15 * min(1.0, length / 2.5),
+                            curve_up=curve_up, droop=droop)
+        add_tube(meshes["Trunk"], path, [r0 * (1 - 0.8 * i / 6) + 0.008 for i in range(7)], 6, rng=rng)
+        tips.append(path[-1])
+        tuft(path[-1], path[-1] - path[-3], 14, 20)
+        for _ in range(int(length * 1.7) + 1):  # laterals on the outer 45 % of the limb
+            f = rng.uniform(0.55, 0.95) * 6
+            j = min(int(f), 5)
+            at = path[j] + (path[j + 1] - path[j]) * (f - j)
+            side = _unit(np.cross(path[j + 1] - path[j], [0.0, 0.0, 1.0])) * rng.choice([-1.0, 1.0])
+            twig(at, _unit(path[j + 1] - path[j]) * 0.6 + side + np.array([0, 0, 0.5]), rng.uniform(0.4, 0.8))
+        if depth > 0:
+            for _ in range(int(rng.integers(1, 3))):  # one or two forks on the outer half
+                j = int(rng.integers(3, 6))
+                side = _unit(np.cross(path[j + 1] - path[j], [0.0, 0.0, 1.0])) * rng.choice([-1.0, 1.0])
+                d = _unit(path[j + 1] - path[j]) + side * rng.uniform(0.6, 1.1) + np.array([0, 0, 0.25])
+                limb(path[j], d, length * rng.uniform(0.3, 0.5), r0 * 0.5, 0.25, 0.1, depth - 1)
+
+    # Branches in loose tiers with sky between them.
+    golden = math.pi * (3 - math.sqrt(5))
+    az = rng.uniform(0, 2 * math.pi)
+    z = crown_base
+    top_z = height * 0.97
+    while z < top_z:
+        tt = (z - crown_base) / (height - crown_base)
+        for _ in range(int(rng.integers(2, 5))):
+            az += golden + rng.normal(scale=0.35)
+            if form == "young":
+                length = 0.3 + 3.6 * (1 - tt) ** 1.3
+            elif form == "old":
+                length = 4.2 * (0.75 + 0.25 * (1 - tt))
+            else:
+                length = 4.2 * (1 - 0.75 * tt ** 1.2)
+            length *= rng.uniform(0.75, 1.15)
+            rise = (-0.15 + 0.55 * tt) if form != "old" else (-0.1 + 0.2 * tt)
+            d = np.array([math.cos(az), math.sin(az), rise + rng.normal(scale=0.08)])
+            r0 = 0.10 * (length / 3.6) ** 0.8 + 0.03
+            limb(trunk_at(z + rng.uniform(-0.15, 0.15)), d, length, r0, 0.22, 0.4 * (1 - tt), 1)
+        z += rng.uniform(0.6, 1.1) * (1.0 if form != "young" else 0.8)
+    if form == "old":
+        for _ in range(int(rng.integers(2, 4))):  # flat upper limbs make the old tree's flat top
+            az += golden + rng.normal(scale=0.4)
+            d = np.array([math.cos(az), math.sin(az), rng.uniform(0.02, 0.12)])
+            limb(trunk_at(height * rng.uniform(0.88, 0.95)), d, rng.uniform(3.0, 4.0), 0.09, 0.05, 0.05, 1)
     top = trunk_at(height)
     tips.append(top)
-    for _ in range(4):
-        p = top + rng.normal(scale=0.35, size=3) - np.array([0.0, 0.0, 0.4])
-        _clump(meshes, rng, p, 0.3, 5, 1.0, trunk_at(height - 1.5), np.array([1.2, 1.2, 1.2]), 0.3,
-               subdiv=1, tilt_up=1.2, squash=0.8)
+    for _ in range(3 if form != "old" else 1):
+        tuft(top - np.array([0, 0, 0.3]), np.array([0, 0, 1.0]) + rng.normal(scale=0.3, size=3))
     return Model("%s_%d" % (name, index), "ponderosa_pine", "Pine", height, base_r, meshes, tips)
 
 
@@ -568,7 +607,7 @@ def _shrub(name, index, mahogany: bool) -> Model:
 SPECIES = {
     "JuniperRM": (lambda i: _juniper("JuniperRM", i, one_seed=False), 3),
     "JuniperOS": (lambda i: _juniper("JuniperOS", i, one_seed=True), 3),
-    "Ponderosa": (lambda i: _ponderosa("Ponderosa", i), 4),
+    "Ponderosa": (lambda i: _ponderosa("Ponderosa", i), 5),
     "Oak": (lambda i: _shrub("Oak", i, mahogany=False), 3),
     "Mahogany": (lambda i: _shrub("Mahogany", i, mahogany=True), 3),
 }
@@ -604,7 +643,7 @@ MAX_TILT_DEG = 4.0
 # Steepest ground (smallest normal.z) each grows on; steeper is cliff.
 MIN_NZ = {"juniper": 0.76, "pine": 0.8, "shrub": 0.84}
 # Instance scale ranges against the model's own height.
-SCALE = {"JuniperRM": (0.62, 1.2), "JuniperOS": (0.56, 1.1), "Ponderosa": (0.58, 1.35),
+SCALE = {"JuniperRM": (0.62, 1.2), "JuniperOS": (0.56, 1.1), "Ponderosa": (0.7, 1.3),
          "Oak": (0.65, 1.3), "Mahogany": (0.6, 1.1)}
 
 

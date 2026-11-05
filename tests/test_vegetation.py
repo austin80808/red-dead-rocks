@@ -79,12 +79,12 @@ def test_model_heights_match_the_species(species, lo, hi):
         assert m.parts["Trunk"].positions()[:, 2].min() < 0  # trunk base sinks into the ground
 
 
-def test_ponderosa_trunk_is_clear_low_and_scaled_instances_reach_10_to_25_m():
+def test_ponderosa_trunk_is_clear_low_and_scaled_instances_reach_12_to_25_m():
     m = veg.build_model("Ponderosa", 0)
     leaves = m.parts["Leaves"].positions()
-    assert leaves[:, 2].min() > 0.3 * m.height_m  # no needles on the lower trunk
+    assert leaves[:, 2].min() >= 0.4 * m.height_m  # no needles on the lower trunk
     lo, hi = veg.SCALE["Ponderosa"]
-    assert 9.0 <= lo * m.height_m and hi * m.height_m <= 26.0
+    assert 12.0 <= lo * m.height_m and hi * m.height_m <= 25.0
 
 
 def test_obj_is_in_centimetres_with_v_vt_vn_faces(tmp_path):
@@ -285,7 +285,7 @@ def test_junipers_are_dense_from_the_side(species):
         assert vm.side_fill(model, alpha) >= 0.85, model.name
 
 
-_CARD_WIDTH_PENDING = {"Ponderosa": "Task 6", "Oak": "Task 7", "Mahogany": "Task 7"}
+_CARD_WIDTH_PENDING = {"Oak": "Task 7", "Mahogany": "Task 7"}
 
 
 @pytest.mark.parametrize("species", [
@@ -302,3 +302,43 @@ def test_one_seed_juniper_instances_are_2_to_4_m():
     lo, hi = veg.SCALE["JuniperOS"]
     h = veg.build_model("JuniperOS", 0).height_m
     assert 1.9 <= lo * h and hi * h <= 4.1
+
+
+PINES = range(5)
+
+
+def test_ponderosa_has_five_variants():
+    assert veg.SPECIES["Ponderosa"][1] == 5
+
+
+@pytest.mark.parametrize("i", PINES)
+def test_ponderosa_crown_base_and_trunk(i):
+    p = veg.build_model("Ponderosa", i)
+    assert 0.40 <= vm.crown_base_fraction(p) <= 0.60
+    lo, hi = veg.SCALE["Ponderosa"]
+    d = vm.trunk_diameter_at(p, 1.4)
+    assert d * lo >= 0.35 and d * hi <= 0.80
+    assert 12.0 <= lo * p.height_m and hi * p.height_m <= 25.0
+
+
+@pytest.mark.parametrize("i", PINES)
+def test_ponderosa_is_open_with_needles_at_the_tips(i):
+    p = veg.build_model("Ponderosa", i)
+    alpha = fa.paint_atlas("Pine", 256)[..., 3] / 255.0
+    assert 0.45 <= vm.side_fill(p, alpha) <= 0.75
+    assert vm.tip_fraction(p, 1.0) >= 0.70
+
+
+def _crown_width_at(p, f):
+    """90th-percentile XY radius of leaf vertices within 5 % of height fraction f of the crown."""
+    z = p.parts["Leaves"].positions()
+    base, top = z[:, 2].min(), z[:, 2].max()
+    zf = base + f * (top - base)
+    band = z[np.abs(z[:, 2] - zf) <= 0.05 * (top - base)]
+    return float(np.percentile(np.hypot(band[:, 0], band[:, 1]), 90)) if len(band) else 0.0
+
+
+def test_old_ponderosa_is_flat_topped_and_young_is_conical():
+    young, old = veg.build_model("Ponderosa", 0), veg.build_model("Ponderosa", 4)
+    assert _crown_width_at(young, 0.9) < 0.35 * _crown_width_at(young, 0.3)
+    assert _crown_width_at(old, 0.9) > 0.6 * _crown_width_at(old, 0.5)
