@@ -37,10 +37,15 @@ constants below change.
 """
 
 import json
-import math
 import os
+import sys
 
 import unreal
+
+_HERE = os.path.dirname(os.path.abspath(globals().get("__file__") or "/Users/austin/dev/redrocks-ue/unreal/x"))
+if _HERE not in sys.path:
+    sys.path.insert(0, _HERE)
+import level_frame  # noqa: E402  (beside this script: terrain frame -> level frame)
 
 
 def _repo_dir():
@@ -63,8 +68,15 @@ TEX_DIR = os.path.join(SCAN_DIR, "0")
 ASSET_DIR = "/Game/RedRocks/Scan"
 LEVEL_PATH = "/Game/RedRocks/Lvl_RedRocks"
 ACTOR_LABEL = "Scan_ml0w"
-FADE_PNG = os.path.join(REPO_DIR, "assets", "scan", "scan_fade.png")
-FADE_JSON = os.path.join(REPO_DIR, "assets", "scan", "scan_fade.json")
+# The redrocks build output; REDROCKS_OUT_DIR points a test copy at another build.
+OUT_DIR = os.environ.get("REDROCKS_OUT_DIR", os.path.join(REPO_DIR, "out"))
+# The fade mask: `redrocks build` writes a copy with the terraced seating cut
+# out (out/scan_fade.png, redrocks.seating.seating_fade); without one, the
+# scan's own mask from tools/scan_heights.py.
+_CUT = os.path.join(OUT_DIR, "scan_fade.png")
+_FADE_DIR = OUT_DIR if os.path.exists(_CUT) else os.path.join(REPO_DIR, "assets", "scan")
+FADE_PNG = os.path.join(_FADE_DIR, "scan_fade.png")
+FADE_JSON = os.path.join(_FADE_DIR, "scan_fade.json")
 DITHER_FUNCTION = "/Engine/Functions/Engine_MaterialFunctions02/Utility/DitherTemporalAA"
 # World-space noise that breaks the fade into patches. Scale is per cm, so
 # 0.0008 gives blobs of roughly 12 m (the noise's unit cell), about the size of
@@ -106,9 +118,11 @@ CREDIT = "Red Rocks scan: ml0w (CC BY 4.0)"
 # and position come from tools/fit_scan.py: scale searched within +-8 % of the
 # 0.516 m/unit measured in PR #33, then yaw/mirror/offset fitted to the 3DEP
 # terrain heights plus landmarks (stage front edge, both rock summits). Frame:
-# the OBJ/manifest terrain frame (X east, +Y north, cm), i.e. the level's world
-# frame once the OBJ imports carry scale (1,-1,1). Re-run
-# unreal/export_scan_points.py or pass the USD to tools/fit_scan.py to refresh.
+# the OBJ/manifest terrain frame (X east, +Y north, cm); level_frame.py turns
+# the fit into the level's transform (level Y = -north). FIT_MIRROR_X = -1 is
+# the scan importing correctly handed: in the level it cancels into a half
+# turn and the chunks take no mirror. Re-run unreal/export_scan_points.py or
+# pass the USD to tools/fit_scan.py to refresh.
 # Residuals of this fit: median |dz| 4.4 m over 50k points; stage front edge
 # 0.2 m off, Creation Rock summit 12.3 m, Ship Rock summit 5.2 m. The scale sits
 # at the low edge of the search (0.475 m/unit), so rock-to-rock distances favour
@@ -119,6 +133,12 @@ FIT_YAW_DEG = 187.34
 FIT_MIRROR_X = -1
 FIT_SCAN_CENTRE = (15.956, 21.755)  # scan units, removed before rotating
 FIT_OFFSET_CM = (-2901.0, 4335.6, 18007.2)
+# FIT_OFFSET_CM's Z is above this absolute elevation: the level's Z = 0 when
+# the fit was made (the 2.4 km world's 377-grid terrain minimum). The level's
+# Z = 0 is the current terrain minimum (out/manifest.json), which the 3.6 km
+# world (#49) moved 11.88 m lower; without this the scan sank by that much
+# under the terrain blended to it. tools/scan_heights.py rasterises on it too.
+FIT_DATUM_M = 1753.980
 # Re-import the USD only when asked; re-placing reuses the existing chunks.
 # Changing any FIT_* value moves the scan: re-run tools/scan_heights.py too (it
 # reads these constants) so the terrain blend and the fade mask follow.
@@ -206,6 +226,26 @@ def _import_textures():
     if tex is not None:
         out["fade"] = tex
     return out
+
+
+def _datum_shift_cm():
+    """How far above FIT_OFFSET_CM's Z the scan goes in this level: FIT_DATUM_M
+    minus the level's Z = 0 (the manifest's terrain base), in cm."""
+    path = os.path.join(OUT_DIR, "manifest.json")
+    if not os.path.exists(path):
+        log.append("WARN no %s; scan Z left at FIT_OFFSET_CM" % path)
+        return 0.0
+    with open(path) as fh:
+        base = json.load(fh)["terrain_mesh"]["min_elevation_m"]
+    shift = (FIT_DATUM_M - float(base)) * 100.0
+    log.append("scan datum %.3f m, level base %.3f m: Z +%.1f cm" % (FIT_DATUM_M, base, shift))
+    return shift
+
+
+def scan_transform():
+    """((x, y) cm, yaw deg, (sx, sy)) of the scan chunks in the level, from the FIT_* fit."""
+    return level_frame.scan_actor_transform(FIT_SCALE, FIT_YAW_DEG, FIT_MIRROR_X, FIT_SCAN_CENTRE,
+                                            FIT_OFFSET_CM[:2])
 
 
 def _fade_placement():
@@ -363,16 +403,16 @@ def _build_material(textures):
             lib.connect_material_property(base, "", unreal.MaterialProperty.MP_BASE_COLOR)
         mat.set_editor_property("blend_mode", unreal.BlendMode.BLEND_OPAQUE)
     else:
-        # Fade alpha a: uv = (world XY - (x0, y1)) * (1/width, -1/height); the
-        # mask's row 0 is its north edge and level Y is north.
+        # Fade alpha a: uv = (world XY - origin) * inverse size, the mask's
+        # north-west corner at uv (0, 0) (level_frame.raster_uv_transform).
         place = _fade_placement()
+        (o_x, o_y), (i_x, i_y) = level_frame.raster_uv_transform(
+            place["x0_cm"], place["y1_cm"], place["width_cm"], place["height_cm"])
         wp = node("MaterialExpressionWorldPosition", -2200, 1200)
         xy = node("MaterialExpressionComponentMask", -2000, 1200, r=True, g=True, b=False, a=False)
         link(wp, "", xy, "")
-        origin = node("MaterialExpressionConstant2Vector", -2000, 1350,
-                      r=float(place["x0_cm"]), g=float(place["y1_cm"]))
-        inv = node("MaterialExpressionConstant2Vector", -1800, 1350,
-                   r=1.0 / float(place["width_cm"]), g=-1.0 / float(place["height_cm"]))
+        origin = node("MaterialExpressionConstant2Vector", -2000, 1350, r=o_x, g=o_y)
+        inv = node("MaterialExpressionConstant2Vector", -1800, 1350, r=i_x, g=i_y)
         uv = op("MaterialExpressionMultiply", op("MaterialExpressionSubtract", xy, origin, -1800, 1200),
                 inv, -1600, 1200)
         fade = sample(textures["fade"], -1400, 1200, unreal.MaterialSamplerType.SAMPLERTYPE_MASKS)
@@ -550,22 +590,15 @@ def main():
         log.append("ABORT: no scan actors spawned")
         return
 
-    # Every chunk shares the scan's frame, so all get the same transform:
-    # world = R(yaw) . diag(mirror * s, s, s) . (p - centre) + offset, which as
-    # an actor transform is scale (mirror*s, s, s), the yaw, and a location of
-    # offset - R . S . centre.
+    # Every chunk shares the scan's frame, so all get the same transform: the
+    # fit's terrain-frame map, R(yaw) . diag(mirror * s, s) . (p - centre) + offset,
+    # carried into the level by level_frame.scan_actor_transform.
     s = FIT_SCALE
-    yaw = math.radians(FIT_YAW_DEG)
-    cx = FIT_MIRROR_X * s * FIT_SCAN_CENTRE[0]
-    cy = s * FIT_SCAN_CENTRE[1]
-    location = unreal.Vector(
-        FIT_OFFSET_CM[0] - (math.cos(yaw) * cx - math.sin(yaw) * cy),
-        FIT_OFFSET_CM[1] - (math.sin(yaw) * cx + math.cos(yaw) * cy),
-        FIT_OFFSET_CM[2],
-    )
+    (lx, ly), yaw, (sx, sy) = scan_transform()
+    location = unreal.Vector(lx, ly, FIT_OFFSET_CM[2] + _datum_shift_cm())
     for actor in actors:
-        actor.set_actor_scale3d(unreal.Vector(FIT_MIRROR_X * s, s, s))
-        actor.set_actor_rotation(unreal.Rotator(pitch=0.0, yaw=FIT_YAW_DEG, roll=0.0), False)
+        actor.set_actor_scale3d(unreal.Vector(sx, sy, s))
+        actor.set_actor_rotation(unreal.Rotator(pitch=0.0, yaw=yaw, roll=0.0), False)
         actor.set_actor_location(location, False, False)
     lo, hi = _union_bounds(actors)
     log.append(

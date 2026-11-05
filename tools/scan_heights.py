@@ -9,6 +9,9 @@ Writes, from the scan USD and the placement constants in unreal/import_scan.py:
                                  the points around each cell, roofs and trees
                                  left out (scan_blend.ground_surface); the
                                  benches, stage and player spawn stand on it.
+  assets/scan/scan_top.npz       the scan's highest point per 1 m cell, on the
+                                 ground raster's grid; `redrocks build` keeps the
+                                 scan visible where it stands tall in the seating.
   assets/scan/scan_fade.png      the scan's opacity in plan view: 0 at its
                                  footprint edge, 1 from FADE_M inside (row 0 =
                                  north). import_scan.py imports it and the scan
@@ -47,7 +50,7 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "src"))
 
 from redrocks.scan_blend import (  # noqa: E402
-    CELL_M, CLOSE_M, FADE_M, ScanHeights, fade_alpha, footprint, ground_surface,
+    CELL_M, CLOSE_M, FADE_M, GROUND_CELL_M, ScanHeights, fade_alpha, footprint, ground_surface,
 )
 
 IMPORT_SCAN = ROOT / "unreal" / "import_scan.py"
@@ -77,7 +80,17 @@ def fit_constants(src: str) -> dict:
         "mirror": int(num("FIT_MIRROR_X")),
         "centre": tup("FIT_SCAN_CENTRE"),
         "offset_m": tuple(v / 100.0 for v in tup("FIT_OFFSET_CM")),
+        **({"datum_m": num("FIT_DATUM_M")} if re.search(r"^FIT_DATUM_M = ", src, re.M) else {}),
     }
+
+
+def scan_base_m(fit: dict, manifest_base_m: float) -> float:
+    """Absolute elevation that FIT_OFFSET_CM's Z is measured from.
+
+    FIT_DATUM_M when import_scan.py has one (the level's Z = 0 when the fit was
+    made); otherwise the current terrain mesh base from the manifest.
+    """
+    return float(fit.get("datum_m", manifest_base_m))
 
 
 def _fit_scan_module():
@@ -105,7 +118,8 @@ def write_fade(scan: ScanHeights, out_dir: Path, fade_m: float = FADE_M) -> tupl
     ny, nx = alpha.shape
     meta = {
         "about": "ml0w scan opacity in plan view, written by tools/scan_heights.py; "
-        "u = (X - x0_cm) / width_cm, v = (y1_cm - Y) / height_cm in level cm (X east, Y north)",
+        "u = (X - x0_cm) / width_cm, v = (y1_cm - Y) / height_cm in terrain-frame cm (X east, Y north; "
+        "unreal/level_frame.py maps it into the level, where Y is -north)",
         "x0_cm": round(scan.x0 * 100.0, 1),
         "y1_cm": round((scan.y0 + ny * scan.cell) * 100.0, 1),
         "width_cm": round(nx * scan.cell * 100.0, 1),
@@ -128,7 +142,7 @@ def main(argv=None) -> int:
     args = ap.parse_args(argv)
 
     fit = fit_constants(IMPORT_SCAN.read_text())
-    base = json.loads(args.manifest.read_text())["terrain_mesh"]["min_elevation_m"]
+    base = scan_base_m(fit, json.loads(args.manifest.read_text())["terrain_mesh"]["min_elevation_m"])
     pts = _fit_scan_module().load_scan_points(args.scan, stride=1)
     east, north, z = place(pts, fit)
     # Pad by two cells so the footprint never touches the raster border.
@@ -137,13 +151,16 @@ def main(argv=None) -> int:
     scan.save(args.out_dir / "scan_heights.npz")
     ground = ground_surface(east, north, z + base)
     ground.save(args.out_dir / "scan_ground.npz")
+    top = ScanHeights.from_points(east, north, z + base, GROUND_CELL_M, keep="highest")
+    top.save(args.out_dir / "scan_top.npz")
     png, js = write_fade(scan, args.out_dir)
     inside = footprint(scan)
     print("scan points %d, raster %dx%d at %.1f m, footprint %.0f m^2"
           % (len(pts), scan.shape[1], scan.shape[0], scan.cell, inside.sum() * scan.cell ** 2))
     print("ground raster %dx%d at %.1f m, %d cells with ground"
           % (ground.shape[1], ground.shape[0], ground.cell, np.isfinite(ground.heights).sum()))
-    print("wrote %s, %s, %s, %s" % (args.out_dir / "scan_heights.npz", args.out_dir / "scan_ground.npz", png, js))
+    print("wrote %s, %s, %s, %s, %s" % (args.out_dir / "scan_heights.npz", args.out_dir / "scan_ground.npz",
+                                     args.out_dir / "scan_top.npz", png, js))
 
     if args.png:
         import matplotlib

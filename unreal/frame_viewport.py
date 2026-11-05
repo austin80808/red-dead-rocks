@@ -5,13 +5,22 @@ sits inside the mesh and renders black. This places the camera well above the
 highest ridge, looking down at the bowl.
 """
 
+import os
+import sys
+
 import unreal
+
+_HERE = os.path.dirname(os.path.abspath(globals().get("__file__") or "/Users/austin/dev/redrocks-ue/unreal/x"))
+if _HERE not in sys.path:
+    sys.path.insert(0, _HERE)
+import level_frame  # noqa: E402  (beside this script: terrain frame -> level frame)
 
 LEVEL_PATH = "/Game/RedRocks/Lvl_RedRocks"
 
 # Terrain tops out at 645.7 m; 1.4 km gives a clean three-quarter view.
-CAMERA_LOCATION = unreal.Vector(70000.0, -110000.0, 140000.0)
-CAMERA_ROTATION = unreal.Rotator(pitch=-28.0, yaw=30.0, roll=0.0)
+# Terrain-frame position and heading, carried into the level (level_frame.py).
+CAMERA_LOCATION = unreal.Vector(*level_frame.to_level(70000.0, -110000.0), 140000.0)
+CAMERA_ROTATION = unreal.Rotator(pitch=-28.0, yaw=level_frame.level_yaw(30.0), roll=0.0)
 
 log = []
 

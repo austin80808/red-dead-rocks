@@ -17,8 +17,11 @@ no textures to import):
                         ground is red soil with patches of olive and dry grass.
     MI_Sandstone_Rock   instance for Creation_Rock and Ship_Rock: all rock
     MI_Sandstone_Ground instance for the terrain: soil and grass, rock on slopes
-    M_Benches           weathered redwood planks on the seat tops (0.3 m planks
-                        with dark seams and grain), concrete on the risers
+    M_Benches           the terraced rows (redrocks.seating): dusty sandstone
+                        treads on top, stacked red flagstone on the risers
+    M_BenchWood         the bench planks: pale weathered boards with seams
+    M_Steel             bench brackets and the top handrail: dark, rust-tinted
+    M_Roof              the sound booth's posts and roof: maroon painted metal
     M_Concrete          stage: warm grey with stains and speckle
     M_Asphalt           roads: oxidised asphalt, worn patches, dusty edges
     M_Lot               parking: the same asphalt without road edges
@@ -66,7 +69,7 @@ def srgb_to_linear(hex_color):
     return unreal.LinearColor(r=out[0], g=out[1], b=out[2], a=1.0)
 
 
-# Bedding dips 30 deg to the west (X east, Y north, Z up): the planes descend
+# Bedding dips 30 deg to the west (level X east, Z up; Y plays no part): the planes descend
 # toward -X, i.e. z = x * tan30, whose upward unit normal is (-sin30, 0, cos30).
 DIP = math.radians(30.0)
 BED_NORMAL = (-math.sin(DIP), 0.0, math.cos(DIP))
@@ -333,43 +336,114 @@ def build_sandstone(mat):
 
 
 def build_benches(mat):
-    """Redwood planks on top, weathered grey where exposed; concrete risers.
+    """The terraces: dusty sandstone treads, stacked red flagstone risers.
 
-    Bench UVs are metres: U along the row, V across the seat (0..0.9) on the
-    top and up the riser (0..0.45) on the sides.
+    Terrace UVs are metres (redrocks.seating): U along the row; V across the
+    tread on top. The risers' flagstone courses use world height, so they run
+    level whatever depth the buried bottom reaches: thin courses (about 8 cm,
+    as in the photos) of stones 22-72 cm long with wandering joints, each its
+    own red-brown. Stairs.obj (the row-end aisle stairs) takes it too.
+    """
+    lib.delete_all_material_expressions(mat)
+    g = Graph(mat)
+    uv = g.uv()
+    u = g.mask(uv, "r")
+    wpos = g.world_pos()
+    wz = g.mask(wpos, "b")
+    near = g.near_fade(1500.0, 7000.0)
+
+    # Courses: world Z over ~8 cm, warped so they wander like hand-laid flagstone.
+    warp = g.mul(g.sub(g.noise(wpos, 90.0, levels=2), 0.5), 4.0)
+    c = g.div(g.add(wz, warp), 8.0)
+    course = g.floor(c)
+    cf = g.frac(c)
+    # Each course has its own stone length and offset (a noise lookup on its
+    # index), and the joints wander along it so the stones are not bricks.
+    pick = g.noise(g.append(g.append(g.mul(course, 1931.0), 0.0), 0.0), 400.0, levels=1)
+    length = g.add(0.22, g.mul(pick, 0.5))  # metres
+    jitter = g.mul(g.sub(g.noise(g.append(g.append(g.mul(u, 100.0), g.mul(course, 1931.0)), 0.0), 45.0, levels=1), 0.5), 0.9)
+    sc = g.add(g.div(g.add(u, g.mul(pick, 7.0)), length), jitter)
+    stone = g.floor(sc)
+    sf = g.frac(sc)
+    bed = g.add(g.smooth(0.88, 0.97, cf), g.one_minus(g.smooth(0.0, 0.06, cf)))
+    head = g.add(g.smooth(0.95, 0.99, sf), g.one_minus(g.smooth(0.0, 0.02, sf)))
+    joint = g.mul(g.sat(g.add(bed, g.mul(head, 0.8))), near)
+    tint = g.noise(g.append(g.append(g.mul(stone, 713.0), g.mul(course, 1931.0)), 0.0), 1000.0, levels=1)
+    # Lyons/Fountain sandstone: dark red-brown to rust, a few paler buff stones.
+    rock = g.lerp(g.color("#5E2618"), g.color("#8E4227"), tint)
+    rock = g.lerp(rock, g.color("#A0694C"), g.mul(g.smooth(0.8, 0.97, tint), 0.7))
+    blot = g.noise(wpos, 25.0, levels=2)
+    rock = g.mul(rock, g.lerp(0.82, 1.1, blot))
+    grain = g.noise(wpos, 4.0, levels=1, func="VALUE_ALU")
+    rock = g.mul(rock, g.lerp(1.0, g.lerp(0.9, 1.08, grain), near))
+    # Red dust settles on the courses' top edges.
+    rock = g.lerp(rock, g.color("#9A6A50"), g.mul(g.smooth(0.6, 0.88, cf), 0.25))
+    riser = g.lerp(rock, g.color("#2A140D"), g.mul(joint, 0.75))
+
+    # Treads: packed red-tan sandstone and dust, worn paler where people walk.
+    blotch = g.noise(wpos, 350.0, levels=3)
+    tread = g.lerp(g.color("#A2735A"), g.color("#86573F"), g.mul(g.smooth(0.3, 0.8, blotch), 0.7))
+    worn = g.noise(wpos, 2500.0, levels=2)
+    tread = g.lerp(tread, g.color("#B58C70"), g.mul(g.smooth(0.55, 0.85, worn), 0.35))
+    grit = g.noise(wpos, 3.0, levels=1, func="VALUE_ALU")
+    tread = g.mul(tread, g.lerp(1.0, g.lerp(0.88, 1.1, grit), g.near_fade(300.0, 1500.0)))
+
+    top = g.smooth(0.55, 0.75, g.sat(g.normal_z()))
+    col = g.lerp(riser, tread, top)
+    rough = g.lerp(g.lerp(0.88, 0.97, joint), 0.95, top)
+    g.output(col, rough)
+
+
+def build_bench_wood(mat):
+    """The bench planks: pale, sun-greyed boards with dark seams and grain.
+
+    Plank UVs are metres: U along the row, V across one 14 cm board on its top.
     """
     lib.delete_all_material_expressions(mat)
     g = Graph(mat)
     uv = g.uv()
     u = g.mask(uv, "r")
     v = g.mask(uv, "g")
-    plank_w = 0.3
-    pv = g.div(v, plank_w)
-    plank_id = g.floor(pv)
-    # Seams: dark 1 cm gaps at the plank edges.
-    edge = g.mul(g.absv(g.sub(g.frac(pv), 0.5)), 2.0)
-    seam = g.smooth(0.9, 0.97, edge)
-    # Boards are 3.6 m long; each board gets its own tint.
+    # Boards are 3.6 m long; each gets its own tint and a dark butt joint.
     board = g.floor(g.div(u, 3.6))
-    board_pos = g.append(g.append(g.mul(board, 1700.0), g.mul(plank_id, 2300.0)), 0.0)
-    board_tint = g.noise(board_pos, 1000.0, levels=1)
-    # Grain: stretched noise, long along U, tight across.
-    grain_pos = g.append(g.append(g.mul(u, 60.0), g.mul(v, 2500.0)), g.mul(plank_id, 977.0))
+    board_tint = g.noise(g.append(g.append(g.mul(board, 1700.0), 0.0), 0.0), 1000.0, levels=1)
+    butt = g.smooth(0.995, 0.9995, g.frac(g.div(u, 3.6)))
+    # Edges of the board's top: rounded, darker.
+    edge = g.smooth(0.85, 0.98, g.mul(g.absv(g.sub(g.div(v, 0.14), 0.5)), 2.0))
+    grain_pos = g.append(g.append(g.mul(u, 60.0), g.mul(v, 2500.0)), g.mul(board, 977.0))
     grain = g.noise(grain_pos, 100.0, levels=3)
     wpos = g.world_pos()
     weather = g.noise(wpos, 1500.0, levels=2)
 
-    wood = g.lerp(g.color("#8C5434"), g.color("#5E3420"), g.mul(grain, 0.7))
-    wood = g.lerp(wood, g.color("#93857A"), g.mul(g.add(g.mul(weather, 0.6), g.mul(board_tint, 0.4)), 0.6))
-    wood = g.mul(wood, g.lerp(0.85, 1.12, board_tint))
-    wood = g.lerp(wood, g.color("#1E140E"), g.mul(seam, g.near_fade(1500.0, 6000.0)))
+    wood = g.lerp(g.color("#B49A7C"), g.color("#7E6650"), g.mul(grain, 0.6))
+    wood = g.lerp(wood, g.color("#A79F92"), g.mul(g.add(g.mul(weather, 0.6), g.mul(board_tint, 0.4)), 0.55))
+    wood = g.mul(wood, g.lerp(0.88, 1.1, board_tint))
+    near = g.near_fade(1500.0, 6000.0)
+    wood = g.lerp(wood, g.color("#2A1E16"), g.mul(g.sat(g.add(g.mul(edge, 0.6), butt)), near))
+    g.output(wood, 0.8)
 
-    # Risers: concrete stained by decades of red dust.
-    concrete = _concrete_color(g, wpos, "#A8927C", "#8A7663")
+
+def build_roof(mat):
+    """The sound booth's roof and posts: maroon painted metal, sun-faded on top."""
+    lib.delete_all_material_expressions(mat)
+    g = Graph(mat)
+    wpos = g.world_pos()
+    fade = g.smooth(0.4, 0.9, g.noise(wpos, 300.0, levels=2))
     top = g.smooth(0.55, 0.75, g.sat(g.normal_z()))
-    col = g.lerp(concrete, wood, top)
-    rough = g.lerp(0.92, 0.78, top)
-    g.output(col, rough)
+    col = g.lerp(g.color("#6E2620"), g.color("#8E3A2E"), g.mul(fade, g.add(0.3, g.mul(top, 0.5))))
+    g.output(col, g.lerp(0.5, 0.7, fade), metallic=0.3)
+
+
+def build_steel(mat):
+    """Bench brackets and the top handrail: dark painted steel, rust coming through."""
+    lib.delete_all_material_expressions(mat)
+    g = Graph(mat)
+    wpos = g.world_pos()
+    rust = g.smooth(0.55, 0.85, g.noise(wpos, 40.0, levels=3))
+    col = g.lerp(g.color("#262524"), g.color("#5A3420"), g.mul(rust, 0.7))
+    # Painted, not bare: from the top row a metallic strap mirrored the sky and
+    # the bracket lines read white; in the photos they are dark.
+    g.output(col, g.lerp(0.65, 0.9, rust), metallic=0.1)
 
 
 def _concrete_color(g, wpos, light_hex, dark_hex):
@@ -518,6 +592,9 @@ def apply_to_mesh(mesh_name, material):
 # Built here; setup_gameplay.py assigns the ones for meshes it imports.
 SURFACES = [
     ("M_Benches", build_benches, "Benches"),
+    ("M_BenchWood", build_bench_wood, "Bench_Planks"),
+    ("M_Steel", build_steel, "Bench_Brackets"),
+    ("M_Roof", build_roof, "Booth"),
     ("M_Concrete", build_concrete, "Stage"),
     ("M_Asphalt", build_asphalt, "Roads"),
     ("M_Lot", build_lot, "Parking"),
@@ -550,6 +627,8 @@ def main():
             _step("apply %s" % mesh_name, apply_to_mesh, mesh_name, mat)
         if mat_name == "M_Concrete" and mat is not None:
             _step("apply Walls", apply_to_mesh, "Walls", mat)
+        if mat_name == "M_Steel" and mat is not None:
+            _step("apply Handrail", apply_to_mesh, "Handrail", mat)
 
     log.append("done")
 

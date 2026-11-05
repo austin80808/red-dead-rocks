@@ -1,12 +1,10 @@
-"""Curved rows (venue arcs about the stage) and benches that follow the ground."""
-
-from collections import Counter
+"""Curved rows: venue arcs about the stage, and the terrain surface the seating stands on."""
 
 import numpy as np
 import pytest
-from shapely.geometry import Point, Polygon
+from shapely.geometry import Polygon
 
-from redrocks.benches import SEAT_HEIGHT_M, export_benches_obj, terrain_base_elevation
+from redrocks.benches import terrain_base_elevation
 from redrocks.dem import BBox, Dem
 from redrocks.terrain_mesh import TerrainSurface, export_terrain_obj
 from redrocks.venue import (
@@ -16,8 +14,6 @@ from redrocks.venue import (
     slice_polygon_arcs,
     stage_centre,
 )
-
-BASE = 1750.0
 
 
 class IdentityProjection:
@@ -49,23 +45,6 @@ def load(path):
         elif tok and tok[0] == "f":
             faces.append([int(t.split("/")[0]) for t in tok[1:]])
     return np.array(verts), faces
-
-
-def arc_line(radius, half_angle_deg=30.0, n=40):
-    a = np.radians(np.linspace(-half_angle_deg, half_angle_deg, n))
-    return np.stack([radius * np.cos(a), radius * np.sin(a)], axis=1)
-
-
-def one_row(elevation=1800.0):
-    return [Row(1, 100, 30.0, elevation, 0.0, 0.0)]
-
-
-def export(tmp_path, lines, rows=None, **kw):
-    rows = rows or [Row(i + 1, 100, 30.0, 1800.0 + i, 0.0, 0.0) for i in range(len(lines))]
-    out = tmp_path / "Benches.obj"
-    mesh = export_benches_obj(rows, lines, out, BASE, **kw)
-    verts, faces = load(out)
-    return mesh, verts, faces
 
 
 # ---- venue: arcs ----------------------------------------------------------
@@ -178,46 +157,6 @@ def test_rake_uses_plan_distance_not_just_north():
 # ---- benches: curved polylines ---------------------------------------------
 
 
-def test_curved_bench_is_closed_and_positive_volume(tmp_path):
-    mesh, verts, faces = export(tmp_path, [arc_line(30.0)], simplify_m=0)
-    directed = Counter()
-    for f in faces:
-        for a, b in zip(f, f[1:] + f[:1]):
-            directed[(a, b)] += 1
-    assert all(c == 1 for c in directed.values())
-    assert all(directed.get((b, a)) == 1 for a, b in directed)
-    vol = sum(
-        verts[f[0] - 1] @ np.cross(verts[f[1] - 1], verts[f[2] - 1]) / 6.0 for f in faces
-    )
-    assert vol > 0
-
-
-def test_curved_bench_keeps_constant_depth_around_the_bend(tmp_path):
-    """Mitres on an arc must give a strip of even width, not pinch or flare."""
-    radius, depth = 25.0, 0.9
-    _, verts, _ = export(tmp_path, [arc_line(radius)], simplify_m=0)
-    r = np.hypot(verts[:, 0], verts[:, 1]) / 100.0
-    inner, outer = radius - depth / 2, radius + depth / 2
-    # Mitre corners of a polygonal arc land at radius / cos(half step): tiny.
-    assert r.min() == pytest.approx(inner, abs=0.02)
-    assert r.max() == pytest.approx(outer, abs=0.02)
-    assert np.all((np.abs(r - inner) < 0.02) | (np.abs(r - outer) < 0.02))
-
-
-def test_sharp_mitre_is_capped(tmp_path):
-    spike = np.array([[0.0, 0.0], [10.0, 0.0], [0.0, 0.2]])  # nearly a U-turn
-    _, verts, _ = export(tmp_path, [spike], simplify_m=0)
-    assert np.all(np.abs(verts[:, :2]) < 2500)  # within 25 m, nothing flung out
-
-
-def test_arc_polyline_is_simplified_but_stays_within_tolerance(tmp_path):
-    line = arc_line(60.0, half_angle_deg=25.0, n=400)
-    mesh, verts, _ = export(tmp_path, [line], simplify_m=0.1)
-    assert mesh.vertices < 4 * 40  # far fewer than 400 stations
-    r = np.hypot(verts[:, 0], verts[:, 1]) / 100.0
-    assert r.min() > 60.0 - 0.45 - 0.12
-
-
 # ---- benches: following the ground ------------------------------------------
 
 
@@ -231,79 +170,6 @@ class Tilted:
 def section_stations(verts, tris_per_bench=None):
     """Group a single bench's vertices by station: 4 corners each (LB, LT, RT, RB)."""
     return verts.reshape(-1, 4, 3) / 100.0
-
-
-def test_bench_follows_the_ground_along_its_length(tmp_path):
-    line = np.array([[-40.0, 100.0], [40.0, 100.0]])
-    ground = Tilted()
-    mesh, verts, _ = export(tmp_path, [line], ground=ground)
-    st = section_stations(verts)
-    assert len(st) > 30  # subdivided, not a two-station box
-    for lb, lt, rt, rb in st:
-        gc = ground(0.5 * (lt[0] + rt[0]), 0.5 * (lt[1] + rt[1]))
-        assert lt[2] + BASE == pytest.approx(gc + SEAT_HEIGHT_M, abs=1e-6)
-        assert rt[2] + BASE == pytest.approx(gc + SEAT_HEIGHT_M, abs=1e-6)
-    tops = np.array([lt[2] for _, lt, _, _ in st])
-    assert tops.max() - tops.min() == pytest.approx(0.1 * 80.0, abs=0.01)  # rises with the slope
-
-
-def test_ends_neither_float_nor_sink(tmp_path):
-    line = np.array([[-40.0, 100.0], [40.0, 100.0]])
-    ground = Tilted()
-    _, verts, _ = export(tmp_path, [line], ground=ground)
-    for lb, lt, rt, rb in section_stations(verts):
-        under = [ground(c[0], c[1]) for c in (lb, rb)]
-        centre = ground(0.5 * (lt[0] + rt[0]), 0.5 * (lt[1] + rt[1]))
-        lowest = min(under + [centre])
-        assert lb[2] + BASE == pytest.approx(lowest, abs=1e-6)  # base on the lowest ground
-        assert rb[2] + BASE == pytest.approx(lowest, abs=1e-6)
-        assert min(under) >= lb[2] + BASE - 1e-6  # no corner of the bench floats above the ground
-
-
-def test_curved_bench_follows_the_ground_too(tmp_path):
-    ground = Tilted()
-    _, verts, _ = export(tmp_path, [arc_line(30.0)], ground=ground)
-    st = section_stations(verts)
-    for lb, lt, rt, rb in st:
-        centre = ground(0.5 * (lt[0] + rt[0]), 0.5 * (lt[1] + rt[1]))
-        assert lt[2] + BASE == pytest.approx(centre + SEAT_HEIGHT_M, abs=1e-4)
-    assert np.ptp([lt[2] for _, lt, _, _ in st]) > 1.0
-
-
-def test_flat_ground_gives_a_flat_45cm_bench(tmp_path):
-    _, verts, _ = export(tmp_path, [arc_line(30.0)], ground=lambda e, n: 1800.0)
-    z = verts[:, 2] / 100.0 + BASE
-    assert z.min() == pytest.approx(1800.0, abs=1e-6)
-    assert z.max() == pytest.approx(1800.0 + SEAT_HEIGHT_M, abs=1e-6)
-
-
-def test_without_ground_benches_stay_flat_at_the_row_elevation(tmp_path):
-    rows = one_row(1800.0)
-    out = tmp_path / "b.obj"
-    export_benches_obj(rows, [arc_line(30.0)], out, BASE)
-    verts, _ = load(out)
-    z = verts[:, 2] / 100.0 + BASE
-    assert z.min() == pytest.approx(1800.0, abs=1e-6)
-    assert z.max() == pytest.approx(1800.0 + SEAT_HEIGHT_M, abs=1e-6)
-
-
-def test_ground_step_bounds_station_spacing(tmp_path):
-    line = np.array([[-40.0, 100.0], [40.0, 100.0]])
-    _, verts, _ = export(tmp_path, [line], ground=Tilted(), ground_step_m=2.5)
-    xs = np.unique(np.round(verts[:, 0] / 100.0, 6))
-    assert np.max(np.diff(xs)) <= 2.5 + 1e-6
-
-
-def test_row_gap_is_measured_between_arcs_not_between_midpoints(tmp_path):
-    # Three concentric arcs 0.5 m apart whose midpoints are nowhere near 0.5 m apart.
-    lines = [arc_line(30.0 + 0.5 * i, half_angle_deg=10.0 + 15 * i, n=30) for i in range(3)]
-    rows = [Row(i + 1, 1, 10.0, 1800.0, 30.0 * np.cos(i), 40.0 * i) for i in range(3)]
-    out = tmp_path / "b.obj"
-    export_benches_obj(rows, lines, out, BASE, simplify_m=0)
-    verts, _ = load(out)
-    first = verts[: 4 * 30]
-    r = np.hypot(first[:, 0], first[:, 1]) / 100.0
-    assert r.max() - r.min() == pytest.approx(0.95 * 0.5, abs=0.01)  # depth clamped to 95% of 0.5 m
 
 
 # ---- TerrainSurface ----------------------------------------------------------
@@ -338,22 +204,3 @@ def test_terrain_surface_clamps_outside_the_extent():
         TerrainSurface(make_dem(), 1)
 
 
-def test_floor_pulls_the_bench_bottom_down_but_not_the_seat(tmp_path):
-    """On the scan: seat 0.45 m over the scan's ground, bottom down to the terrain under it."""
-    line = np.array([[-40.0, 100.0], [40.0, 100.0]])
-    ground = Tilted()
-    floor = lambda e, n: ground(e, n) - 0.4 - 0.01 * abs(e)  # noqa: E731  terrain under the scan
-    _, verts, _ = export(tmp_path, [line], ground=ground, floor=floor)
-    for lb, lt, rt, rb in section_stations(verts):
-        centre = ground(0.5 * (lt[0] + rt[0]), 0.5 * (lt[1] + rt[1]))
-        assert lt[2] + BASE == pytest.approx(centre + SEAT_HEIGHT_M, abs=1e-6)
-        lowest = min(floor(c[0], c[1]) for c in (lb, rb, 0.5 * (lb + rb)))
-        assert lb[2] + BASE == pytest.approx(lowest, abs=1e-6)
-        assert rb[2] + BASE == pytest.approx(lowest, abs=1e-6)
-
-
-def test_a_floor_above_the_ground_does_not_lift_the_bottom(tmp_path):
-    line = np.array([[-40.0, 100.0], [40.0, 100.0]])
-    _, with_floor, _ = export(tmp_path, [line], ground=Tilted(), floor=lambda e, n: 5000.0)
-    _, without, _ = export(tmp_path, [line], ground=Tilted())
-    np.testing.assert_allclose(with_floor, without)

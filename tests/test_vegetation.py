@@ -241,8 +241,9 @@ def test_every_model_has_bark_and_foliage_materials(sv, models):
 
 def test_instance_rows_use_keyword_rotations(sv):
     (loc, rot, scale), = sv.instance_rows([[1.0, 2.0, 3.0, 90.0, 1.0, -1.0, 1.1, 1.2]])
-    assert loc == (1.0, 2.0, 3.0) and scale == (1.1, 1.1, 1.2)
-    assert rot == {"pitch": 1.0, "yaw": 90.0, "roll": -1.0}
+    # Into the level frame: Y = -north, and the mirror flips yaw and roll.
+    assert loc == (1.0, -2.0, 3.0) and scale == (1.1, 1.1, 1.2)
+    assert rot == {"pitch": 1.0, "yaw": -90.0, "roll": 1.0}
 
 
 def test_out_dir_can_be_overridden(monkeypatch):
@@ -269,8 +270,9 @@ def shots():
 def test_matched_views_skip_unset_cameras_and_carry_fov(shots):
     views = [{"name": "trail", "camera": {"x": 1.0, "y": 2.0, "z": 3.0, "pitch": -5.0, "yaw": 90.0, "fov": 70.0}},
              {"name": "ponderosa", "camera": {"x": 0, "y": 0, "z": 0, "pitch": 0, "yaw": 0, "fov": 0}}]
+    # views.json is in the terrain frame (east, north); the level has north on -Y.
     assert shots.matched_views(views) == [
-        ("trail", (1.0, 2.0, 3.0), {"pitch": -5.0, "yaw": 90.0, "roll": 0.0}, 70.0)]
+        ("trail", (1.0, -2.0, 3.0), {"pitch": -5.0, "yaw": -90.0, "roll": 0.0}, 70.0)]
 
 
 def test_shot_views_default_to_the_repo_views_file(shots):

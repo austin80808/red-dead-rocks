@@ -17,9 +17,10 @@ vertices, and grows rings outward from them to 120 km past the edge:
   (setup_lighting.py) turns it into distant haze.
 
 It is written as an OBJ under the project's Saved/RedRocksGen/, imported to
-/Game/RedRocks/Terrain_Skirt with MI_Sandstone_Ground, and placed with the same
-Y scale of -1 as every other OBJ actor. It has no collision (no one can walk
-there) and casts no shadows.
+/Game/RedRocks/Terrain_Skirt with MI_Sandstone_Ground, and placed like every
+other OBJ actor, with no flip: the importer's Y negation is the level frame
+(level_frame.py). It has no collision (no one can walk there) and casts no
+shadows.
 
 Trees and shrubs are setup_vegetation.py's (it replaced the sphere-clump
 scrub this script used to scatter). The geometry functions are plain Python, tested offline.
@@ -27,8 +28,14 @@ scrub this script used to scatter). The geometry functions are plain Python, tes
 
 import math
 import os
+import sys
 
 import unreal
+
+_HERE = os.path.dirname(os.path.abspath(globals().get("__file__") or "/Users/austin/dev/redrocks-ue/unreal/x"))
+if _HERE not in sys.path:
+    sys.path.insert(0, _HERE)
+import level_frame  # noqa: E402  (beside this script: terrain frame -> level frame)
 
 # The redrocks build output; REDROCKS_OUT_DIR points a test copy at another build.
 OUT_DIR = os.environ.get("REDROCKS_OUT_DIR", "/Users/austin/dev/redrocks-ue/out")
@@ -223,8 +230,8 @@ def _place(mesh):
     comp = actor.static_mesh_component
     comp.set_static_mesh(mesh)
     actor.set_actor_label(SKIRT_NAME)
-    # The OBJ importer negates Y; -1 restores north (README gotchas).
-    actor.set_actor_scale3d(unreal.Vector(1.0, -1.0, 1.0))
+    # The OBJ importer negates Y, which is the terrain -> level map (level_frame.py).
+    actor.set_actor_scale3d(unreal.Vector(*level_frame.OBJ_ACTOR_SCALE))
     actor.set_mobility(unreal.ComponentMobility.STATIC)
     comp.set_collision_profile_name("NoCollision")
     actor.set_actor_enable_collision(False)

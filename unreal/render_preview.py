@@ -12,8 +12,14 @@ all resolve.
 """
 
 import os
+import sys
 
 import unreal
+
+_HERE = os.path.dirname(os.path.abspath(globals().get("__file__") or "/Users/austin/dev/redrocks-ue/unreal/x"))
+if _HERE not in sys.path:
+    sys.path.insert(0, _HERE)
+import level_frame  # noqa: E402  (beside this script: terrain frame -> level frame)
 
 LEVEL_PATH = "/Game/RedRocks/Lvl_RedRocks"
 PROJECT = "/Users/austin/Documents/Unreal Projects/RedRocks"
@@ -21,8 +27,9 @@ RT_DIR = "/Game/RedRocks"
 OUT_PNG = os.path.join(PROJECT, "Saved", "redrocks_preview.png")
 
 # Look north-west down into the bowl from high above the south-east ridge.
-CAMERA_LOCATION = unreal.Vector(90000.0, -120000.0, 95000.0)
-CAMERA_ROTATION = unreal.Rotator(pitch=-32.0, yaw=38.0, roll=0.0)
+# Terrain-frame position and heading, carried into the level (level_frame.py).
+CAMERA_LOCATION = unreal.Vector(*level_frame.to_level(90000.0, -120000.0), 95000.0)
+CAMERA_ROTATION = unreal.Rotator(pitch=-32.0, yaw=level_frame.level_yaw(38.0), roll=0.0)
 
 WIDTH, HEIGHT = 1600, 900
 

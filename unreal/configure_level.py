@@ -21,8 +21,14 @@ Three things:
 """
 
 import os
+import sys
 
 import unreal
+
+_HERE = os.path.dirname(os.path.abspath(globals().get("__file__") or "/Users/austin/dev/redrocks-ue/unreal/x"))
+if _HERE not in sys.path:
+    sys.path.insert(0, _HERE)
+import level_frame  # noqa: E402  (beside this script: terrain frame -> level frame)
 
 LEVEL_PATH = "/Game/RedRocks/Lvl_RedRocks"
 LOG_PATH = os.path.join(os.environ.get("REDROCKS_LOG_DIR", "/tmp"), "redrocks_configure.log")
@@ -159,12 +165,12 @@ def _post_process(actors):
 
 def _camera(actors):
     cam = actors.spawn_actor_from_class(
-        unreal.CineCameraActor, unreal.Vector(60000.0, -90000.0, 40000.0)
+        unreal.CineCameraActor, unreal.Vector(*level_frame.to_level(60000.0, -90000.0), 40000.0)
     )
     if cam is None:
         raise RuntimeError("could not spawn camera")
     cam.set_actor_label("Camera")
-    cam.set_actor_rotation(unreal.Rotator(pitch=-18.0, yaw=25.0, roll=0.0), False)
+    cam.set_actor_rotation(unreal.Rotator(pitch=-18.0, yaw=level_frame.level_yaw(25.0), roll=0.0), False)
 
 
 def _save():

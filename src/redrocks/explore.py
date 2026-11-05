@@ -66,7 +66,8 @@ class Spot:
     elevation_m: float
     yaw_deg: float
     # How the Unreal script finds the floor: "ground" traces down from above,
-    # "summit" traces down from high above (lands on the rock top).
+    # "summit" traces down from high above (lands on the rock top), "deck" from
+    # just above (the stage spot: from higher up it landed on the stage roof).
     place: str = "ground"
 
     def as_dict(self) -> dict:
@@ -98,7 +99,11 @@ class Route:
 
 
 def yaw_deg(dx: float, dy: float) -> float:
-    """Unreal yaw (degrees) for a direction in east/north metres (X east, Y north)."""
+    """Terrain-frame heading (degrees counter-clockwise from east) of an east/north direction.
+
+    The manifest's ``yaw_deg`` values are these; unreal/level_frame.level_yaw
+    turns one into an Unreal yaw (its negative: the level has north on -Y).
+    """
     return math.degrees(math.atan2(dy, dx))
 
 
@@ -301,14 +306,19 @@ def plan(osm: OsmData, to_xy, elevation, half_extent: float, spawn: dict | None,
     spots: list[Spot] = []
     if spawn:
         spots.append(Spot("stage", "The stage", "Walk up the bowl, or turn around and climb the rocks.",
-                          spawn["east_m"], spawn["north_m"], spawn["ground_elevation_m"], spawn["yaw_deg"]))
+                          spawn["east_m"], spawn["north_m"], spawn["ground_elevation_m"], spawn["yaw_deg"],
+                          place="deck"))
     if stage:
         ax, ay = stage["axis_east_north"]
         n = math.hypot(ax, ay) or 1.0
         ax, ay = ax / n, ay / n
-        # The walkway is about 70 m up the bowl from the stage front, on its axis.
-        tx = stage["front_edge_east_m"] + 72.0 * ax
-        ty = stage["front_edge_north_m"] + 72.0 * ay
+        # On the top walkway, where the stage blockout put it; older manifests
+        # without it: an estimate 72 m up the axis (it lands around row 56).
+        if "walkway_east_m" in stage:
+            tx, ty = stage["walkway_east_m"], stage["walkway_north_m"]
+        else:
+            tx = stage["front_edge_east_m"] + 72.0 * ax
+            ty = stage["front_edge_north_m"] + 72.0 * ay
         spots.append(Spot("bowl_top", "Top of the bowl", "The whole amphitheatre below you.",
                           tx, ty, stage["walkway_elevation_m"], yaw_deg(-ax, -ay)))
 

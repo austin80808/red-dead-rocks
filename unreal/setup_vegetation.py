@@ -35,8 +35,14 @@ What it does, each step logged to $REDROCKS_LOG_DIR (default /tmp)/redrocks_vege
 import json
 import math
 import os
+import sys
 
 import unreal
+
+_HERE = os.path.dirname(os.path.abspath(globals().get("__file__") or "/Users/austin/dev/redrocks-ue/unreal/x"))
+if _HERE not in sys.path:
+    sys.path.insert(0, _HERE)
+import level_frame  # noqa: E402  (beside this script: terrain frame -> level frame)
 
 OUT_DIR = os.environ.get("REDROCKS_OUT_DIR", "/Users/austin/dev/redrocks-ue/out")
 VEG_DIR = os.path.join(OUT_DIR, "vegetation")
@@ -108,10 +114,16 @@ def part_collides(model_name, part):
 
 
 def instance_rows(rows):
-    """[(location, rotator kwargs, scale)] from vegetation.json rows."""
+    """[(level location, rotator kwargs, scale)] from vegetation.json rows.
+
+    The rows are in the terrain frame (cm, X east, Y north, angles about its
+    axes); level_frame.py carries them into the level (Y = -north).
+    """
     out = []
     for x, y, z, yaw, pitch, roll, sxy, sz in rows:
-        out.append(((x, y, z), {"pitch": pitch, "yaw": yaw, "roll": roll}, (sxy, sxy, sz)))
+        lx, ly = level_frame.to_level(x, y)
+        lyaw, lpitch, lroll = level_frame.level_rotator(yaw, pitch, roll)
+        out.append(((lx, ly, z), {"pitch": lpitch, "yaw": lyaw, "roll": lroll}, (sxy, sxy, sz)))
     return out
 
 

@@ -60,7 +60,7 @@ def test_sun_points_away_from_the_sun(lighting, azimuth, east, north):
     assert pitch == -20.0 and z < 0  # pointing down: the sun is up
     h = math.hypot(x, y)
     assert math.isclose(x / h, east, abs_tol=1e-9)
-    assert math.isclose(y / h, north, abs_tol=1e-9)
+    assert math.isclose(-y / h, north, abs_tol=1e-9)  # level Y is south
 
 
 def test_configured_sun_is_low_and_behind_the_spawn(lighting):

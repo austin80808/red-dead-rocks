@@ -16,22 +16,32 @@ ScriptLook / RRGo), the same code paths the keys use:
             manifest's road route like a player would
   sled      make it snow, teleport to the sled hill, sled the fall line
   morrison  look around downtown
+  seating   walk up a row-end aisle, stair by stair, and photograph the rows
 
-Results: /tmp/redrocks_playtest_explore.log ("ok"/"FAIL" lines with numbers),
-screenshots redrocks_explore_*.png in <project>/Saved/Screenshots/.
+Results: /tmp/redrocks_playtest_explore.log ("ok"/"FAIL" lines with numbers;
+a stalled aisle walk also logs what stands in front of it), the aisle walk's
+path every 0.1 s in /tmp/walk_traj.json ([t, x, y, feet z, aim yaw, vx, vy, vz,
+mode, dropping, metres along, leg]), screenshots redrocks_explore_*.png in
+<project>/Saved/Screenshots/. REDROCKS_LOG_DIR moves the logs.
 Pass SCENARIOS=cart,sled (env) to run a subset.
 """
 
 import json
 import math
 import os
+import sys
 import time
 
 import unreal
 
+_HERE = os.path.dirname(os.path.abspath(globals().get("__file__") or "/Users/austin/dev/redrocks-ue/unreal/x"))
+if _HERE not in sys.path:
+    sys.path.insert(0, _HERE)
+import level_frame  # noqa: E402  (beside this script: terrain frame -> level frame)
+
 OUT_DIR = os.environ.get("REDROCKS_OUT_DIR", "/Users/austin/dev/redrocks-ue/out")
 LOG_PATH = os.path.join(os.environ.get("REDROCKS_LOG_DIR", "/tmp"), "redrocks_playtest_explore.log")
-ALL = ["bowl", "climb", "wingsuit", "cart", "sled", "tubing", "night", "morrison"]
+ALL = ["seating", "bowl", "climb", "wingsuit", "cart", "sled", "tubing", "night", "morrison"]
 SCENARIOS = [s for s in os.environ.get("SCENARIOS", ",".join(ALL)).split(",") if s]
 TIMEOUT_S = 900.0
 SETTLE_S = 5.0
@@ -174,6 +184,17 @@ def _start_scenario(pawn, world, name):
     elif name == "bowl":
         R.s["views"] = [("stage", 0.0, 4.0, False), ("bowl_top", 0.0, -14.0, False), ("bowl_top", 0.0, -14.0, True)]
         R.steps = [("views", bowl_views)]
+    elif name == "seating":
+        pawn.rr_go(SPOT["stage"])
+        R.steps = [("settle", R.wait(SETTLE_S)),
+                   ("from_stage", seat_view("seating_stage", _aim_up, 6.0)),
+                   ("to_aisle", seat_to_aisle),
+                   ("settle_aisle", R.wait(3.0)),
+                   ("walk_low", seat_walk(0.5)),
+                   ("mid_across", seat_view("seating_mid", _aim_across, 4.0)),
+                   ("walk_high", seat_walk(1.0)),
+                   ("walk_end", seat_walk_end),
+                   ("from_top", seat_view("seating_top", _aim_down, -16.0))]
     elif name == "morrison":
         pawn.rr_go(SPOT["morrison"])
         R.steps = [("settle", R.wait(SETTLE_S + 3.0)), ("look", morrison_shot)]
@@ -208,6 +229,290 @@ def climb_end(now, pawn, world):
           "gained %.1f m, modes %s" % (gain, sorted(R.s["modes"])))
     _shot(world, "climb_high")
     pawn.script_press("Camera")
+    return True
+
+
+# ---- seating -----------------------------------------------------------------
+# Walk from the stage up one of the row-end aisles, stair step by stair step
+# (manifest stage.aisles, from redrocks.stage), with no jumping, and photograph
+# the three views the Commons photos were taken from: up from the stage, across
+# the rows from mid-aisle, down from the top row.
+
+# The walk starts at row 8's stairs: below that the aisles start in the stage
+# blockout's front corner (its deck stands higher than the first steps); that
+# is for the stage pass, not the seating.
+AISLE_FROM_ROW = 8
+
+
+def _aisle_steps():
+    """The more continuous of the two aisles (the smallest sideways jump between
+    steps), from row AISLE_FROM_ROW up: [(east, north, z)] in metres."""
+    aisles = (manifest.get("stage") or {}).get("aisles") or {}
+    levels = (manifest.get("benches") or {}).get("tread_levels_m") or []
+    floor = levels[AISLE_FROM_ROW - 2] if len(levels) >= AISLE_FROM_ROW else -1e9
+    best, best_jump = [], None
+    for steps in aisles.values():
+        steps = [p for p in steps if p[2] > floor + 0.01]
+        if len(steps) < 2:
+            continue
+        jump = max(math.hypot(b[0] - a[0], b[1] - a[1]) for a, b in zip(steps, steps[1:]))
+        if best_jump is None or jump < best_jump:
+            best, best_jump = steps, jump
+    return best
+
+
+def _aisle():
+    """The aisle's steps in level cm."""
+    return [level_frame.to_level_cm(e, n) for e, n, _ in _aisle_steps()]
+
+
+def _other_aisle_at(fraction):
+    """A point on the far aisle, ``fraction`` of the way up: what 'across the rows' looks at."""
+    aisles = list(((manifest.get("stage") or {}).get("aisles") or {}).values())
+    mine = _aisle()
+    for steps in aisles:
+        pts = [level_frame.to_level_cm(e, n) for e, n, _ in steps]
+        if pts and pts != mine:
+            return pts[min(len(pts) - 1, int(fraction * len(pts)))]
+    return None
+
+
+def _seat_levels_cm():
+    b = manifest.get("benches") or {}
+    levels = b.get("tread_levels_m") or [0.0, 0.0]
+    base = b.get("base_elevation_m", 0.0)
+    return (levels[0] - base) * 100.0, (levels[-1] - base) * 100.0
+
+
+def _yaw_to(pawn, x, y):
+    """Level yaw from the pawn to level (x, y) cm."""
+    loc = pawn.get_actor_location()
+    return math.degrees(math.atan2(y - loc.y, x - loc.x))
+
+
+def seat_view(name, aim, pitch):
+    """Stop, aim (a function of the pawn giving a yaw), wait for streaming, shoot."""
+    def fn(now, pawn, world):
+        if "view_at" not in R.s:
+            pawn.script_move(unreal.Vector2D(0.0, 0.0), False)
+            R.s["view_at"] = now
+            pawn.script_look(aim(pawn), pitch)
+            return False
+        if now - R.s["view_at"] > 5.0 and not R.s.get("view_shot"):
+            _shot(world, name, ui=False)
+            R.s["view_shot"] = True
+            return False
+        if now - R.s["view_at"] > 7.0:
+            R.s.pop("view_at")
+            R.s.pop("view_shot", None)
+            return True
+        return False
+    return fn
+
+
+def _aim_up(pawn):
+    path = _aisle()
+    i = min(R.s.get("wp", 0), len(path) - 1)
+    return _yaw_to(pawn, *path[min(i + 4, len(path) - 1)]) if path else pawn.get_actor_rotation().yaw
+
+
+def _aim_across(pawn):
+    far = _other_aisle_at(0.5)
+    return _yaw_to(pawn, *far) if far else pawn.get_actor_rotation().yaw + 90.0
+
+
+def _aim_down(pawn):
+    stage = next(sp for sp in explore["spots"] if sp["key"] == "stage")
+    return _yaw_to(pawn, *level_frame.to_level_cm(stage["east_m"], stage["north_m"]))
+
+
+def seat_to_aisle(now, pawn, world):
+    """Stand on the aisle at row AISLE_FROM_ROW, 1.2 m before that step."""
+    path = _aisle()
+    steps = _aisle_steps()
+    if not path:
+        return True
+    first = steps[0]
+    (x0, y0), (x1, y1) = path[0], path[1]
+    d = math.hypot(x1 - x0, y1 - y0) or 1.0
+    base = (manifest.get("benches") or {}).get("base_elevation_m", 0.0)
+    z = (first[2] - base) * 100.0 + 130.0
+    pawn.set_actor_location(unreal.Vector(x0 - (x1 - x0) / d * 120.0, y0 - (y1 - y0) / d * 120.0, z), False, True)
+    note("at the foot of the aisle (%.0f, %.0f)" % (x0 / 100.0, y0 / 100.0))
+    return True
+
+
+LOOKAHEAD_CM = 70.0
+# The play-test steers once per Slate tick, about 3 Hz in the editor with this
+# level (logged 2026-11-04), and the explorer walks 520 cm/s at full input:
+# 1.7 m straight between steers, more than a stair leg (0.62 m), so it ran off
+# the aisle at every bend. Pace it to cover at most STEER_STEP_CM per tick.
+WALK_CM_S = 520.0
+STEER_STEP_CM = 25.0
+MIN_PACE = 0.1
+
+
+def walk_pace(tick_s):
+    """Stick input (0..1) that moves the walker at most STEER_STEP_CM per tick."""
+    if tick_s <= 0.0:
+        return 1.0
+    return max(MIN_PACE, min(1.0, STEER_STEP_CM / (tick_s * WALK_CM_S)))
+
+
+def _lengths(path):
+    cum = [0.0]
+    for (ax, ay), (bx, by) in zip(path, path[1:]):
+        cum.append(cum[-1] + math.hypot(bx - ax, by - ay))
+    return cum
+
+
+def _point_at(path, cum, s):
+    """(point, leg index) ``s`` cm along the path, clamped to its ends."""
+    s = max(0.0, min(s, cum[-1]))
+    for k in range(len(path) - 1):
+        if s <= cum[k + 1] or k == len(path) - 2:
+            leg = (cum[k + 1] - cum[k]) or 1.0
+            t = (s - cum[k]) / leg
+            (ax, ay), (bx, by) = path[k], path[k + 1]
+            return (ax + t * (bx - ax), ay + t * (by - ay)), k
+    return path[0], 0
+
+
+def follow_path(path, xy, s_prev, lookahead=LOOKAHEAD_CM, window=300.0):
+    """Pure pursuit along a polyline (cm): (progress s, carrot point, leg index).
+
+    ``s`` is how far along the path the walker is: its nearest point on the
+    path, looked for only from where it last was to ``window`` beyond (so a
+    leg further on that passes close is not taken for this one), and never
+    behind ``s_prev``. The carrot is ``lookahead`` further on: aiming at it
+    starts a bend before the corner, on the inside, where aiming at the corner
+    itself runs past it to the outside (the aisle's side, then a drop).
+    """
+    cum = _lengths(path)
+    x, y = xy
+    best = None
+    for k, ((ax, ay), (bx, by)) in enumerate(zip(path, path[1:])):
+        if cum[k + 1] < s_prev or cum[k] > s_prev + window:
+            continue
+        dx, dy = bx - ax, by - ay
+        leg2 = dx * dx + dy * dy or 1.0
+        t = max(0.0, min(1.0, ((x - ax) * dx + (y - ay) * dy) / leg2))
+        d = math.hypot(x - ax - t * dx, y - ay - t * dy)
+        if best is None or d < best[0]:
+            best = (d, cum[k] + t * math.sqrt(leg2))
+    s = max(s_prev, best[1]) if best else s_prev
+    carrot, _ = _point_at(path, cum, s + lookahead)
+    _, leg = _point_at(path, cum, s)
+    return s, carrot, leg
+
+
+def _probe_ahead(world, pawn, loc, yaw):
+    """What stands in front of the walker: forward traces at several heights
+    above its feet, the floor under it, its velocity. Logged when it stalls."""
+    half = pawn.capsule_component.get_scaled_capsule_half_height()
+    feet = loc.z - half
+    fx, fy = math.cos(math.radians(yaw)), math.sin(math.radians(yaw))
+    out = []
+    for h in (5.0, 25.0, 45.0, 70.0, 120.0):
+        a = unreal.Vector(loc.x, loc.y, feet + h)
+        b = unreal.Vector(loc.x + fx * 120.0, loc.y + fy * 120.0, feet + h)
+        hit = unreal.SystemLibrary.line_trace_single(world, a, b, unreal.TraceTypeQuery.TRACE_TYPE_QUERY1, True,
+                                                     [pawn], unreal.DrawDebugTrace.NONE, True)
+        t = hit.to_tuple() if hit is not None else ()
+        if t and t[0]:
+            what = next((v for v in t if isinstance(v, unreal.Actor)), None)
+            comp = next((v for v in t if isinstance(v, unreal.PrimitiveComponent)), None)
+            out.append("+%.0f: %s/%s at %.0f cm, normal z %.2f" % (
+                h, what.get_actor_label() if what else "?", comp.get_name() if comp else "?", t[3], t[7].z))
+        else:
+            out.append("+%.0f: clear" % h)
+    a = unreal.Vector(loc.x, loc.y, loc.z)
+    hit = unreal.SystemLibrary.line_trace_single(world, a, unreal.Vector(loc.x, loc.y, loc.z - 400.0),
+                                                 unreal.TraceTypeQuery.TRACE_TYPE_QUERY1, True, [pawn],
+                                                 unreal.DrawDebugTrace.NONE, True)
+    t = hit.to_tuple() if hit is not None else ()
+    if t and t[0]:
+        what = next((v for v in t if isinstance(v, unreal.Actor)), None)
+        out.append("floor %s at %+.0f cm from the feet" % (what.get_actor_label() if what else "?", t[5].z - feet))
+    v = pawn.get_velocity()
+    out.append("velocity %.0f cm/s (%.0f, %.0f, %.0f), yaw %.0f, actor yaw %.0f" % (
+        v.length(), v.x, v.y, v.z, yaw, pawn.get_actor_rotation().yaw))
+    note("ahead: " + "; ".join(out))
+
+
+def seat_walk(fraction):
+    """Follow the aisle's stair steps until ``fraction`` of the rows' rise is climbed."""
+    def fn(now, pawn, world):
+        loc = pawn.get_actor_location()
+        lo, hi = _seat_levels_cm()
+        path = _aisle()
+        if not path:
+            note("no aisles in the manifest")
+            R.s["stuck"] = True
+            return True
+        if "z0" not in R.s:
+            R.s["z0"] = loc.z
+            R.s["t_walk"] = now
+            R.s["wp"] = 0
+        if R.s.get("walk_frac") != fraction:  # a new leg: the view before it stood still
+            R.s["walk_frac"] = fraction
+            R.s["stall"] = (now, loc.z, R.s["wp"])
+        # Pure pursuit: aim at a point LOOKAHEAD_CM further along the stair
+        # line from the walker's nearest point on it, so it turns into each
+        # bend on the inside instead of running past the corner.
+        s, carrot, i = follow_path(path, (loc.x, loc.y), R.s.get("s", 0.0))
+        R.s["s"] = s
+        R.s["wp"] = i
+        pawn.script_look(_yaw_to(pawn, *carrot), 0.0)
+        tick_s = now - R.s.get("walk_last", now - 0.33)
+        R.s["walk_last"] = now
+        pawn.script_move(unreal.Vector2D(0.0, walk_pace(tick_s)), False)
+        if now - R.s.get("traj_t", -1.0) >= 0.1:
+            R.s["traj_t"] = now
+            v = pawn.get_velocity()
+            R.s.setdefault("traj", []).append([
+                round(now - R.s["t_walk"], 2), round(loc.x, 1), round(loc.y, 1),
+                round(loc.z - pawn.capsule_component.get_scaled_capsule_half_height(), 1),
+                round(_yaw_to(pawn, *carrot), 1), round(v.x), round(v.y), round(v.z), _mode(pawn),
+                _mode(pawn) == "WALK" and v.z < -50.0, round(s), i])
+            if len(R.s["traj"]) % 50 == 0:
+                with open(os.path.join(os.path.dirname(LOG_PATH), "walk_traj.json"), "w") as fh:
+                    json.dump(R.s["traj"], fh)
+        R.s["modes"].add(_mode(pawn))
+        R.s["maxz"] = max(R.s["maxz"], loc.z)
+        _film(world, now, "seating")
+        if loc.z > R.s["stall"][1] + 20.0 or i > R.s["stall"][2]:
+            R.s["stall"] = (now, loc.z, i)
+        elif now - R.s["stall"][0] > 8.0:
+            _probe_ahead(world, pawn, loc, _yaw_to(pawn, *carrot))
+            note("stuck at (%.2f, %.2f) z=%.0f by step %d of %d (heading for %.2f, %.2f) for 8 s"
+                 % (loc.x / 100.0, loc.y / 100.0, loc.z, i, len(path), path[i][0] / 100.0, path[i][1] / 100.0))
+            R.s["stuck"] = True
+            return True
+        feet = loc.z - pawn.capsule_component.get_scaled_capsule_half_height()
+        goal = lo + fraction * (hi - lo) - 50.0
+        if int(now - R.s["t_walk"]) % 10 == 0 and int(now - R.s["t_walk"]) not in R.s.setdefault("noted", set()):
+            R.s["noted"].add(int(now - R.s["t_walk"]))
+            (px, py), _ = _point_at(path, _lengths(path), s)
+            note("t=%3ds step %d/%d at (%.1f, %.1f) %.0f cm off the stair line, feet z=%.0f (rows %.0f..%.0f) mode %s"
+                 % (now - R.s["t_walk"], i, len(path), loc.x / 100.0, loc.y / 100.0,
+                    math.hypot(loc.x - px, loc.y - py), feet, lo, hi, _mode(pawn)))
+        # Paced to the editor's ~3 Hz tick the 96 m aisle takes about 2-3 minutes;
+        # a stop is caught by the 8 s stall check, so this only bounds a crawl.
+        return feet >= goal or now - R.s["t_walk"] > 480.0
+    return fn
+
+
+def seat_walk_end(now, pawn, world):
+    pawn.script_release()
+    lo, hi = _seat_levels_cm()
+    levels = (manifest.get("benches") or {}).get("tread_levels_m") or [0.0, 0.0]
+    gain = (R.s["maxz"] - R.s["z0"]) / 100.0
+    need = (levels[-1] - levels[AISLE_FROM_ROW - 1]) - 1.0
+    check("walked up the aisle stairs without jumping", not R.s.get("stuck") and gain >= need
+          and R.s["modes"] <= {"WALK"},
+          "gained %.1f m of the %.1f m from row %d to the top in %.0f s by step %d, modes %s"
+          % (gain, need + 1.0, AISLE_FROM_ROW, now - R.s["t_walk"], R.s.get("wp", 0), sorted(R.s["modes"])))
     return True
 
 
@@ -290,7 +595,7 @@ def board_step(now, pawn, world):
     key = {"cart": "carts", "sled": "sleds", "tubing": "tubes"}[R.s["name"]]
     datum = manifest["terrain_mesh"]["min_elevation_m"]
     pts = explore[key]["run" if key == "sleds" else "route"]
-    R.s["route"] = [(p[0] * 100.0, p[1] * 100.0, (p[2] - datum) * 100.0) for p in pts]
+    R.s["route"] = [level_frame.to_level_cm(p[0], p[1]) + ((p[2] - datum) * 100.0,) for p in pts]
     note("boarded at x=%.0f y=%.0f z=%.0f" % (start.x, start.y, start.z))
     return True
 
@@ -430,7 +735,8 @@ def morrison_shot(now, pawn, world):
     if R.s["i"] >= 2:
         loc = pawn.get_actor_location()
         end = explore["carts"]["route"][-1]
-        d = math.hypot(end[0] * 100 - loc.x, end[1] * 100 - loc.y) / 100.0
+        ex, ey = level_frame.to_level_cm(end[0], end[1])
+        d = math.hypot(ex - loc.x, ey - loc.y) / 100.0
         check("Morrison is in the world", d < 50.0, "%.0f m from Bear Creek Ave" % d)
         return True
     pawn.script_look(R.s["yaw0"] + 180.0 * R.s["i"], -4.0)

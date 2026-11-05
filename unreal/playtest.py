@@ -26,16 +26,23 @@ screenshots land in <project>/Saved/Screenshots/. Checks:
 
 import math
 import os
+import sys
 import time
 
 import unreal
+
+_HERE = os.path.dirname(os.path.abspath(globals().get("__file__") or "/Users/austin/dev/redrocks-ue/unreal/x"))
+if _HERE not in sys.path:
+    sys.path.insert(0, _HERE)
+import level_frame  # noqa: E402  (beside this script: terrain frame -> level frame)
 
 LOG_PATH = os.path.join(os.environ.get("REDROCKS_LOG_DIR", "/tmp"), "redrocks_playtest.log")
 SETTLE_S = 10.0  # auto exposure and TSR need ~10 s after the spawn cut before a shot is representative
 WALK_S = 12.0
 JUMP_EVERY_S = 0.8
 TIMEOUT_S = 240.0
-LOOK_YAWS = [0.0, 90.0, 180.0, 270.0]  # east, north, west, south
+# East, north, west, south: compass bearings 90, 0, 270, 180 in the level frame.
+LOOK_YAWS = [level_frame.compass_yaw(b) % 360.0 for b in (90.0, 0.0, 270.0, 180.0)]
 
 log = []
 state = {"phase": "start", "t0": time.time(), "mark": None, "samples": [], "last_jump": 0.0}

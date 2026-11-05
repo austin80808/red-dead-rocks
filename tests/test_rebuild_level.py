@@ -21,7 +21,8 @@ def test_step_order(rl):
     assert [s for s, _ in rl.STEPS] == [
         "import_redrocks.py", "setup_lighting.py", "configure_level.py",
         "fix_camera.py", "setup_materials.py", "setup_environment.py", "setup_vegetation.py",
-        "import_scan.py", "setup_gameplay.py", "setup_credits.py", "setup_snow.py", "setup_explore.py",
+        "import_scan.py", "cut_scan_collision.py", "setup_gameplay.py", "setup_credits.py", "setup_snow.py",
+        "setup_explore.py",
     ]
 
 
@@ -172,9 +173,19 @@ def test_gameplay_spawn_is_on_the_deck_facing_up_the_bowl():
         "deck_top_elevation_m": 1800.0,
     }
     (x, y, z), yaw = gp.spawn_transform(stage, 1750.0)
-    assert (x, y) == (500.0, 2000.0)  # 5 m back from the edge, onto the deck
+    assert (x, y) == (500.0, -2000.0)  # 5 m back from the edge, onto the deck; level Y = -north
     assert z == 5000.0 + gp.EYE_LIFT_CM
     assert yaw == 0.0  # facing along the axis, up the bowl
+
+
+def test_gameplay_spawn_facing_north_is_a_left_turn_from_east():
+    """A bowl rising due north: the spawn faces level -Y, Unreal yaw -90 (east's left)."""
+    gp = _load_gameplay()
+    stage = {"axis_east_north": [0.0, 1.0], "front_edge_east_m": 0.0,
+             "front_edge_north_m": 0.0, "deck_top_elevation_m": 1800.0}
+    (x, y, _), yaw = gp.spawn_transform(stage, 1750.0)
+    assert (x, y) == (0.0, 500.0)  # 5 m south of the edge is level +Y
+    assert yaw == -90.0
 
 
 def test_gameplay_credits_include_scan_and_osm():
@@ -191,5 +202,5 @@ def test_gameplay_spawn_prefers_the_manifest_spawn_block():
         "spawn": {"east_m": 1.0, "north_m": 2.0, "ground_elevation_m": 1801.0, "yaw_deg": 45.0},
     }
     (x, y, z), yaw = gp.spawn_from_manifest(manifest)
-    assert (x, y, yaw) == (100.0, 200.0, 45.0)
+    assert (x, y, yaw) == (100.0, -200.0, -45.0)  # level Y = -north, yaw = -heading
     assert z == 5100.0 + gp.EYE_LIFT_CM

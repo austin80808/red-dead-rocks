@@ -24,7 +24,7 @@ class Spawn:
     east_m: float
     north_m: float
     ground_m: float  # elevation the pawn stands on (metres above sea level)
-    yaw_deg: float  # Unreal yaw: 0 = east (+X), 90 = north (+Y)
+    yaw_deg: float  # terrain heading: 0 = east, 90 = north (Unreal yaw: unreal/level_frame.level_yaw)
     deck_top_m: float
     terrain_m: float  # highest terrain sample under the capsule
     clearance_m: float = CLEARANCE_M
