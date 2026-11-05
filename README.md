@@ -128,6 +128,8 @@ builds exactly that from the venue rows, in the terrain's frame:
 | `Bench_Brackets.obj` | a steel strap every 2.4 m (at the middle row) under the boards, at the **same bearings about the stage in every row**, so they line up into the radial lines the top-row photo shows converging on the stage |
 | `Handrail.obj` (from `stage.py`) | posts and a top rail on the walkway parapet behind the last row |
 
+![Terraced seating: from the stage, across the rows from the aisle, from the aisle down to the stage, from the top walkway, and under snow](docs/media/seating/seating_shots.gif)
+
 **Rows end at their aisles, and nothing pokes through them.** The OSM theatre
 outline runs into the rock walls and the two stone stage towers, so
 `trim_row_ends` pulls each row's ends in until the aisle beside them (2.6 m
