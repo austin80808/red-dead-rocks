@@ -224,6 +224,32 @@ Axes are X east, Y north, Z up, in centimetres, centred on the origin, with the
 lowest point at Z = 0. Faces wind counter-clockwise seen from above, so normals
 point up.
 
+### Terrain frame and level frame
+
+Everything the pipeline writes (OBJs, `manifest.json`, the scan rasters) is in
+the **terrain frame**: right-handed, X east, Y north, Z up, like a map. Unreal
+is left-handed (X forward, Y right, Z up; a yaw of +90 turns you right), so the
+**level frame** puts north on -Y:
+
+| | terrain frame | level frame |
+|---|---|---|
+| a point | (east, north, up) | (east, **-north**, up) |
+| a heading (`yaw_deg` in the manifest) | degrees counter-clockwise from east | Unreal yaw = -heading |
+| a compass bearing | degrees clockwise from north | Unreal yaw = bearing - 90 |
+
+`unreal/level_frame.py` is the one place that converts; every Unreal script
+goes through it, and `tests/test_level_frame.py` pins it (a point due north of
+the stage is on your left when you face east; from the stage looking up the
+bowl Creation Rock is on your right, Ship Rock on your left). Until
+2026-11-04 the level put north on +Y and was a mirror image of Red Rocks:
+
+![The seating photo view before and after: the rock and rows swap sides to match the real place](docs/media/level-frame/seating_mid.jpg)
+
+*The play-test's view of the
+[Commons seating photo](https://commons.wikimedia.org/wiki/File:Red_Rock_Amphitheatre_Seatings.jpg):
+the real one has the rock on the left and the rows sweeping in from the right,
+like the fixed level. More pairs in `docs/media/level-frame/`.*
+
 ### Roads, paths and parking
 
 `park.py` turns the OSM `highway=*` and `amenity=parking` ways into three more
@@ -635,11 +661,15 @@ Each of these cost real time:
 - **OBJs need a UV channel.** Without `vt` lines, the OBJ importer fails an
   ensure and keeps only a fraction of the triangles (a 282,752-triangle terrain
   came back with 3,716). Every exported OBJ now carries UVs.
-- **The OBJ importer mirrors north and south.** Interchange negates Y, so an
-  OBJ vertex at north = +12071 cm lands at y = -12071. Every OBJ actor gets a
-  Y scale of -1 (`import_redrocks.py`, `setup_gameplay.py`); without it the
-  terrain, benches and stage are flipped against the rocks and the PlayerStart,
-  and the player spawns on the benches instead of the stage.
+- **Unreal is left-handed, so north goes on -Y.** Interchange's OBJ importer
+  negates Y (a vertex at north = +12071 cm lands at y = -12071), which is
+  exactly the terrain -> level map, so OBJ actors keep scale (1, 1, 1). Every
+  position from the manifest must be negated the same way
+  (`level_frame.to_level_cm`), or the meshes and the actors placed from the
+  manifest disagree and the player spawns on the benches instead of the stage.
+  The level used to undo the importer with a Y scale of -1 on every OBJ actor
+  and place everything at +north: self-consistent, but a mirror image of the
+  real place (facing east, north was on your right).
 - **`EditorAssetLibrary` does nothing while Play is running.** `load_asset` and
   `load_blueprint_class` return None during Play In Editor; use `unreal.load_asset`
   / `unreal.load_object` in play-test scripts.

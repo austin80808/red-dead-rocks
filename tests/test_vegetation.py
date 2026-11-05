@@ -218,8 +218,9 @@ def test_every_model_has_bark_and_foliage_materials(sv, models):
 
 def test_instance_rows_use_keyword_rotations(sv):
     (loc, rot, scale), = sv.instance_rows([[1.0, 2.0, 3.0, 90.0, 1.0, -1.0, 1.1, 1.2]])
-    assert loc == (1.0, 2.0, 3.0) and scale == (1.1, 1.1, 1.2)
-    assert rot == {"pitch": 1.0, "yaw": 90.0, "roll": -1.0}
+    # Into the level frame: Y = -north, and the mirror flips yaw and roll.
+    assert loc == (1.0, -2.0, 3.0) and scale == (1.1, 1.1, 1.2)
+    assert rot == {"pitch": 1.0, "yaw": -90.0, "roll": 1.0}
 
 
 def test_out_dir_can_be_overridden(monkeypatch):

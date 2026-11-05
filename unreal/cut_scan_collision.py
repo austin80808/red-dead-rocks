@@ -9,8 +9,10 @@ as the chunk's ``ComplexCollisionMesh``: the scan collides everywhere you can
 see it and nowhere under the rows. The terraces are the floor there.
 
 The seating comes from out/seating_cut.json (``redrocks build``): run-length
-grid rows in level cm, X east, Y north. A triangle goes when its centre, a
-corner or an edge midpoint is in the cut. Chunks that do not reach the seating are left alone.
+grid rows in the terrain frame's cm, X east, Y north, row 0 at the north edge.
+Scan vertices are carried from the level into that frame (level Y = -north,
+level_frame.py) before the test. A triangle goes when its centre, a corner or
+an edge midpoint is in the cut. Chunks that do not reach the seating are left alone.
 
 Run after import_scan.py and before setup_gameplay.py (rebuild_level.py does).
 Re-running replaces the copies. Log: /tmp/redrocks_scan_cut.log.
@@ -19,8 +21,14 @@ Re-running replaces the copies. Log: /tmp/redrocks_scan_cut.log.
 import json
 import math
 import os
+import sys
 
 import unreal
+
+_HERE = os.path.dirname(os.path.abspath(globals().get("__file__") or "/Users/austin/dev/redrocks-ue/unreal/x"))
+if _HERE not in sys.path:
+    sys.path.insert(0, _HERE)
+import level_frame  # noqa: E402  (beside this script: terrain frame -> level frame)
 
 OUT_DIR = os.environ.get("REDROCKS_OUT_DIR", "/Users/austin/dev/redrocks-ue/out")
 LOG_PATH = os.path.join(os.environ.get("REDROCKS_LOG_DIR", "/tmp"), "redrocks_scan_cut.log")
@@ -29,7 +37,7 @@ SCAN_PREFIX = "Scan_ml0w"
 LEVEL_PATH = "/Game/RedRocks/Lvl_RedRocks"
 
 log = []
-eal = unreal.EditorAssetLibrary
+eal = getattr(unreal, "EditorAssetLibrary", None)  # None offline (tests)
 
 
 def load_cut(path):
@@ -43,6 +51,7 @@ def load_cut(path):
 
 
 def in_cut(x, y, cut):
+    """Is terrain-frame (east, north) cm inside the seating cut?"""
     x0, y1, t, rows = cut
     runs = rows.get(int((y1 - y) // t))
     if not runs:
@@ -51,20 +60,23 @@ def in_cut(x, y, cut):
     return any(a <= j < b for a, b in runs)
 
 
-def _world(transform):
-    """A fast local -> world (x, y) for an actor transform (scale, yaw, location)."""
-    s = transform.scale3d
-    yaw = math.radians(transform.rotation.rotator().yaw)
+def local_to_terrain(scale, yaw_deg, location):
+    """A fast mesh-local -> terrain-frame (east, north) for an actor's transform."""
+    yaw = math.radians(yaw_deg)
     c, si = math.cos(yaw), math.sin(yaw)
-    t = transform.translation
 
     def f(p):
-        x, y = p.x * s.x, p.y * s.y
-        return (c * x - si * y + t.x, si * x + c * y + t.y)
+        x, y = p.x * scale[0], p.y * scale[1]
+        return level_frame.from_level(c * x - si * y + location[0], si * x + c * y + location[1])
     return f
 
 
-def cut_triangles(desc, to_world, cut):
+def _to_terrain(transform):
+    s, t = transform.scale3d, transform.translation
+    return local_to_terrain((s.x, s.y), transform.rotation.rotator().yaw, (t.x, t.y))
+
+
+def cut_triangles(desc, to_terrain, cut):
     """Triangle ids whose centroid lies over the seating."""
     pos = {}
     doomed = []
@@ -78,7 +90,7 @@ def cut_triangles(desc, to_world, cut):
         for v in list(desc.get_triangle_vertices(tri))[-3:]:
             key = v.id_value
             if key not in pos:
-                pos[key] = to_world(desc.get_vertex_position(v))
+                pos[key] = to_terrain(desc.get_vertex_position(v))
             corners.append(pos[key])
         # The centre, the corners and the edge midpoints: the scan is coarse at
         # the top of the bowl, and a big triangle can cross the seating's edge
@@ -133,12 +145,13 @@ def main():
         if mesh is None or mesh.get_path_name() in done:
             continue
         origin, extent = actor.get_actor_bounds(False)
-        if (origin.x + extent.x < cx0 or origin.x - extent.x > cx1
-                or origin.y + extent.y < cy0 or origin.y - extent.y > cy1):
+        ox, oy = level_frame.from_level(origin.x, origin.y)
+        if (ox + extent.x < cx0 or ox - extent.x > cx1
+                or oy + extent.y < cy0 or oy - extent.y > cy1):
             done[mesh.get_path_name()] = 0  # nowhere near the seating
             continue
         desc = mesh.get_static_mesh_description(0)
-        doomed = cut_triangles(desc, _world(actor.get_actor_transform()), cut)
+        doomed = cut_triangles(desc, _to_terrain(actor.get_actor_transform()), cut)
         done[mesh.get_path_name()] = len(doomed)
         if not doomed:
             if mesh.get_editor_property("complex_collision_mesh") is not None:

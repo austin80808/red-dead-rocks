@@ -11,9 +11,9 @@ What it does, each step logged to /tmp/redrocks_gameplay.log as "ok" or "FAIL":
   1. Imports Stage, Roads, Paths and Parking from out/ (skips any that are
      missing) and places them at the origin: they are already in the terrain's
      frame, in centimetres. Re-running replaces the actors, it never duplicates.
-  2. Gives every OBJ actor a Y scale of -1: the OBJ importer mirrors meshes
-     north<->south, and without this the terrain, benches and stage sit
-     mirrored against the rocks and the PlayerStart.
+  2. Gives every OBJ actor scale (1, 1, 1): the OBJ importer negates Y, which
+     is already the terrain -> level map (level Y = -north, level_frame.py).
+     A Y scale of -1 here once built a mirror image of Red Rocks.
   3. Sets "use complex as simple" collision on the terrain, rocks, benches,
      stage and park meshes, so the player walks on the real triangles instead
      of falling through or tripping on a convex hull.
@@ -35,8 +35,14 @@ What it does, each step logged to /tmp/redrocks_gameplay.log as "ok" or "FAIL":
 import json
 import math
 import os
+import sys
 
 import unreal
+
+_HERE = os.path.dirname(os.path.abspath(globals().get("__file__") or "/Users/austin/dev/redrocks-ue/unreal/x"))
+if _HERE not in sys.path:
+    sys.path.insert(0, _HERE)
+import level_frame  # noqa: E402  (beside this script: terrain frame -> level frame)
 
 # The redrocks build output; REDROCKS_OUT_DIR points a test copy at another build.
 OUT_DIR = os.environ.get("REDROCKS_OUT_DIR", "/Users/austin/dev/redrocks-ue/out")
@@ -159,18 +165,19 @@ def _place_at_origin(name):
 
 
 # Unreal's Interchange OBJ importer negates Y (an OBJ vertex at north = +y
-# lands at -y), so every OBJ mesh arrives mirrored north<->south while actor
-# locations from the manifest are not. A Y scale of -1 on the actor undoes it;
-# Unreal flips culling for mirrored transforms, so faces still render outward.
-UNMIRROR = (1.0, -1.0, 1.0)
+# lands at y = -north), which is exactly the terrain -> level map: Unreal is
+# left-handed, so north has to go on -Y or the level is a mirror image of Red
+# Rocks (level_frame.py). Every OBJ actor therefore keeps scale (1, 1, 1); this
+# step resets any flip an older build left on it.
+OBJ_SCALE = level_frame.OBJ_ACTOR_SCALE
 
 
-def _unmirror(name):
+def _obj_scale(name):
     actors = _by_label(name)
     if not actors:
         raise RuntimeError("no actor labelled %s" % name)
     for actor in actors:
-        actor.set_actor_scale3d(unreal.Vector(*UNMIRROR))
+        actor.set_actor_scale3d(unreal.Vector(*OBJ_SCALE))
     return len(actors)
 
 
@@ -310,10 +317,10 @@ def spawn_transform(stage, terrain_min_m):
     ax, ay = ax / norm, ay / norm
     # The deck lies on the stage side of the downstage edge, i.e. against the
     # axis that runs from row 1 up to the top row.
-    x = (stage["front_edge_east_m"] - SPAWN_BACK_M * ax) * 100.0
-    y = (stage["front_edge_north_m"] - SPAWN_BACK_M * ay) * 100.0
+    x, y = level_frame.to_level_cm(stage["front_edge_east_m"] - SPAWN_BACK_M * ax,
+                                   stage["front_edge_north_m"] - SPAWN_BACK_M * ay)
     z = (stage["deck_top_elevation_m"] - terrain_min_m) * 100.0 + EYE_LIFT_CM
-    yaw = math.degrees(math.atan2(ay, ax))
+    yaw = level_frame.level_yaw(math.degrees(math.atan2(ay, ax)))
     return (x, y, z), yaw
 
 
@@ -327,10 +334,9 @@ def spawn_from_manifest(manifest):
     terrain_min = manifest["terrain_mesh"]["min_elevation_m"]
     spawn = manifest.get("spawn")
     if spawn:
-        x = spawn["east_m"] * 100.0
-        y = spawn["north_m"] * 100.0
+        x, y = level_frame.to_level_cm(spawn["east_m"], spawn["north_m"])
         z = (spawn["ground_elevation_m"] - terrain_min) * 100.0 + EYE_LIFT_CM
-        return (x, y, z), spawn["yaw_deg"]
+        return (x, y, z), level_frame.level_yaw(spawn["yaw_deg"])
     stage = manifest.get("stage")
     if not stage:
         raise RuntimeError("manifest has no spawn or stage block; run redrocks build")
@@ -388,9 +394,8 @@ def _credits(manifest, spawn):
         actor_subsystem.destroy_actor(old)
     # 6 m ahead of the player and 4 m to their left, at eye height, turned to
     # face back at the spawn (a TextRender reads from its +X side).
-    rad = math.radians(yaw)
-    fx, fy = math.cos(rad), math.sin(rad)
-    lx, ly = fy, -fx  # left of forward in Unreal's left-handed X/Y
+    fx, fy = level_frame.forward(yaw)
+    lx, ly = level_frame.left_of(yaw)
     loc = unreal.Vector(x + 600 * fx + 400 * lx, y + 600 * fy + 400 * ly, z + 150)
     actor = actor_subsystem.spawn_actor_from_class(unreal.TextRenderActor, loc)
     actor.set_actor_label("Credits")
@@ -420,10 +425,10 @@ def main():
 
     for name in COLLIDE:
         if _by_label(name):
-            _step("unmirror %s" % name, _unmirror, name)
+            _step("scale %s" % name, _obj_scale, name)
     for name in NO_COLLIDE:
         if _by_label(name):
-            _step("unmirror %s" % name, _unmirror, name)
+            _step("scale %s" % name, _obj_scale, name)
             _step("no collision %s" % name, _no_collision, name)
     for name in COLLIDE:
         if unreal.EditorAssetLibrary.does_asset_exist("%s/%s" % (ASSET_DIR, name)):

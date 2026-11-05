@@ -26,8 +26,14 @@ Leaves the level unsaved and removes its capture actor.
 import json
 import math
 import os
+import sys
 
 import unreal
+
+_HERE = os.path.dirname(os.path.abspath(globals().get("__file__") or "/Users/austin/dev/redrocks-ue/unreal/x"))
+if _HERE not in sys.path:
+    sys.path.insert(0, _HERE)
+import level_frame  # noqa: E402  (beside this script: terrain frame -> level frame)
 
 LEVEL_PATH = "/Game/RedRocks/Lvl_RedRocks"
 # The redrocks build output; REDROCKS_OUT_DIR points a test copy at another build.
@@ -121,13 +127,13 @@ def main():
 
     # A few more probes: up the bowl along the stage axis, and out on the map.
     stage = manifest["stage"]
-    ax, ay = stage["axis_east_north"]
-    fx, fy = stage["front_edge_east_m"] * 100.0, stage["front_edge_north_m"] * 100.0
+    ax, ay = level_frame.to_level(*stage["axis_east_north"])
+    fx, fy = level_frame.to_level_cm(stage["front_edge_east_m"], stage["front_edge_north_m"])
     probes = {
         "bowl, 20 m up the rows": (fx + 2000 * ax, fy + 2000 * ay),
         "bowl, 60 m up the rows": (fx + 6000 * ax, fy + 6000 * ay),
-        "terrain 600 m east": (60000.0, 0.0),
-        "terrain 900 m south-west": (-60000.0, -60000.0),
+        "terrain 600 m east": level_frame.to_level(60000.0, 0.0),
+        "terrain 900 m south-west": level_frame.to_level(-60000.0, -60000.0),
     }
     for label, (x, y) in probes.items():
         h = _trace_down(world, x, y)

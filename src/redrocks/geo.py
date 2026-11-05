@@ -1,7 +1,8 @@
 """Geodesy helpers: local tangent-plane projection and Web Mercator tile math.
 
-Unreal is Z-up, left-handed, with X forward. We map east -> +X, north -> +Y,
-up -> +Z so that a level built from these coordinates needs no axis swap.
+Everything here is in a right-handed terrain frame: east -> +X, north -> +Y,
+up -> +Z, like a map. Unreal is left-handed (X forward, Y right, Z up), so the
+level puts north on -Y; unreal/level_frame.py is the one place that converts.
 """
 
 from __future__ import annotations

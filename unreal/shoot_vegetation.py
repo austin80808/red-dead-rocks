@@ -15,7 +15,7 @@ Views (each held 7 s so auto exposure settles; FPS is the mean over the last 3 s
   bowl_top  eye level at the top of the bowl, looking out over the stage (ENE)
   hillside  a juniper and a ponderosa a few metres apart, from 20 m, eye level
             (picked from out/vegetation/vegetation.json)
-  aerial    (0, -45000, 45000) cm, pitch -42, yaw 90
+  aerial    450 m south of the origin, 450 m up, pitch -42, looking north
 The pawn flies with gravity and collision off. REDROCKS_HIDE_VEGETATION=1
 hides the Vegetation actor for a baseline. At each shot ProfileGPU writes the
 view's GPU frame breakdown to the editor log. Screenshots:
@@ -26,9 +26,15 @@ Log: $REDROCKS_LOG_DIR (default /tmp)/redrocks_vegetation_shots.log.
 import json
 import math
 import os
+import sys
 import time
 
 import unreal
+
+_HERE = os.path.dirname(os.path.abspath(globals().get("__file__") or "/Users/austin/dev/redrocks-ue/unreal/x"))
+if _HERE not in sys.path:
+    sys.path.insert(0, _HERE)
+import level_frame  # noqa: E402  (beside this script: terrain frame -> level frame)
 
 OUT_DIR = os.environ.get("REDROCKS_OUT_DIR", "/Users/austin/dev/redrocks-ue/out")
 LOG_PATH = os.path.join(os.environ.get("REDROCKS_LOG_DIR", "/tmp"), "redrocks_vegetation_shots.log")
@@ -51,8 +57,10 @@ def _manifest():
 
 
 def _load_instances(path):
+    """vegetation.json's rows with their (x, y) carried into the level frame."""
     with open(path) as fh:
-        return json.load(fh)["instances"]
+        inst = json.load(fh)["instances"]
+    return {name: [list(level_frame.to_level(r[0], r[1])) + r[2:] for r in rows] for name, rows in inst.items()}
 
 
 def _clear(inst, x, y, radius_cm):
@@ -104,9 +112,10 @@ def _views(world, pawn):
     views = []
     m = _manifest()
     s = m["spawn"]
-    yaw = s["yaw_deg"]
-    x = s["east_m"] * 100 + math.cos(math.radians(yaw)) * 9500.0
-    y = s["north_m"] * 100 + math.sin(math.radians(yaw)) * 9500.0
+    yaw = level_frame.level_yaw(s["yaw_deg"])
+    sx, sy = level_frame.to_level_cm(s["east_m"], s["north_m"])
+    fx, fy = level_frame.forward(yaw)
+    x, y = sx + fx * 9500.0, sy + fy * 9500.0
     z = _ground(world, x, y, [pawn]) or (s["ground_elevation_m"] - m["terrain_mesh"]["min_elevation_m"] + 30.0) * 100
     views.append(("bowl_top", (x, y, z + EYE_CM), {"pitch": -4.0, "yaw": yaw + 180.0, "roll": 0.0}))
     pair = None
@@ -147,7 +156,8 @@ def _views(world, pawn):
         pitch = math.degrees(math.atan2(gz + 450.0 - cz, math.hypot(mx - cx, my - cy)))
         views.append(("hillside", (cx, cy, cz), {"pitch": pitch, "yaw": look, "roll": 0.0}))
         log.append("      hillside pair: juniper (%.0f, %.0f), pine (%.0f, %.0f)" % (jx, jy, px, py))
-    views.append(("aerial", (0.0, -45000.0, 45000.0), {"pitch": -42.0, "yaw": 90.0, "roll": 0.0}))
+    views.append(("aerial", level_frame.to_level(0.0, -45000.0) + (45000.0,),
+                  {"pitch": -42.0, "yaw": level_frame.compass_yaw(0.0), "roll": 0.0}))
     return views
 
 
