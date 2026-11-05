@@ -47,9 +47,15 @@ GAME_MODE = "/Game/FirstPerson/Blueprints/BP_FirstPersonGameMode"
 LOG_PATH = os.path.join(os.environ.get("REDROCKS_LOG_DIR", "/tmp"), "redrocks_gameplay.log")
 
 # Meshes placed by this script (all in the terrain frame, origin, no rotation).
-NEW_MESHES = ["Stage", "Roads", "Paths", "Parking", "Buildings", "Walls", "Rocks", "Water"]
+NEW_MESHES = ["Stage", "Roads", "Paths", "Parking", "Buildings", "Walls", "Rocks", "Water",
+              "Bench_Planks", "Bench_Brackets", "Handrail", "Booth", "Stairs"]
+# Seen but not stood on: the planks and brackets sit on the terraces' riser
+# edges, a few cm over the treads; colliding with them would make every row a
+# step too tall to walk up (redrocks.seating).
+NO_COLLIDE = ["Bench_Planks", "Bench_Brackets"]
 # Every mesh the player should be able to stand on or bump into.
-COLLIDE = ["RedRocks_Terrain", "Creation_Rock", "Ship_Rock", "Stage_Rock", "Benches"] + NEW_MESHES
+COLLIDE = ["RedRocks_Terrain", "Creation_Rock", "Ship_Rock", "Stage_Rock", "Benches"] + [
+    m for m in NEW_MESHES if m not in NO_COLLIDE]
 
 # Plain materials: name -> (sRGB hex, roughness), and which mesh gets which.
 # setup_materials.py builds these as procedural materials (asphalt, gravel,
@@ -63,6 +69,10 @@ PLAIN = {
     "M_Buildings": ("a66848", 0.85),
     "M_Sandstone": ("a2482a", 0.88),
     "M_Water": ("1d4b52", 0.04),  # Bear Creek: dark green-blue, glassy
+    "M_BenchWood": ("a8916f", 0.8),
+    "M_Steel": ("2e2d2b", 0.6),
+    "M_Roof": ("7a2a22", 0.55),
+    "M_Benches": ("94482c", 0.9),
 }
 MESH_MATERIAL = {
     "Roads": "M_Asphalt",
@@ -73,6 +83,11 @@ MESH_MATERIAL = {
     "Walls": "M_Concrete",
     "Rocks": "MI_Sandstone_Rock",
     "Water": "M_Water",
+    "Bench_Planks": "M_BenchWood",
+    "Bench_Brackets": "M_Steel",
+    "Handrail": "M_Steel",
+    "Booth": "M_Roof",
+    "Stairs": "M_Benches",  # the seating's flagstone risers and sandstone treads
 }
 
 SPAWN_BACK_M = 5.0  # how far behind the downstage edge the player starts
@@ -239,6 +254,13 @@ def _complex_collision(name):
     return path
 
 
+def _no_collision(name):
+    for actor in _by_label(name):
+        actor.static_mesh_component.set_collision_profile_name("NoCollision")
+        actor.set_actor_enable_collision(False)
+    return name
+
+
 def _srgb_to_linear(hex_color):
     out = []
     for i in (0, 2, 4):
@@ -399,6 +421,10 @@ def main():
     for name in COLLIDE:
         if _by_label(name):
             _step("unmirror %s" % name, _unmirror, name)
+    for name in NO_COLLIDE:
+        if _by_label(name):
+            _step("unmirror %s" % name, _unmirror, name)
+            _step("no collision %s" % name, _no_collision, name)
     for name in COLLIDE:
         if unreal.EditorAssetLibrary.does_asset_exist("%s/%s" % (ASSET_DIR, name)):
             _step("collision %s" % name, _complex_collision, name)

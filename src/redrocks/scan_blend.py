@@ -117,12 +117,16 @@ class ScanHeights:
             )
 
     @classmethod
-    def from_points(cls, east, north, elevation, cell: float = CELL_M) -> "ScanHeights":
+    def from_points(cls, east, north, elevation, cell: float = CELL_M, keep: str = "lowest") -> "ScanHeights":
         """Rasterise scan points: each cell keeps its LOWEST point (the floor).
 
     The floor, not the top: under a tree or beside a wall the terrain has to
     stay below the lowest scan surface there or it shows through the side.
+    ``keep="highest"`` keeps the top instead (``scan_top.npz``: what stands
+    up out of the seating, so the scan cut can leave it visible).
     """
+        if keep not in ("lowest", "highest"):
+            raise ValueError(f"keep must be 'lowest' or 'highest', not {keep!r}")
         east, north, elevation = (np.asarray(a, float) for a in (east, north, elevation))
         x0 = np.floor(east.min() / cell) * cell
         y0 = np.floor(north.min() / cell) * cell
@@ -130,10 +134,14 @@ class ScanHeights:
         ny = int((north.max() - y0) // cell) + 1
         ix = np.clip(((east - x0) // cell).astype(int), 0, nx - 1)
         iy = np.clip(((north - y0) // cell).astype(int), 0, ny - 1)
-        low = np.full((ny, nx), np.inf)
-        np.minimum.at(low, (iy, ix), elevation)
-        low[~np.isfinite(low)] = np.nan
-        return cls(heights=low, x0=float(x0), y0=float(y0), cell=cell)
+        if keep == "lowest":
+            out = np.full((ny, nx), np.inf)
+            np.minimum.at(out, (iy, ix), elevation)
+        else:
+            out = np.full((ny, nx), -np.inf)
+            np.maximum.at(out, (iy, ix), elevation)
+        out[~np.isfinite(out)] = np.nan
+        return cls(heights=out, x0=float(x0), y0=float(y0), cell=cell)
 
     def padded(self, margin_m: float) -> "ScanHeights":
         """The same raster with NaN cells added on every side."""

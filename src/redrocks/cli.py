@@ -11,13 +11,17 @@ import numpy as np
 from .dem import BBox, fetch_dem, square_bbox
 from .explore import Route, carve_creek, creek_route, export_water_obj, plan as explore_plan
 from .geo import LocalProjection
-from .benches import export_benches_obj, row_polylines, terrain_base_elevation
+from .benches import row_polylines, terrain_base_elevation
 from .landscape import export_landscape
 from .monoliths import build_monoliths, monolith_to_obj
 from .osm import fetch_osm
 from .spawn import player_spawn
 from .stage import DIMENSIONS, export_stage_obj
 from .park import TerrainSurface as ParkSurface, export_park
+from .seating import (
+    SCAN_CLEARANCE_M, export_seating, seating_cut_runs, seating_fade, seating_layout, seating_obstacles,
+    trim_row_ends,
+)
 from .scan_blend import (
     FADE_M, FALLOFF_M, MARGIN_M, ScanGround, ScanHeights, blend_summary, conform_dem,
 )
@@ -38,6 +42,10 @@ DEFAULT_DEM_SIZE = 3025
 # The ml0w scan's floor and ground rasters (tools/scan_heights.py), relative to the checkout.
 DEFAULT_SCAN_HEIGHTS = Path("assets") / "scan" / "scan_heights.npz"
 DEFAULT_SCAN_GROUND = Path("assets") / "scan" / "scan_ground.npz"
+# The scan's highest point per cell and its fade mask (tools/scan_heights.py):
+# the seating is cut out of a copy of the mask, out/scan_fade.png.
+DEFAULT_SCAN_TOP = Path("assets") / "scan" / "scan_top.npz"
+DEFAULT_SCAN_FADE = Path("assets") / "scan" / "scan_fade.png"
 
 
 def build(args: argparse.Namespace) -> int:
@@ -112,20 +120,50 @@ def build(args: argparse.Namespace) -> int:
     else:
         print("skipping terrain mesh (--terrain-grid 0)")
 
-    benches = None
+    seating = None
+    layout = None
+    scan_cut = None
     stage = None
     spawn = None
+    for stale in ("scan_fade.png", "scan_fade.json"):
+        (out_dir / stale).unlink(missing_ok=True)
     if venue is not None:
-        print("\nbuilding benches ...")
-        # Seat on the scan's ground; bottoms reach the terrain under it too.
-        benches = export_benches_obj(
-            venue.rows, lines, out_dir / "Benches.obj", base, ground=seat_ground, floor=walkable
+        print("\nbuilding the terraced seating ...")
+        # On the scan, treads clear its surface (its chunks keep collision).
+        on_scan = ground_info != "terrain mesh"
+        # Rows end at their aisles, clear of the stage towers and the rock walls.
+        lines, trim_info, obstacles, scan_top = _trim_rows(args, osm, venue_way, projection, lines,
+                                                           seat_ground if on_scan else None)
+        if trim_info["rows"]:
+            print(f"  {trim_info['rows']} rows pulled in at their ends ({trim_info['metres']:.0f} m in all) "
+                  f"so their aisles clear {trim_info['buildings']} buildings and the scan's rock")
+        layout = seating_layout(
+            venue.rows, lines, ground=seat_ground, floor=walkable,
+            clearance_m=SCAN_CLEARANCE_M if on_scan else 0.0,
         )
-        print(f"  {benches.benches} benches, {benches.triangles} triangles -> {benches.path.name}")
+        seating = export_seating(layout, out_dir, base, ground=seat_ground, floor=walkable)
+        i = layout.info
+        print(f"  {seating.terraces} rows + {seating.front_steps} front steps, {seating.brackets} brackets; "
+              f"rises {i['rise_min_m']:.2f}..{i['rise_max_m']:.2f} m, {i['total_rise_m']:.1f} m in all"
+              + (f"; rows {i['rows_ignored']} left out of the fit" if i["rows_ignored"] else ""))
+        for name, path in seating.paths.items():
+            print(f"  {seating.triangles[name]:,} triangles -> {path.name}")
 
         print("\nblocking out the stage ...")
-        stage = export_stage_obj(venue.rows, lines, out_dir / "Stage.obj", base, ground=seat_ground)
+        booth_way, booth_plan = _sound_booth(osm, venue_way, projection)
+        stage = export_stage_obj(venue.rows, lines, out_dir / "Stage.obj", base, ground=seat_ground,
+                                 levels=layout.levels, booth=booth_plan)
         print(f"  {len(stage.parts)} parts, {stage.triangles} triangles -> {stage.path.name}")
+        print(f"  {stage.handrail_triangles} triangles -> {stage.handrail_path.name}")
+        (out_dir / "seating_cut.json").unlink(missing_ok=True)
+        if on_scan:
+            scan_cut = _cut_scan_fade(args, layout, out_dir, extra=stage.cut_plans)
+            cut = seating_cut_runs(layout, extra=stage.cut_plans)
+            (out_dir / "seating_cut.json").write_text(json.dumps(cut) + "\n")
+            print(f"  {len(cut['runs'])} runs -> seating_cut.json (for the scan's collision cut in Unreal)")
+        if stage.booth_path is not None:
+            print(f"  sound booth on OSM way {booth_way.id}, deck {stage.booth_deck_elevation_m:.2f} m "
+                  f"-> {stage.booth_path.name}")
 
         spawn = player_spawn(
             stage.front_edge_east, stage.front_edge_north, stage.axis,
@@ -206,14 +244,29 @@ def build(args: argparse.Namespace) -> int:
             "rake_degrees": round(venue.rake_degrees, 2),
             "row_1_elevation_m": round(venue.rows[0].elevation_m, 3),
         }
-    if benches is not None:
+    if seating is not None:
         manifest["benches"] = {
-            "obj": benches.path.name,
-            "benches": benches.benches,
-            "triangles": benches.triangles,
-            "base_elevation_m": round(benches.base_elevation_m, 3),
+            "obj": seating.paths["Benches"].name,
+            "planks_obj": seating.paths["Bench_Planks"].name,
+            "brackets_obj": seating.paths["Bench_Brackets"].name if "Bench_Brackets" in seating.paths else None,
+            "rows": seating.terraces,
+            "pieces": seating.pieces,
+            "front_steps": seating.front_steps,
+            "brackets": seating.brackets,
+            "triangles": seating.triangles["Benches"],
+            "planks_triangles": seating.triangles["Bench_Planks"],
+            "brackets_triangles": seating.triangles.get("Bench_Brackets", 0),
+            "base_elevation_m": round(seating.base_elevation_m, 3),
             "ground": ground_info,
+            "clearance_m": layout.info["clearance_m"],
+            "rows_ignored": layout.info["rows_ignored"],
+            "rise_m": {k: layout.info[k] for k in ("rise_min_m", "rise_max_m", "rise_mean_m", "total_rise_m")},
+            "tread_levels_m": [round(v, 3) for v in layout.levels],
+            "rows_trimmed": trim_info["rows"],
+            "trimmed_m": round(trim_info["metres"], 1),
         }
+    if scan_cut is not None:
+        manifest["scan_cut"] = scan_cut
     if spawn is not None:
         manifest["spawn"] = {
             "east_m": round(spawn.east_m, 3),
@@ -224,6 +277,18 @@ def build(args: argparse.Namespace) -> int:
             "yaw_deg": round(spawn.yaw_deg, 3),
         }
     if stage is not None:
+        manifest["handrail"] = {"obj": stage.handrail_path.name, "triangles": stage.handrail_triangles}
+        if stage.stairs_path is not None:
+            manifest["stairs"] = {"obj": stage.stairs_path.name, "triangles": stage.stairs_triangles,
+                                  "parts": len(stage.stairs_parts)}
+        if stage.booth_path is not None:
+            manifest["booth"] = {
+                "obj": stage.booth_path.name,
+                "osm_way": booth_way.id,
+                "deck_elevation_m": round(stage.booth_deck_elevation_m, 3),
+                "east_m": round(float(np.mean(booth_plan[:, 0])), 3),
+                "north_m": round(float(np.mean(booth_plan[:, 1])), 3),
+            }
         manifest["stage"] = {
             "obj": stage.path.name,
             "parts": {name: {"first_triangle": a, "end_triangle": b} for name, (a, b) in stage.parts.items()},
@@ -231,6 +296,9 @@ def build(args: argparse.Namespace) -> int:
             "base_elevation_m": round(stage.base_elevation_m, 3),
             "deck_top_elevation_m": round(stage.deck_top_elevation_m, 3),
             "walkway_elevation_m": round(stage.walkway_elevation_m, 3),
+            "walkway_east_m": round(stage.walkway_centre[0], 3),
+            "walkway_north_m": round(stage.walkway_centre[1], 3),
+            "aisles": {side: [list(p) for p in steps] for side, steps in stage.aisles.items()},
             "front_edge_east_m": round(stage.front_edge_east, 3),
             "front_edge_north_m": round(stage.front_edge_north, 3),
             "axis_east_north": [round(stage.axis[0], 6), round(stage.axis[1], 6)],
@@ -273,6 +341,86 @@ def build(args: argparse.Namespace) -> int:
     (out_dir / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n")
     print(f"\nwrote {out_dir}/manifest.json")
     return 0
+
+
+def _trim_rows(args, osm, venue_way, projection, lines, seat_ground):
+    """(row lines with their ends pulled in clear of the aisles' obstacles, summary)."""
+    from shapely.geometry import LineString, Polygon
+
+    bowl = Polygon([projection.to_local(*osm.nodes[n])[:2] for n in venue_way.node_ids])
+    near = bowl.buffer(15.0)
+    buildings = []
+    for way in osm.ways:
+        # Roofs in the bowl (the sound booth, the stage roof) are not in the aisles' way.
+        if "building" not in way.tags or way.tags.get("building") == "roof":
+            continue
+        try:
+            poly = Polygon([projection.to_local(*osm.nodes[n])[:2] for n in way.node_ids])
+        except (KeyError, ValueError):
+            continue
+        if poly.is_valid and poly.intersects(near):
+            buildings.append(poly)
+    top = ground = None
+    top_path = Path(getattr(args, "scan_top", "") or "")
+    if seat_ground is not None and top_path.name and top_path.is_file():
+        top = ScanHeights.load(top_path)
+        ground = getattr(seat_ground, "ground", None)
+    obstacles = seating_obstacles(top, ground, buildings, within=near)
+    trimmed = trim_row_ends(lines, obstacles)
+    cut = [LineString(a).length - LineString(b).length for a, b in zip(lines, trimmed)]
+    info = {"rows": sum(1 for c in cut if c > 1e-6), "metres": float(sum(cut)), "buildings": len(buildings)}
+    return trimmed, info, obstacles, top
+
+
+def _sound_booth(osm, venue_way, projection):
+    """(OSM way, 4-corner footprint in local metres) of the sound booth's roof, or (None, None).
+
+    The booth is the ``building=roof`` way inside the amphitheatre's footprint
+    (way 229359709 at the real venue).
+    """
+    from shapely.geometry import Polygon
+
+    def plan(way):
+        try:
+            return Polygon([projection.to_local(*osm.nodes[n])[:2] for n in way.node_ids])
+        except (KeyError, ValueError):
+            return None
+
+    bowl = plan(venue_way)
+    if bowl is None or not bowl.is_valid:
+        return None, None
+    for way in osm.ways:
+        if way.tags.get("building") != "roof":
+            continue
+        roof = plan(way)
+        if roof is not None and roof.is_valid and 4.0 < roof.area < 200.0 and bowl.contains(roof.centroid):
+            rect = np.array(roof.minimum_rotated_rectangle.exterior.coords)[:4]
+            return way, rect
+    return None, None
+
+
+def _cut_scan_fade(args, layout, out_dir: Path, extra=None) -> dict | None:
+    """out/scan_fade.png and .json: the scan's fade mask with the seating cut out."""
+    from PIL import Image
+
+    png = Path(getattr(args, "scan_fade", "") or "")
+    if not png.name or not png.is_file() or not png.with_suffix(".json").is_file():
+        print(f"no scan fade mask at {png}; the scan is not cut out of the seating")
+        return None
+    place = json.loads(png.with_suffix(".json").read_text())
+    alpha = np.asarray(Image.open(png).convert("L"), dtype=float) / 255.0
+    top_path = Path(getattr(args, "scan_top", "") or "")
+    top = ScanHeights.load(top_path) if top_path.name and top_path.is_file() else None
+    cut, meta = seating_fade(alpha, place, layout, top=top, extra=extra)
+    img = np.round(cut * 255.0).astype(np.uint8)
+    Image.fromarray(np.dstack([img, img, img]), "RGB").save(out_dir / "scan_fade.png")
+    meta["about"] = (f"{place.get('about', 'ml0w scan opacity')}; seating cut out by redrocks build "
+                     f"from {png.name}" + (f" and {top_path.name}" if top is not None else ""))
+    (out_dir / "scan_fade.json").write_text(json.dumps(meta, indent=2) + "\n")
+    info = meta["seating_cut"]
+    print(f"  scan cut out over {info['cut_m2']:,.0f} m^2 of seating -> scan_fade.png "
+          f"({meta['texels'][0]}x{meta['texels'][1]})")
+    return info
 
 
 def _seat_ground(args, walkable):
@@ -353,6 +501,18 @@ def main(argv: list[str] | None = None) -> int:
         default=str(DEFAULT_SCAN_GROUND),
         help="ml0w scan ground raster from tools/scan_heights.py; the benches, stage "
         "and player spawn stand on it. Pass '' to put them on the terrain mesh.",
+    )
+    build_cmd.add_argument(
+        "--scan-top",
+        default=str(DEFAULT_SCAN_TOP),
+        help="ml0w scan top raster from tools/scan_heights.py; where the scan stands "
+        "tall in the seating it stays visible. Pass '' to cut the seating out regardless.",
+    )
+    build_cmd.add_argument(
+        "--scan-fade",
+        default=str(DEFAULT_SCAN_FADE),
+        help="ml0w scan fade mask (with its .json) from tools/scan_heights.py; out/ gets a "
+        "copy with the seating cut out. Pass '' for no cut.",
     )
     build_cmd.set_defaults(func=build)
 

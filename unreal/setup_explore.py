@@ -112,8 +112,10 @@ def _spots(explore, datum, creation):
         actor.set_editor_property("order", i + 1)
         actor.set_editor_property("title", spot["title"])
         actor.set_editor_property("tip", spot["tip"])
-        # Summits trace down from 150 m up so they land on the rock top, not under it.
-        actor.set_editor_property("snap_from_above", 15000.0 if spot.get("place") == "summit" else 3000.0)
+        # Summits trace down from 150 m up so they land on the rock top, not under
+        # it; the stage spot from 3 m, or it lands on the stage roof.
+        snap = {"summit": 15000.0, "deck": 300.0}.get(spot.get("place"), 3000.0)
+        actor.set_editor_property("snap_from_above", snap)
         if spot.get("place") == "summit":
             # The scan's rock top is not exactly over the OSM centroid: find the
             # highest ground within 60 m and face the biggest drop.

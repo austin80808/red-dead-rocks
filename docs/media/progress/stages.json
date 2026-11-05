@@ -1,0 +1,10 @@
+{
+  "about": "One frame per stage of the project, oldest first: the view up the bowl from the stage. tools/make_progress_gif.py turns it into docs/media/progress.gif for the README; append a frame when a stage lands.",
+  "stages": [
+    {"frame": "docs/media/look-pass/before_eye_spawn.jpg", "title": "First walkable level: terrain, rocks and benches from map data", "pr": "#34"},
+    {"frame": "docs/media/look-pass/after_eye_spawn.jpg", "title": "Look pass: Lumen light, sandstone, the scan's rocks", "pr": "#41"},
+    {"frame": "docs/media/benches-on-scan/after_spawn.jpg", "title": "Benches and stage stand on the drone scan", "pr": "#45"},
+    {"frame": "docs/media/explore/stage.jpg", "title": "Explorable realm: 3.6 km world, trees, Morrison", "pr": "#49"},
+    {"frame": "docs/media/progress/terraced_seating.jpg", "title": "Terraced seating, aisle stairs, sound booth", "pr": "#53"}
+  ]
+}

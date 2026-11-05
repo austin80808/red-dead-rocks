@@ -134,12 +134,12 @@ def test_stage_dimensions_and_position(tmp_path):
     assert (mesh.front_edge_east, mesh.front_edge_north) == pytest.approx((250.0, 100.0 - STAGE_FRONT_SETBACK_M))
 
 
-def test_stage_clear_of_first_bench(tmp_path):
-    from redrocks.benches import SEAT_DEPTH_M
+def test_stage_clear_of_first_row(tmp_path):
+    from redrocks.seating import PLANK_OVERHANG_M
 
     mesh, (verts, _, faces, _), rows = export(tmp_path)
     deck = part_verts(mesh, verts, faces, "deck")
-    assert deck[:, 1].max() / 100 < rows[0].centre_north - SEAT_DEPTH_M / 2 - 1.0
+    assert deck[:, 1].max() / 100 < rows[0].centre_north - PLANK_OVERHANG_M - 1.0
 
 
 def test_roof_sits_on_published_grid_height_above_deck(tmp_path):
@@ -336,7 +336,7 @@ def test_walkway_sits_on_the_ground_when_given_one(tmp_path):
 
 
 def test_cli_stands_benches_stage_and_spawn_on_the_scan_ground(monkeypatch, tmp_path):
-    """With a scan ground raster, the seats are 0.45 m over it and the deck and spawn on it."""
+    """With a scan ground raster, the treads clear it and the deck and spawn stand on it."""
     from redrocks.scan_blend import ScanHeights
 
     def fake_dem(bbox, size=2017):
@@ -353,7 +353,8 @@ def test_cli_stands_benches_stage_and_spawn_on_the_scan_ground(monkeypatch, tmp_
     monkeypatch.setattr(cli, "build_monoliths", lambda *a, **k: [])
 
     def plane(e, n):
-        return 1920.0 + 0.05 * e + 0.2 * n
+        # Rising to the south like the fake DEM, so the scan's bowl climbs with the rows.
+        return 1955.0 + 0.05 * e - 0.2 * n
 
     def raster(cell, lift):
         xs = np.arange(-200.0, 200.0, cell) + cell / 2
@@ -371,13 +372,16 @@ def test_cli_stands_benches_stage_and_spawn_on_the_scan_ground(monkeypatch, tmp_
     assert manifest["venue"]["seats"] == 9525
 
     base = manifest["benches"]["base_elevation_m"]
-    bverts, _, _, _ = load(out / "Benches.obj")
-    st = bverts.reshape(-1, 4, 3) / 100.0  # per station: LB, LT, RT, RB
-    centre = 0.5 * (st[:, 1] + st[:, 2])
-    seat = centre[:, 2] + base - plane(centre[:, 0], centre[:, 1])
-    assert np.allclose(seat, 0.45, atol=1e-3)
-    bottom = st[:, 0, 2] + base - plane(st[:, 0, 0], st[:, 0, 1])
-    assert bottom.max() <= 0.0 + 1e-3  # no bench bottom floats over the scan
+    bverts, _, bfaces, _ = load(out / "Benches.obj")
+    m = bverts / 100.0
+    z = m[:, 2] + base - plane(m[:, 0], m[:, 1])
+    levels = np.array(manifest["benches"]["tread_levels_m"])
+    tops = np.isin(np.round(m[:, 2] + base, 3), np.round(levels, 3))
+    # Treads are level along their rows and clear the scan's ground by the
+    # clearance where they sit (this fake plane also slopes along the rows), and
+    # the terraces' buried bottoms go under it.
+    assert np.median(z[tops]) == pytest.approx(0.45, abs=0.3)
+    assert z[~tops].max() < z[tops].max() and np.median(z[~tops]) < 0.0
 
     deck = manifest["stage"]["deck_top_elevation_m"]
     spawn = manifest["spawn"]
@@ -415,6 +419,24 @@ def test_y_columns_and_skydeck_trusses_match_published_stations(tmp_path):
     assert "shell_baffle_e" in mesh.parts and "shell_baffle_w" in mesh.parts
 
 
+def stair_verts(mesh, name):
+    """A row-end stair part's vertices, from Stairs.obj (they are not in Stage.obj)."""
+    verts, _, faces, _ = load(mesh.stairs_path)
+    a, b = mesh.stairs_parts[name]
+    return verts[sorted({i - 1 for f in faces[a:b] for i, _ in f})]
+
+
+def test_row_end_stairs_are_their_own_mesh(tmp_path):
+    """They take the seating's flagstone, so they leave the concrete Stage.obj."""
+    mesh, (verts, _, faces, objects), rows = export(tmp_path)
+    assert not any(p.startswith("stair_") for p in mesh.parts)
+    sv, suv, sfaces, sobjects = load(tmp_path / "Stairs.obj")
+    assert mesh.stairs_path == tmp_path / "Stairs.obj" and sobjects == ["Stairs"]
+    assert len(mesh.stairs_parts) == 3 * 2 * len(rows)
+    assert sum(b - a for a, b in mesh.stairs_parts.values()) == len(sfaces) == mesh.stairs_triangles
+    assert all(1 <= t <= len(suv) for f in sfaces for _, t in f)
+
+
 def test_foh_booth_and_end_of_row_stairs(tmp_path):
     mesh, (verts, _, faces, _), rows = export(tmp_path)
     for part_name in ("foh_platform", "foh_wall_front", "foh_wall_e", "foh_wall_w", "walkway_parapet"):
@@ -423,9 +445,167 @@ def test_foh_booth_and_end_of_row_stairs(tmp_path):
     # Every row has 2 steps at both ends (start and end) plus outer cheek walls.
     for r in rows:
         for side in ("start", "end"):
-            s1 = part_verts(mesh, verts, faces, f"stair_{side}_r{r.index}_s1")
-            s2 = part_verts(mesh, verts, faces, f"stair_{side}_r{r.index}_s2")
-            wall = part_verts(mesh, verts, faces, f"stair_wall_{side}_r{r.index}")
+            s1 = stair_verts(mesh, f"stair_{side}_r{r.index}_s1")
+            s2 = stair_verts(mesh, f"stair_{side}_r{r.index}_s2")
+            wall = stair_verts(mesh, f"stair_wall_{side}_r{r.index}")
             # Step 2 rises half a bench height (22.5 cm) above step 1.
             assert s2[:, 2].max() - s1[:, 2].max() == pytest.approx(22.5, abs=0.05)
             assert wall[:, 2].max() > s2[:, 2].max()
+
+
+# ---- with the terraced seating's tread levels ----------------------------------
+
+def terraced(tmp_path, n=10):
+    rows, lines = make_rows(n)
+    levels = [1800.5 + 0.45 * i for i in range(n)]
+    mesh = export_stage_obj(rows, lines, tmp_path / "Stage.obj", BASE, levels=levels)
+    verts, _, faces, _ = load(tmp_path / "Stage.obj")
+    return mesh, verts, faces, rows, levels
+
+
+def top(mesh, verts, faces, name):
+    v = stair_verts(mesh, name) if name.startswith("stair_") else part_verts(mesh, verts, faces, name)
+    return v[:, 2].max() / 100.0 + BASE
+
+
+def test_side_stairs_climb_from_tread_to_tread(tmp_path):
+    mesh, verts, faces, rows, levels = terraced(tmp_path)
+    for k in range(1, len(rows)):
+        r = rows[k]
+        for side in ("start", "end"):
+            assert top(mesh, verts, faces, f"stair_{side}_r{r.index}_s1") == pytest.approx(
+                (levels[k - 1] + levels[k]) / 2, abs=1e-3)
+            assert top(mesh, verts, faces, f"stair_{side}_r{r.index}_s2") == pytest.approx(levels[k], abs=1e-3)
+            assert top(mesh, verts, faces, f"stair_wall_{side}_r{r.index}") == pytest.approx(
+                levels[k] + dim("stair_wall_height"), abs=1e-3)
+            # Each pair of steps fills the row's band: its line back to the next row's.
+            s = np.vstack([stair_verts(mesh, f"stair_{side}_r{r.index}_s{j}") for j in (1, 2)])
+            assert s[:, 1].min() / 100 == pytest.approx(r.centre_north, abs=1e-3)
+            assert s[:, 1].max() / 100 == pytest.approx(r.centre_north + 1.0, abs=1e-3)
+
+
+def test_stage_steps_reach_row_one_tread(tmp_path):
+    mesh, verts, faces, rows, levels = terraced(tmp_path)
+    for side in ("e", "w"):
+        assert top(mesh, verts, faces, f"stage_step_{side}_2") == pytest.approx(levels[0], abs=1e-3)
+
+
+def test_walkway_sits_just_under_the_top_tread(tmp_path):
+    mesh, verts, faces, rows, levels = terraced(tmp_path)
+    assert top(mesh, verts, faces, "walkway") == pytest.approx(levels[-1] - stage.WALKWAY_UNDER_TREAD_M, abs=1e-3)
+    assert mesh.walkway_elevation_m == pytest.approx(levels[-1] - stage.WALKWAY_UNDER_TREAD_M, abs=1e-3)
+
+
+def test_levels_must_match_rows(tmp_path):
+    rows, lines = make_rows(5)
+    with pytest.raises(ValueError):
+        export_stage_obj(rows, lines, tmp_path / "Stage.obj", BASE, levels=[1800.0] * 4)
+
+
+def test_handrail_runs_along_the_walkway_parapet(tmp_path):
+    mesh, verts, faces, rows, levels = terraced(tmp_path)
+    hv, huv, hfaces, objects = load(tmp_path / "Handrail.obj")
+    assert objects == ["Handrail"] and mesh.handrail_path == tmp_path / "Handrail.obj"
+    walk = top(mesh, verts, faces, "walkway")
+    parapet = part_verts(mesh, verts, faces, "walkway_parapet")
+    assert hv[:, 2].max() / 100 + BASE == pytest.approx(walk + stage.HANDRAIL_HEIGHT_M, abs=1e-3)
+    assert hv[:, 2].min() == pytest.approx(parapet[:, 2].max(), abs=0.01)  # standing on the parapet
+    # Over the parapet in plan, end to end.
+    assert hv[:, 1].min() >= parapet[:, 1].min() - 1e-3 and hv[:, 1].max() <= parapet[:, 1].max() + 1e-3
+    assert np.ptp(hv[:, 0]) == pytest.approx(np.ptp(parapet[:, 0]), abs=0.1)
+    posts = sum(1 for line in (tmp_path / "Handrail.obj").read_text().splitlines() if line.startswith("# post"))
+    assert posts == int(np.ptp(parapet[:, 0]) / 100 // stage.HANDRAIL_POST_SPACING_M) + 1
+    assert all(1 <= t <= len(huv) for f in hfaces for _, t in f)
+
+
+# ---- the sound booth from its OSM roof -------------------------------------------
+
+def booth_rect(east=0.0, north=104.0, w=6.0, d=4.5):
+    """A 6 x 4.5 m roof footprint over rows 5-9 of make_rows (rows run east-west, uphill north)."""
+    return np.array([[east - w / 2, north], [east + w / 2, north], [east + w / 2, north + d], [east - w / 2, north + d]])
+
+
+def test_booth_stands_on_its_osm_footprint_over_the_rows(tmp_path):
+    rows, lines = make_rows(10)
+    levels = [1800.5 + 0.45 * i for i in range(10)]
+    plan = booth_rect()
+    mesh = export_stage_obj(rows, lines, tmp_path / "Stage.obj", BASE, levels=levels, booth=plan)
+    verts, _, faces, _ = load(tmp_path / "Stage.obj")
+    deck = part_verts(mesh, verts, faces, "foh_platform")
+    assert deck[:, 0].min() / 100 == pytest.approx(-3.0, abs=1e-3) and deck[:, 0].max() / 100 == pytest.approx(3.0, abs=1e-3)
+    assert deck[:, 1].min() / 100 == pytest.approx(104.0, abs=1e-3) and deck[:, 1].max() / 100 == pytest.approx(108.5, abs=1e-3)
+    # Level with the highest tread under it, plus a step: entered from the row behind.
+    top = deck[:, 2].max() / 100 + BASE
+    assert top == pytest.approx(levels[8] + stage.BOOTH_RAISE_M, abs=1e-3)
+    assert mesh.booth_deck_elevation_m == pytest.approx(top, abs=1e-3)
+    # The parapet is on the stage side (south here).
+    front = part_verts(mesh, verts, faces, "foh_wall_front")
+    assert front[:, 1].max() / 100 < 104.0 + 0.5
+    assert front[:, 2].max() / 100 + BASE == pytest.approx(top + dim("foh_wall_height"), abs=1e-3)
+
+
+def test_booth_roof_is_its_own_mesh_on_four_posts(tmp_path):
+    rows, lines = make_rows(10)
+    levels = [1800.5 + 0.45 * i for i in range(10)]
+    mesh = export_stage_obj(rows, lines, tmp_path / "Stage.obj", BASE, levels=levels, booth=booth_rect())
+    assert mesh.booth_path == tmp_path / "Booth.obj"
+    v, uv, f, objects = load(tmp_path / "Booth.obj")
+    assert objects == ["Booth"] and all(1 <= t <= len(uv) for face in f for _, t in face)
+    text = (tmp_path / "Booth.obj").read_text()
+    assert text.count("# post") == 4 and "# roof" in text
+    deck_top = (mesh.booth_deck_elevation_m - BASE) * 100
+    assert v[:, 2].min() == pytest.approx(deck_top, abs=0.01)
+    assert v[:, 2].max() == pytest.approx(deck_top + (stage.BOOTH_ROOF_M + stage.BOOTH_ROOF_THICK_M) * 100, abs=0.01)
+    # The roof overhangs the deck all round.
+    assert v[:, 0].min() / 100 == pytest.approx(-3.0 - stage.BOOTH_ROOF_OVERHANG_M, abs=1e-3)
+
+
+def test_without_a_footprint_the_booth_stays_a_blockout_and_has_no_roof(tmp_path):
+    rows, lines = make_rows(10)
+    mesh = export_stage_obj(rows, lines, tmp_path / "Stage.obj", BASE)
+    assert "foh_platform" in mesh.parts and mesh.booth_path is None
+    assert not (tmp_path / "Booth.obj").exists()
+
+
+def test_aisles_list_every_stair_step_up_both_sides(tmp_path):
+    """The play-test (and anyone scripting a walk) follows these up the row-end stairs."""
+    mesh, verts, faces, rows, levels = terraced(tmp_path)
+    for side in ("start", "end"):
+        steps = mesh.aisles[side]
+        assert len(steps) == 2 * len(rows)
+        z = [p[2] for p in steps]
+        assert z == sorted(z)  # each step a little higher than the one before
+        assert z[1] == pytest.approx(levels[0], abs=1e-3) and z[-1] == pytest.approx(levels[-1], abs=1e-3)
+        # Beside the rows' ends: past the 40 m half-width, on this side.
+        xs = [p[0] for p in steps]
+        assert all(abs(x) > 40.0 for x in xs) and len({np.sign(x) for x in xs}) == 1
+
+
+def test_aisle_path_turns_a_corner_where_the_rows_widen(tmp_path):
+    """Rows that widen put the next stair further out; heading straight there would
+    cut across this row's band through its stair's cheek wall, so the path first
+    steps up onto the next row's tread, then walks out along it to that stair."""
+    rows, _ = make_rows(6)
+    lines = [np.array([[-10.0 - 2.0 * i, 100.0 + i], [10.0 + 2.0 * i, 100.0 + i]]) for i in range(6)]
+    levels = [1800.5 + 0.45 * i for i in range(6)]
+    mesh = export_stage_obj(rows, lines, tmp_path / "Stage.obj", BASE, levels=levels)
+    for side, path in mesh.aisles.items():
+        assert [p[2] for p in path] == sorted(p[2] for p in path)
+        # A corner on each of rows 2-6's treads (inside the row, not on its stair)
+        # stands in for that row's first stair step, which the path goes past.
+        on_tread = [p for p in path if abs(p[0]) < 10.0 + 2.0 * np.floor(p[1] - 100.0)]
+        assert len(on_tread) == 5 and len(path) == 2 * 6
+        for a, b in zip(path, path[1:]):
+            if abs(b[0]) > abs(a[0]) + 0.3:  # an outward move stays within one row's band
+                assert np.floor(a[1] - 100.0) == np.floor(b[1] - 100.0)
+
+
+def test_aisle_path_keeps_to_the_inner_half_of_each_stair(tmp_path):
+    """Away from the curb on the aisle's outer side, so a walker that runs wide on a turn stays on the stairs."""
+    mesh, verts, faces, rows, levels = terraced(tmp_path)
+    gap = stage.STAIR_GAP_M
+    stair_outer = 40.0 + gap + dim("stair_width")  # make_rows' rows end at +-40 m
+    for side, path in mesh.aisles.items():
+        for e, n, z in path:
+            assert 40.0 + gap < abs(e) < 40.0 + gap + dim("stair_width") / 2 + 1e-6
+            assert stair_outer - abs(e) >= stage.AISLE_INSET_M + dim("stair_width") / 2 - 1e-6
