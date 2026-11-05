@@ -322,6 +322,8 @@ class Model:
     trunk_radius_m: float
     parts: dict  # part -> Mesh
     tips: list = field(default_factory=list)  # branch tips, metres (ponderosa)
+    roots: list = field(default_factory=list)  # (x, y, z, radius) where stems meet the ground, metres
+    limbs: list = field(default_factory=list)  # (z, limb base radius, trunk radius there), metres (ponderosa)
 
 
 def _seed(name: str, index: int) -> int:
@@ -417,6 +419,7 @@ def _juniper(name, index, one_seed: bool) -> Model:
         return np.array([lean[0] * t, lean[1] * t, zb * height + t * (1 - zb) * height])
 
     stems = []
+    roots = []
     for s in range(n_stems):
         az = rng.uniform(0, 2 * math.pi)
         tilt = rng.uniform(0.05, 0.25) if n_stems == 1 else rng.uniform(0.25, 0.55)
@@ -429,6 +432,7 @@ def _juniper(name, index, one_seed: bool) -> Model:
         radii[0] *= 1.35  # root flare
         add_tube(meshes["Trunk"], path, radii, 9, gnarl=0.12, rng=rng, uv_scale=1.0)
         stems.append(path)
+        roots.append((float(start[0]), float(start[1]), float(start[2]), float(radii[0])))
 
     crown_c = axis(0.5)
     crown_r = np.array([radius, radius, height * 0.5])
@@ -462,7 +466,7 @@ def _juniper(name, index, one_seed: bool) -> Model:
             path = _wobbly_path(rng, start, p - start, float(np.linalg.norm(p - start)) * 0.9, 4, 0.12)
             add_tube(meshes["Trunk"], path, [0.05, 0.035, 0.022, 0.012], 5, gnarl=0.1, rng=rng)
     return Model("%s_%d" % (name, index), "juniper_one_seed" if one_seed else "juniper_rocky_mountain",
-                 "Juniper", height, base_r, meshes)
+                 "Juniper", height, base_r, meshes, roots=roots)
 
 
 PONDEROSA_FORMS = ("young", "mature", "mature", "mature", "old")  # by variant index
@@ -493,6 +497,11 @@ def _ponderosa(name, index) -> Model:
     radii = [base_r * (1 - i / (k - 1)) ** 0.85 + 0.035 for i in range(k)]
     radii[0] *= 1.3
     add_tube(meshes["Trunk"], trunk, radii, 14, gnarl=0.04, rng=rng, uv_scale=1.0)
+    roots = [(float(trunk[0, 0]), float(trunk[0, 1]), float(trunk[0, 2]), float(radii[0] * 1.05))]
+    limbs = []
+
+    def trunk_r(z):
+        return float(np.interp(z, trunk[:, 2], radii))
 
     def trunk_at(z):
         return np.array([np.interp(z, trunk[:, 2], trunk[:, 0]), np.interp(z, trunk[:, 2], trunk[:, 1]), z])
@@ -528,7 +537,7 @@ def _ponderosa(name, index) -> Model:
         add_tube(meshes["Trunk"], path, [r0 * (1 - 0.8 * i / 6) + 0.008 for i in range(7)], 6, rng=rng)
         tips.append(path[-1])
         tuft(path[-1], path[-1] - path[-3], 14, 20)
-        for _ in range(int(length * 1.7) + 1):  # laterals on the outer 45 % of the limb
+        for _ in range(int(length * 1.9) + 1):  # laterals on the outer 45 % of the limb
             f = rng.uniform(0.55, 0.95) * 6
             j = min(int(f), 5)
             at = path[j] + (path[j + 1] - path[j]) * (f - j)
@@ -559,19 +568,25 @@ def _ponderosa(name, index) -> Model:
             length *= rng.uniform(0.75, 1.15)
             rise = (-0.12 + 0.3 * tt) if form != "old" else (-0.1 + 0.2 * tt)
             d = np.array([math.cos(az), math.sin(az), rise + rng.normal(scale=0.08)])
-            r0 = 0.10 * (length / 3.6) ** 0.8 + 0.03
-            limb(trunk_at(z + rng.uniform(-0.15, 0.15)), d, length, r0, 0.22 * (1 - 0.6 * tt), 0.28 * (1 - tt), 1)
+            za = z + rng.uniform(-0.15, 0.15)
+            # A limb is never more than 0.4x the trunk where it leaves it, or the pine forks like an oak.
+            r0 = min(0.10 * (length / 3.6) ** 0.8 + 0.03, 0.4 * trunk_r(za))
+            limbs.append((za, r0, trunk_r(za)))
+            limb(trunk_at(za), d, length, r0, 0.22 * (1 - 0.6 * tt), 0.28 * (1 - tt), 1)
         z += rng.uniform(0.6, 1.1) * (1.0 if form != "young" else 0.8)
     if form == "old":
         for _ in range(int(rng.integers(2, 4))):  # flat upper limbs make the old tree's flat top
             az += golden + rng.normal(scale=0.4)
             d = np.array([math.cos(az), math.sin(az), rng.uniform(0.02, 0.12)])
-            limb(trunk_at(height * rng.uniform(0.88, 0.95)), d, rng.uniform(3.0, 4.0), 0.09, 0.05, 0.05, 1)
+            za = height * rng.uniform(0.88, 0.95)
+            r0 = min(0.09, 0.4 * trunk_r(za))
+            limbs.append((za, r0, trunk_r(za)))
+            limb(trunk_at(za), d, rng.uniform(3.0, 4.0), r0, 0.05, 0.05, 1)
     top = trunk_at(height)
     tips.append(top)
     for _ in range(3 if form != "old" else 1):
         tuft(top - np.array([0, 0, 0.3]), np.array([0, 0, 1.0]) + rng.normal(scale=0.3, size=3))
-    return Model("%s_%d" % (name, index), "ponderosa_pine", "Pine", height, base_r, meshes, tips)
+    return Model("%s_%d" % (name, index), "ponderosa_pine", "Pine", height, base_r, meshes, tips, roots, limbs)
 
 
 def _shrub(name, index, mahogany: bool) -> Model:
@@ -589,6 +604,7 @@ def _shrub(name, index, mahogany: bool) -> Model:
     crown_c = np.array([0.0, 0.0, 0.5 * height])
     crown_r = np.array([0.5, 0.47, 0.5]) * height * rng.uniform(0.9, 1.12, 3)
     stems = []
+    roots = []
     for _ in range(n_stems):
         az = rng.uniform(0, 2 * math.pi)
         tilt = rng.uniform(0.15, 0.6)
@@ -597,6 +613,7 @@ def _shrub(name, index, mahogany: bool) -> Model:
         path = _wobbly_path(rng, start, d, height * rng.uniform(0.7, 0.95), 5, 0.1)
         add_tube(meshes["Trunk"], path, [0.045, 0.036, 0.027, 0.018, 0.01], 5, rng=rng)
         stems.append(path)
+        roots.append((float(start[0]), float(start[1]), float(start[2]), 0.045))
     if mahogany:
         # Twigs fork off the upper stems; leaf tufts sit at the twig ends.
         for path in stems:
@@ -621,7 +638,7 @@ def _shrub(name, index, mahogany: bool) -> Model:
             _clump(meshes, rng, p, 0.2 * rng.uniform(0.85, 1.15), 18 if rho > 0.55 else 0, card_w, crown_c,
                    crown_r, 0.65, subdiv=2, tilt_up=0.4, squash=0.85, on_surface=True)
     return Model("%s_%d" % (name, index), "mountain_mahogany" if mahogany else "gambel_oak",
-                 atlas, height, 0.045, meshes)
+                 atlas, height, 0.045, meshes, roots=roots)
 
 
 def _oak_patch(name, index) -> Model:
@@ -632,10 +649,13 @@ def _oak_patch(name, index) -> Model:
     height = 2.6
     card_w = CARD_M["Oak"]
     ax, ay = rng.uniform(2.0, 2.2), rng.uniform(1.85, 2.1)
+    roots = []
     for _ in range(int(rng.integers(12, 26))):
         u, a = math.sqrt(rng.uniform()), rng.uniform(0, 2 * math.pi)
-        base = np.array([math.cos(a) * ax * u * 0.85, math.sin(a) * ay * u * 0.85, -0.2])
-        h = height * (1.0 - 0.45 * u * u) * rng.uniform(0.75, 0.95)
+        deep = 0.2 + 0.45 * u  # outer stems root deeper, so the patch never floats on a slope
+        base = np.array([math.cos(a) * ax * u * 0.85, math.sin(a) * ay * u * 0.85, -deep])
+        roots.append((float(base[0]), float(base[1]), float(base[2]), 0.04))
+        h = height * (1.0 - 0.45 * u * u) * rng.uniform(0.75, 0.95) + deep - 0.2
         d = np.array([math.cos(a) * 0.3 * u, math.sin(a) * 0.3 * u, 1.0]) + rng.normal(scale=0.12, size=3)
         path = _wobbly_path(rng, base, d, h, 5, 0.1)
         add_tube(meshes["Trunk"], path, [0.04, 0.032, 0.024, 0.016, 0.009], 5, rng=rng)
@@ -648,7 +668,7 @@ def _oak_patch(name, index) -> Model:
         outer = u > 0.75 or p[2] > top * 0.75
         _clump(meshes, rng, p, 0.22 * rng.uniform(0.85, 1.15), 18 if outer else 0, card_w, crown_c, crown_r,
                0.65, subdiv=2, tilt_up=0.4, squash=0.8, on_surface=True)
-    return Model("%s_%d" % (name, index), "gambel_oak", "Oak", height, 0.04, meshes)
+    return Model("%s_%d" % (name, index), "gambel_oak", "Oak", height, 0.04, meshes, roots=roots)
 
 
 # name -> (builder, variant count)
@@ -683,11 +703,11 @@ ATLAS_SIZE = 1024  # leaf atlases are painted by redrocks.foliage_atlas, at real
 # The masks below are the ones setup_environment.py used for the old scrub.
 SCAN_CENTRE_CM = (-3784.0, 5263.0)  # the ml0w scan covers the bowl; it has its own plants
 SCAN_CLEAR_CM = 33000.0
-BLOCK_OBJS = {"Roads": 1, "Paths": 1, "Parking": 1, "Benches": 2, "Stage": 2, "Water": 1}  # name -> dilation (cells)
+BLOCK_OBJS = {"Roads": 1, "Paths": 1, "Parking": 1, "Benches": 2, "Stage": 2, "Water": 1, "Buildings": 1, "Walls": 1}  # name -> dilation (cells)
 BLOCK_CELL_CM = 800.0
 # Shrubs may line these right up to their edge (canopy never over them), on a 2 m grid;
 # trees keep the coarse 8 m mask (their trunks collide).
-FINE_BLOCK_OBJS = ("Roads", "Paths", "Parking", "Water")
+FINE_BLOCK_OBJS = ("Roads", "Paths", "Parking", "Water", "Buildings", "Walls")
 FINE_CELL_CM = 200.0
 SPACING_CM = 650.0
 SEED = 1941  # the year Red Rocks Amphitheatre opened
@@ -745,8 +765,14 @@ class Ground:
         return a * (1 - ty) + b * ty
 
     def normal(self, x, y):
-        gx = (self.height(x + self.dx, y) - self.height(x - self.dx, y)) / (2 * self.dx)
-        gy = (self.height(x, y + self.dy) - self.height(x, y - self.dy)) / (2 * self.dy)
+        # Divide by the span actually sampled: at the grid edge the outer sample
+        # is clamped, and dividing by 2 dx there would halve the slope.
+        x0, y0, x1, y1 = self.extent
+        x, y = np.asarray(x, float), np.asarray(y, float)
+        xa, xb = np.clip(x - self.dx, x0, x1), np.clip(x + self.dx, x0, x1)
+        ya, yb = np.clip(y - self.dy, y0, y1), np.clip(y + self.dy, y0, y1)
+        gx = (self.height(xb, y) - self.height(xa, y)) / np.maximum(xb - xa, 1e-6)
+        gy = (self.height(x, yb) - self.height(x, ya)) / np.maximum(yb - ya, 1e-6)
         inv = 1.0 / np.sqrt(1.0 + gx * gx + gy * gy)
         return -gx * inv, -gy * inv, inv
 
@@ -835,6 +861,8 @@ OPENING_SHRUB_P = 0.18        # chance a 6.5 m candidate in the open grows a lon
 GROVE_SEED_P = 0.4            # share of pine picks that seed a grove
 GROVE_GAP_CM = 2200.0         # no new grove seed this close to a pine
 GROVE_RADIUS_CM = 1200.0
+PINE_GAP_CM = 250.0           # trunk to trunk, at least
+JUNIPER_GAP_CM = 100.0
 SHRUBS = ("Oak", "OakPatch", "Mahogany")
 
 
@@ -895,11 +923,35 @@ def _add_rows(out: dict, models: dict, ground: Ground, rng, names, px, py, tilt)
     steep = np.sqrt(np.maximum(0.0, 1 - nz ** 2)) / np.maximum(nz, 0.3)
     pz = ground.height(px, py)
     trunk = np.array([models[n].trunk_radius_m for n in names])
-    sink = 12.0 + trunk * 100.0 * s * steep * 1.3
     yaw = rng.uniform(0, 360, len(names))
-    pitch = rng.normal(size=len(names)) * tilt
-    roll = rng.normal(size=len(names)) * tilt
+    pitch = np.round(rng.normal(size=len(names)) * tilt, 2)
+    roll = np.round(rng.normal(size=len(names)) * tilt, 2)
     sxy = s * rng.uniform(0.92, 1.08, len(names))
+    # Sink each plant so that no stem root can stand above the ground, whatever
+    # its yaw: a root rho from the centre must stay under the lowest ground on
+    # the circle of radius rho around the plant (sampled, so curved ground counts
+    # too), plus what the tilt can lift it.
+    tilt_lean = np.tan(np.radians(np.abs(pitch) + np.abs(roll)))
+    root_sink = np.full(len(names), -1e9)
+    ring = np.linspace(0, 2 * math.pi, 12, endpoint=False)
+    by_model = {}
+    for i, nm in enumerate(names):
+        by_model.setdefault(nm, []).append(i)
+    for n, idx in by_model.items():
+        k = np.array(idx)
+        roots = models[n].roots
+        rhos = np.array([math.hypot(rx, ry) + rr for rx, ry, rz, rr in roots]) * 100.0
+        bands = rhos.max() * np.array([1 / 3, 2 / 3, 1.0])
+        drops = []
+        for band in bands:  # three sampled rings; each root takes the drop of the next ring out
+            r = band * sxy[k]
+            hx = px[k][:, None] + np.cos(ring)[None, :] * r[:, None]
+            hy = py[k][:, None] + np.sin(ring)[None, :] * r[:, None]
+            drops.append(np.maximum(pz[k] - ground.height(hx, hy).min(axis=1), 0.0))
+        for (rx, ry, rz, rr), rho in zip(roots, rhos):
+            drop = drops[int(np.searchsorted(bands, rho - 1e-6))]
+            root_sink[k] = np.maximum(root_sink[k], rz * 100.0 * s[k] + drop + rho * sxy[k] * tilt_lean[k] + 10.0)
+    sink = np.maximum(12.0 + trunk * 100.0 * s * steep * 1.3, root_sink)
     for k, n in enumerate(names):
         out[n].append([round(float(px[k]), 1), round(float(py[k]), 1), round(float(pz[k] - sink[k]), 1),
                        round(float(yaw[k]), 2), round(float(pitch[k]), 2), round(float(roll[k]), 2),
@@ -989,9 +1041,11 @@ def place(ground: Ground, blocked: set, models: dict, seed: int = SEED, shrub_ma
     p_jun = w_jun / np.maximum(total, 1e-9)
     thick = in_thicket(ground, x, y, seed)
     pine_cells = {}
+    juniper_cells = {}
 
     def near_pine(qx, qy, d):
-        ci, cj = int(qx // d), int(qy // d)
+        """A placed pine within d (<= GROVE_GAP_CM) of (qx, qy)."""
+        ci, cj = int(qx // GROVE_GAP_CM), int(qy // GROVE_GAP_CM)
         for di in (-1, 0, 1):
             for dj in (-1, 0, 1):
                 for ox, oy in pine_cells.get((ci + di, cj + dj), ()):
@@ -1010,6 +1064,8 @@ def place(ground: Ground, blocked: set, models: dict, seed: int = SEED, shrub_ma
                 members.append((x[k] + math.cos(a) * d, y[k] + math.sin(a) * d))
             mx, my = np.array(members).T
             for qx, qy in zip(mx[usable(mx, my, MIN_NZ["pine"], blocked)], my[usable(mx, my, MIN_NZ["pine"], blocked)]):
+                if near_pine(qx, qy, PINE_GAP_CM):
+                    continue  # trunks 0.4-0.75 m across must not fuse
                 add(pick("Ponderosa"), qx, qy, 0.8)
                 pine_cells.setdefault((int(qx // GROVE_GAP_CM), int(qy // GROVE_GAP_CM)), []).append((qx, qy))
         elif r < p_pine[k] + p_jun[k]:
@@ -1020,6 +1076,11 @@ def place(ground: Ground, blocked: set, models: dict, seed: int = SEED, shrub_ma
             my = y[k] + np.concatenate([[0.0], rng.normal(scale=200.0, size=n - 1)])
             keep = usable(mx, my, MIN_NZ["juniper"], blocked)
             for qx, qy in zip(mx[keep], my[keep]):
+                ci, cj = int(qx // JUNIPER_GAP_CM), int(qy // JUNIPER_GAP_CM)
+                if any(math.hypot(ox - qx, oy - qy) < JUNIPER_GAP_CM for di in (-1, 0, 1) for dj in (-1, 0, 1)
+                       for ox, oy in juniper_cells.get((ci + di, cj + dj), ())):
+                    continue
+                juniper_cells.setdefault((ci, cj), []).append((qx, qy))
                 rm = rng.uniform() < 0.2 + 0.6 * _smooth(0.15, 0.5, e[k])
                 add(pick("JuniperRM" if rm else "JuniperOS"), qx, qy, MAX_TILT_DEG)
 
@@ -1084,7 +1145,7 @@ def export(out_dir: Path, terrain_obj: Path | None = None, avoid_dir: Path | Non
         for name, dilate in BLOCK_OBJS.items():
             path = Path(avoid_dir or Path(terrain_obj).parent) / (name + ".obj")
             if path.exists():
-                cells = blocked_cells(read_obj_vertices(path), dilate=dilate)
+                cells = _dilate(mesh_cells(path, BLOCK_CELL_CM), dilate)  # triangles, not just vertices
                 blocked |= cells
                 if name in FINE_BLOCK_OBJS:
                     fine |= mesh_cells(path)

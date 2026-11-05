@@ -309,7 +309,7 @@ def test_ponderosa_has_five_variants():
 @pytest.mark.parametrize("i", PINES)
 def test_ponderosa_crown_base_and_trunk(i):
     p = veg.build_model("Ponderosa", i)
-    assert 0.30 <= vm.crown_base_fraction(p) <= 0.60  # ref02: the crown starts about 28 % up
+    assert 0.28 <= vm.crown_base_fraction(p) <= 0.60  # ref02: the crown starts about 28 % up
     lo, hi = veg.SCALE["Ponderosa"]
     d = vm.trunk_diameter_at(p, 1.4)
     assert d * lo >= 0.35 and d * hi <= 0.80
@@ -543,3 +543,90 @@ def test_mesh_cells_cover_a_triangle_not_just_its_corners(tmp_path):
     cells = veg.mesh_cells(obj, cell=200.0)
     assert (5, 0) in cells and (0, 5) in cells and (3, 3) in cells  # edges and interior, between the corners
     assert (8, 8) not in cells  # outside the hypotenuse
+
+
+# ------------------------------------------------------------- final-review fixes
+
+def _worst_root_excess(row, model, ground):
+    """Highest any stem root of this instance can stand above the ground, in cm,
+    over every yaw (the sink must not depend on Unreal's rotation convention)."""
+    x, y, z, yaw, pitch, roll, sxy, sz = row
+    worst = -1e9
+    for rx, ry, rz, rr in model.roots:
+        rho = (math.hypot(rx, ry) + rr) * 100 * sxy
+        for a in np.linspace(0, 2 * math.pi, 16, endpoint=False):
+            gx, gy = x + math.cos(a) * rho, y + math.sin(a) * rho
+            gz = float(ground.height(np.array([gx]), np.array([gy]))[0])
+            tilt = math.tan(math.radians(abs(pitch) + abs(roll))) * rho
+            worst = max(worst, z + rz * 100 * sz + tilt - gz)
+    return worst
+
+
+def test_no_plant_floats_on_a_25_degree_slope(models):
+    by_name = {mm.name: mm for mm in models}
+    g = veg.Ground(_slope_grid(n=41, size=160000.0, fn=lambda x, y: math.tan(math.radians(25)) * x + 60000.0))
+    out = veg.place(g, set(), by_name)
+    checked = 0
+    for name, rows in out.items():
+        for row in rows[::15]:
+            assert _worst_root_excess(row, by_name[name], g) <= 10.0, name
+            checked += 1
+    assert checked > 100
+
+
+def test_every_model_records_its_roots(models):
+    for mm in models:
+        assert mm.roots, mm.name
+        for rx, ry, rz, rr in mm.roots:
+            assert rz <= 0.0 and rr > 0.0
+
+
+def test_ponderosa_limbs_are_thinner_than_the_trunk():
+    for i in range(5):
+        p = veg.build_model("Ponderosa", i)
+        assert len(p.limbs) > 20
+        for z, r_limb, r_trunk in p.limbs:
+            assert r_limb <= 0.45 * r_trunk, (p.name, z, r_limb, r_trunk)
+
+
+def test_no_plants_in_buildings_or_walls(tmp_path):
+    out = tmp_path / "out"
+    out.mkdir()
+    verts = _slope_grid(n=21, size=240000.0, fn=lambda x, y: 0.05 * x + 20000.0)
+    (out / "RedRocks_Terrain.obj").write_text("\n".join("v %.1f %.1f %.1f" % tuple(v) for v in verts) + "\n")
+    # A 60 x 40 m building and a 200 m wall, as OSM extrusions (footprint triangles).
+    (out / "Buildings.obj").write_text("v 60000 60000 0\nv 66000 60000 0\nv 66000 64000 0\nv 60000 64000 0\n"
+                                       "f 1 2 3\nf 1 3 4\n")
+    (out / "Walls.obj").write_text("v -90000 -20000 0\nv -70000 -20000 0\nv -70000 -19960 0\nv -90000 -19960 0\n"
+                                   "f 1 2 3\nf 1 3 4\n")
+    info = veg.export(out / "vegetation", terrain_obj=out / "RedRocks_Terrain.obj", avoid_dir=out, textures=False)
+    n = 0
+    for rows in info["instances"].values():
+        for x, y, *_ in rows:
+            n += 1
+            assert not (60000 <= x <= 66000 and 60000 <= y <= 64000)
+            assert not (-90000 <= x <= -70000 and -20000 <= y <= -19960)
+    assert n > 100
+
+
+def test_trees_keep_their_distance(models):
+    by_name = {mm.name: mm for mm in models}
+    g = veg.Ground(_slope_grid(n=81, size=320000.0, fn=lambda x, y: 90000.0 - 0.25 * y))
+    out = veg.place(g, set(), by_name)
+    for prefix, gap in (("Ponderosa", 250.0), ("Juniper", 100.0)):
+        pts = np.array([r[:2] for n, rs in out.items() if n.startswith(prefix) for r in rs])
+        assert len(pts) > 50
+        cells = {}
+        for k, (x, y) in enumerate(pts):
+            cells.setdefault((int(x // gap), int(y // gap)), []).append(k)
+        for (i, j), ks in cells.items():
+            near = [k2 for di in (-1, 0, 1) for dj in (-1, 0, 1) for k2 in cells.get((i + di, j + dj), [])]
+            for k in ks:
+                d = np.hypot(pts[near, 0] - pts[k, 0], pts[near, 1] - pts[k, 1])
+                assert (d[np.array(near) != k] >= gap - 0.5).all(), prefix  # rows are rounded to 0.1 cm
+
+
+def test_ground_slope_is_right_at_the_grid_edge():
+    g = veg.Ground(_slope_grid(n=41, size=160000.0, fn=lambda x, y: 0.5 * x))
+    nx, ny, nz = g.normal(np.array([-79900.0, 0.0, 79900.0]), np.array([0.0, 0.0, 0.0]))
+    assert np.allclose(-nx / nz, 0.5, atol=1e-6)
