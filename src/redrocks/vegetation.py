@@ -319,6 +319,7 @@ class Model:
     height_m: float
     trunk_radius_m: float
     parts: dict  # part -> Mesh
+    tips: list = field(default_factory=list)  # branch tips, metres (ponderosa)
 
 
 def _seed(name: str, index: int) -> int:
@@ -475,6 +476,7 @@ def _ponderosa(name, index) -> Model:
         add_tube(meshes["Trunk"], path, [0.045, 0.03, 0.012], 5, rng=rng)
 
     n_branches = int(rng.integers(34, 44))
+    tips = []
     golden = math.pi * (3 - math.sqrt(5))
     az0 = rng.uniform(0, 2 * math.pi)
     for b in range(n_branches):
@@ -488,6 +490,7 @@ def _ponderosa(name, index) -> Model:
         rise = -0.12 + 0.6 * tt + rng.normal(scale=0.08)
         d = np.array([math.cos(az), math.sin(az), rise])
         path = _wobbly_path(rng, trunk_at(z), d, length, 6, 0.18, curve_up=0.18, droop=0.35 * (1 - tt))
+        tips.append(path[-1])
         r0 = 0.08 * (length / 3.6) ** 0.8 + 0.02
         add_tube(meshes["Trunk"], path, [r0 * (1 - 0.8 * i / 5) + 0.008 for i in range(6)], 6, rng=rng)
         crown_c = trunk_at(z)
@@ -504,11 +507,12 @@ def _ponderosa(name, index) -> Model:
             _clump(meshes, rng, p, 0.36, 7, 1.15, crown_c, np.array([1.5, 1.5, 1.0]), 0.3,
                    subdiv=1, tilt_up=0.9, squash=0.75, spread=0.6)
     top = trunk_at(height)
+    tips.append(top)
     for _ in range(4):
         p = top + rng.normal(scale=0.35, size=3) - np.array([0.0, 0.0, 0.4])
         _clump(meshes, rng, p, 0.3, 5, 1.0, trunk_at(height - 1.5), np.array([1.2, 1.2, 1.2]), 0.3,
                subdiv=1, tilt_up=1.2, squash=0.8)
-    return Model("%s_%d" % (name, index), "ponderosa_pine", "Pine", height, base_r, meshes)
+    return Model("%s_%d" % (name, index), "ponderosa_pine", "Pine", height, base_r, meshes, tips)
 
 
 def _shrub(name, index, mahogany: bool) -> Model:
