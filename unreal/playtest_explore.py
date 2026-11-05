@@ -16,9 +16,13 @@ ScriptLook / RRGo), the same code paths the keys use:
             manifest's road route like a player would
   sled      make it snow, teleport to the sled hill, sled the fall line
   morrison  look around downtown
+  seating   walk up a row-end aisle, stair by stair, and photograph the rows
 
-Results: /tmp/redrocks_playtest_explore.log ("ok"/"FAIL" lines with numbers),
-screenshots redrocks_explore_*.png in <project>/Saved/Screenshots/.
+Results: /tmp/redrocks_playtest_explore.log ("ok"/"FAIL" lines with numbers;
+a stalled aisle walk also logs what stands in front of it), the aisle walk's
+path every 0.1 s in /tmp/walk_traj.json ([t, x, y, feet z, aim yaw, vx, vy, vz,
+mode, dropping, metres along, leg]), screenshots redrocks_explore_*.png in
+<project>/Saved/Screenshots/. REDROCKS_LOG_DIR moves the logs.
 Pass SCENARIOS=cart,sled (env) to run a subset.
 """
 
@@ -228,10 +232,10 @@ def climb_end(now, pawn, world):
 # the three views the Commons photos were taken from: up from the stage, across
 # the rows from mid-aisle, down from the top row.
 
-# The walk starts at row 4's stairs: below that, both aisles start in the stage
+# The walk starts at row 8's stairs: below that the aisles start in the stage
 # blockout's front corner (its deck stands higher than the first steps); that
 # is for the stage pass, not the seating.
-AISLE_FROM_ROW = 4
+AISLE_FROM_ROW = 8
 
 
 def _aisle_steps():
@@ -330,6 +334,104 @@ def seat_to_aisle(now, pawn, world):
     return True
 
 
+LOOKAHEAD_CM = 70.0
+# The play-test steers once per Slate tick, about 3 Hz in the editor with this
+# level (logged 2026-11-04), and the explorer walks 520 cm/s at full input:
+# 1.7 m straight between steers, more than a stair leg (0.62 m), so it ran off
+# the aisle at every bend. Pace it to cover at most STEER_STEP_CM per tick.
+WALK_CM_S = 520.0
+STEER_STEP_CM = 25.0
+MIN_PACE = 0.1
+
+
+def walk_pace(tick_s):
+    """Stick input (0..1) that moves the walker at most STEER_STEP_CM per tick."""
+    if tick_s <= 0.0:
+        return 1.0
+    return max(MIN_PACE, min(1.0, STEER_STEP_CM / (tick_s * WALK_CM_S)))
+
+
+def _lengths(path):
+    cum = [0.0]
+    for (ax, ay), (bx, by) in zip(path, path[1:]):
+        cum.append(cum[-1] + math.hypot(bx - ax, by - ay))
+    return cum
+
+
+def _point_at(path, cum, s):
+    """(point, leg index) ``s`` cm along the path, clamped to its ends."""
+    s = max(0.0, min(s, cum[-1]))
+    for k in range(len(path) - 1):
+        if s <= cum[k + 1] or k == len(path) - 2:
+            leg = (cum[k + 1] - cum[k]) or 1.0
+            t = (s - cum[k]) / leg
+            (ax, ay), (bx, by) = path[k], path[k + 1]
+            return (ax + t * (bx - ax), ay + t * (by - ay)), k
+    return path[0], 0
+
+
+def follow_path(path, xy, s_prev, lookahead=LOOKAHEAD_CM, window=300.0):
+    """Pure pursuit along a polyline (cm): (progress s, carrot point, leg index).
+
+    ``s`` is how far along the path the walker is: its nearest point on the
+    path, looked for only from where it last was to ``window`` beyond (so a
+    leg further on that passes close is not taken for this one), and never
+    behind ``s_prev``. The carrot is ``lookahead`` further on: aiming at it
+    starts a bend before the corner, on the inside, where aiming at the corner
+    itself runs past it to the outside (the aisle's side, then a drop).
+    """
+    cum = _lengths(path)
+    x, y = xy
+    best = None
+    for k, ((ax, ay), (bx, by)) in enumerate(zip(path, path[1:])):
+        if cum[k + 1] < s_prev or cum[k] > s_prev + window:
+            continue
+        dx, dy = bx - ax, by - ay
+        leg2 = dx * dx + dy * dy or 1.0
+        t = max(0.0, min(1.0, ((x - ax) * dx + (y - ay) * dy) / leg2))
+        d = math.hypot(x - ax - t * dx, y - ay - t * dy)
+        if best is None or d < best[0]:
+            best = (d, cum[k] + t * math.sqrt(leg2))
+    s = max(s_prev, best[1]) if best else s_prev
+    carrot, _ = _point_at(path, cum, s + lookahead)
+    _, leg = _point_at(path, cum, s)
+    return s, carrot, leg
+
+
+def _probe_ahead(world, pawn, loc, yaw):
+    """What stands in front of the walker: forward traces at several heights
+    above its feet, the floor under it, its velocity. Logged when it stalls."""
+    half = pawn.capsule_component.get_scaled_capsule_half_height()
+    feet = loc.z - half
+    fx, fy = math.cos(math.radians(yaw)), math.sin(math.radians(yaw))
+    out = []
+    for h in (5.0, 25.0, 45.0, 70.0, 120.0):
+        a = unreal.Vector(loc.x, loc.y, feet + h)
+        b = unreal.Vector(loc.x + fx * 120.0, loc.y + fy * 120.0, feet + h)
+        hit = unreal.SystemLibrary.line_trace_single(world, a, b, unreal.TraceTypeQuery.TRACE_TYPE_QUERY1, True,
+                                                     [pawn], unreal.DrawDebugTrace.NONE, True)
+        t = hit.to_tuple() if hit is not None else ()
+        if t and t[0]:
+            what = next((v for v in t if isinstance(v, unreal.Actor)), None)
+            comp = next((v for v in t if isinstance(v, unreal.PrimitiveComponent)), None)
+            out.append("+%.0f: %s/%s at %.0f cm, normal z %.2f" % (
+                h, what.get_actor_label() if what else "?", comp.get_name() if comp else "?", t[3], t[7].z))
+        else:
+            out.append("+%.0f: clear" % h)
+    a = unreal.Vector(loc.x, loc.y, loc.z)
+    hit = unreal.SystemLibrary.line_trace_single(world, a, unreal.Vector(loc.x, loc.y, loc.z - 400.0),
+                                                 unreal.TraceTypeQuery.TRACE_TYPE_QUERY1, True, [pawn],
+                                                 unreal.DrawDebugTrace.NONE, True)
+    t = hit.to_tuple() if hit is not None else ()
+    if t and t[0]:
+        what = next((v for v in t if isinstance(v, unreal.Actor)), None)
+        out.append("floor %s at %+.0f cm from the feet" % (what.get_actor_label() if what else "?", t[5].z - feet))
+    v = pawn.get_velocity()
+    out.append("velocity %.0f cm/s (%.0f, %.0f, %.0f), yaw %.0f, actor yaw %.0f" % (
+        v.length(), v.x, v.y, v.z, yaw, pawn.get_actor_rotation().yaw))
+    note("ahead: " + "; ".join(out))
+
+
 def seat_walk(fraction):
     """Follow the aisle's stair steps until ``fraction`` of the rows' rise is climbed."""
     def fn(now, pawn, world):
@@ -340,8 +442,6 @@ def seat_walk(fraction):
             note("no aisles in the manifest")
             R.s["stuck"] = True
             return True
-        base_m = (manifest.get("benches") or {}).get("base_elevation_m", 0.0)
-        feet_now = loc.z - pawn.capsule_component.get_scaled_capsule_half_height()
         if "z0" not in R.s:
             R.s["z0"] = loc.z
             R.s["t_walk"] = now
@@ -349,41 +449,34 @@ def seat_walk(fraction):
         if R.s.get("walk_frac") != fraction:  # a new leg: the view before it stood still
             R.s["walk_frac"] = fraction
             R.s["stall"] = (now, loc.z, R.s["wp"])
-        # Next point once this one is reached, passed along the leg to the next,
-        # or climbed past: the path only ever goes up, so a point the walker's
-        # feet already stand above (it ran wide on a turn and kept climbing) is
-        # behind it. Never turn back down for it; never shortcut a corner.
-        steps_z = [(z - base_m) * 100.0 for _, _, z in _aisle_steps()]
-        i = R.s["wp"]
-        while i + 1 < len(path):
-            ax, ay = path[i]
-            bx, by = path[i + 1]
-            reached = math.hypot(ax - loc.x, ay - loc.y) < 60.0
-            passed = (loc.x - ax) * (bx - ax) + (loc.y - ay) * (by - ay) > 0.0 and \
-                math.hypot(ax - loc.x, ay - loc.y) < 150.0
-            above = feet_now >= steps_z[i] + 5.0 and math.hypot(ax - loc.x, ay - loc.y) < 300.0
-            if not (reached or passed or above):
-                break
-            i += 1
+        # Pure pursuit: aim at a point LOOKAHEAD_CM further along the stair
+        # line from the walker's nearest point on it, so it turns into each
+        # bend on the inside instead of running past the corner.
+        s, carrot, i = follow_path(path, (loc.x, loc.y), R.s.get("s", 0.0))
+        R.s["s"] = s
         R.s["wp"] = i
-        yaw = _yaw_to(pawn, *path[i])
-        pawn.script_look(yaw, 0.0)
-        # Slow down into a sharp turn, as anyone on stairs would: full pace on
-        # straights, about half within 1.5 m of a waypoint where the path bends.
-        speed = 1.0
-        if i + 1 < len(path) and math.hypot(path[i][0] - loc.x, path[i][1] - loc.y) < 150.0:
-            ax, ay = path[i][0] - loc.x, path[i][1] - loc.y
-            bx, by = path[i + 1][0] - path[i][0], path[i + 1][1] - path[i][1]
-            na, nb = math.hypot(ax, ay) or 1.0, math.hypot(bx, by) or 1.0
-            if (ax * bx + ay * by) / (na * nb) < 0.7:
-                speed = 0.5
-        pawn.script_move(unreal.Vector2D(0.0, speed), False)
+        pawn.script_look(_yaw_to(pawn, *carrot), 0.0)
+        tick_s = now - R.s.get("walk_last", now - 0.33)
+        R.s["walk_last"] = now
+        pawn.script_move(unreal.Vector2D(0.0, walk_pace(tick_s)), False)
+        if now - R.s.get("traj_t", -1.0) >= 0.1:
+            R.s["traj_t"] = now
+            v = pawn.get_velocity()
+            R.s.setdefault("traj", []).append([
+                round(now - R.s["t_walk"], 2), round(loc.x, 1), round(loc.y, 1),
+                round(loc.z - pawn.capsule_component.get_scaled_capsule_half_height(), 1),
+                round(_yaw_to(pawn, *carrot), 1), round(v.x), round(v.y), round(v.z), _mode(pawn),
+                _mode(pawn) == "WALK" and v.z < -50.0, round(s), i])
+            if len(R.s["traj"]) % 50 == 0:
+                with open(os.path.join(os.path.dirname(LOG_PATH), "walk_traj.json"), "w") as fh:
+                    json.dump(R.s["traj"], fh)
         R.s["modes"].add(_mode(pawn))
         R.s["maxz"] = max(R.s["maxz"], loc.z)
         _film(world, now, "seating")
         if loc.z > R.s["stall"][1] + 20.0 or i > R.s["stall"][2]:
             R.s["stall"] = (now, loc.z, i)
         elif now - R.s["stall"][0] > 8.0:
+            _probe_ahead(world, pawn, loc, _yaw_to(pawn, *carrot))
             note("stuck at (%.2f, %.2f) z=%.0f by step %d of %d (heading for %.2f, %.2f) for 8 s"
                  % (loc.x / 100.0, loc.y / 100.0, loc.z, i, len(path), path[i][0] / 100.0, path[i][1] / 100.0))
             R.s["stuck"] = True
@@ -392,9 +485,13 @@ def seat_walk(fraction):
         goal = lo + fraction * (hi - lo) - 50.0
         if int(now - R.s["t_walk"]) % 10 == 0 and int(now - R.s["t_walk"]) not in R.s.setdefault("noted", set()):
             R.s["noted"].add(int(now - R.s["t_walk"]))
-            note("t=%3ds step %d/%d at (%.1f, %.1f) feet z=%.0f (rows %.0f..%.0f) mode %s"
-                 % (now - R.s["t_walk"], i, len(path), loc.x / 100.0, loc.y / 100.0, feet, lo, hi, _mode(pawn)))
-        return feet >= goal or now - R.s["t_walk"] > 180.0
+            (px, py), _ = _point_at(path, _lengths(path), s)
+            note("t=%3ds step %d/%d at (%.1f, %.1f) %.0f cm off the stair line, feet z=%.0f (rows %.0f..%.0f) mode %s"
+                 % (now - R.s["t_walk"], i, len(path), loc.x / 100.0, loc.y / 100.0,
+                    math.hypot(loc.x - px, loc.y - py), feet, lo, hi, _mode(pawn)))
+        # Paced to the editor's ~3 Hz tick the 96 m aisle takes about 2-3 minutes;
+        # a stop is caught by the 8 s stall check, so this only bounds a crawl.
+        return feet >= goal or now - R.s["t_walk"] > 480.0
     return fn
 
 

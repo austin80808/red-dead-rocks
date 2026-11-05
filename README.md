@@ -146,10 +146,18 @@ that waits for the stage pass.
 `tools/check_seating_clear.py` checks a build: no terrain, rock, wall,
 building, path, road, lot or water vertex above a tread, no plant within 1 m of
 the seating, no scan visible inside it, and no hidden scan more than a step over
-a tread. It exits 1 when anything pokes through. On the current build everything
-passes except the last: under rows 63-69 (top, left of centre) and at row 13 the
-hidden scan holds objects up to 3 m tall, which still collide until the scan's
-collision is cut out of the seating (next).
+a tread (unless the build wrote `out/seating_cut.json`, below). It exits 1 when
+anything pokes through. The current build passes.
+
+**The scan's collision under the rows.** Its chunks keep complex collision, and
+under rows 13 and 63-69 the hidden scan holds things the drone caught (up to
+3 m tall). `unreal/cut_scan_collision.py` (a `rebuild_level.py` step after
+`import_scan.py`) gives each chunk that reaches the seating a collision-only copy
+without the triangles over it (from `out/seating_cut.json`), set as the chunk's
+`ComplexCollisionMesh`: 58,421 triangles in 10 of the 31 chunks. The scan still
+looks the same and still collides everywhere you can see it, rocks included;
+under the rows only the terraces are solid. Traced in the editor: every hidden
+spot that stood a step over a tread now hits the tread first.
 
 **Tread levels.** The scan's surface is too smooth to show the rows (its radial
 profile has no row-spaced signal above 1 cm), so the levels come from the bowl's
@@ -158,11 +166,16 @@ in the row number, with rows whose band holds something else (rows
 68, 69, 70: the top plateau) left out of the fit. The rises run
 0.36 m at the bottom to 0.54 m at the top, 31.0 m in all
 against the official 100 ft (30.5 m). You climb the bowl the way people do: up
-the aisle stairs at the row ends, two steps a row (`unreal/playtest_explore.py`'s
-`seating` scenario follows them step by step from the stage to the top row,
-using `stage.aisles` in the manifest). The explorer's step height is 58 cm, so
-walking straight up the rows works too; the planks and brackets have no
-collision.
+the aisle stairs at the row ends, two steps a row. `unreal/playtest_explore.py`'s
+`seating` scenario walks one aisle from row 8 to the top walkway on
+`stage.aisles` from the manifest, walking only, no jumps or climbs: 28.7 m up in
+115 s, within about 25 cm of the stair line. Below row 8 the aisles start in the
+stage blockout's front corner, which is for the stage pass. The walker steers
+by pure pursuit (it aims 70 cm ahead along the stair line), and it paces itself
+to the editor's tick: the play-test steers once per Slate tick, about 3 Hz with
+this level, and at full speed (5.2 m/s) it covered 1.7 m between steers and ran
+off the aisle at every bend. The explorer's step height is 58 cm, so walking
+straight up the rows works too; the planks and brackets have no collision.
 
 **Clearance and the scan cut.** The scan chunks keep complex collision, and the
 scan's surface in the bowl is a smooth ramp a few tenths over its fitted ground.
@@ -534,7 +547,7 @@ PROJ="$HOME/Documents/Unreal Projects/RedRocks/RedRocks.uproject"
 ```
 
 **To rebuild the whole level, run one script.** `rebuild_level.py` runs the
-twelve steps below in order (`import_redrocks.py` through `setup_explore.py`), clears
+thirteen steps below in order (`import_redrocks.py` through `setup_explore.py`), clears
 each step's old log first, stops at the first `ERROR`/`ABORT`/`FAIL` line in its
 `/tmp/redrocks_*.log` (or a missing log), and prints a summary of step, status,
 duration and log path (also saved to `/tmp/redrocks_rebuild.log`):
@@ -549,7 +562,7 @@ a time, in this order; each writes a log to `/tmp/redrocks_*.log`:
 
 | Script | Does |
 |---|---|
-| `rebuild_level.py` | **entry point:** runs the twelve scripts below in order, stops at the first failure |
+| `rebuild_level.py` | **entry point:** runs the thirteen scripts below in order, stops at the first failure |
 | `import_redrocks.py` | imports the terrain, rocks and seating terraces (`Benches.obj`) to `/Game/RedRocks` and places them in `Lvl_RedRocks`. **Clears every actor in the level first.** |
 | `setup_lighting.py` | low morning sun (120 klx, ENE, 24° up, behind the spawn), sky atmosphere, real-time sky light, height fog, volumetric clouds, PlayerStart. Replaces the rig on every run |
 | `configure_level.py` | writes Lumen / distance fields / VSM / eye adaptation / TSR into `Config/DefaultEngine.ini` `[SystemSettings]`; post-process volume with Lumen, auto exposure (EV100 11-14.2) and a light grade; framing camera |
@@ -558,6 +571,7 @@ a time, in this order; each writes a log to `/tmp/redrocks_*.log`:
 | `setup_environment.py` | terrain skirt from the DEM edge out to 120 km so the world has a horizon |
 | `setup_vegetation.py` | imports `out/vegetation/` (from `redrocks vegetation`): leaf atlases, bark/leaf/crown materials, 16 Nanite tree and shrub models, and every instance into one `Vegetation` actor; tree trunks block, canopies and shrubs don't |
 | `import_scan.py` | imports the ml0w scan with Nanite and credits it, at `FIT_DATUM_M` above the level's datum; its material fades the scan out at its edge and over the seating (`out/scan_fade.png`, see Seating); run after `import_redrocks.py` |
+| `cut_scan_collision.py` | cuts the seating out of the scan's collision: collision-only copies of the chunks that reach it, without the triangles over it, as their `ComplexCollisionMesh` (from `out/seating_cut.json`). Run after `import_scan.py` |
 | `setup_gameplay.py` | imports Stage, Roads, Paths, Parking; complex collision on every walkable mesh and on the scan (the hidden extruded rocks get none); PlayerStart on the stage deck facing up the bowl; FirstPerson game mode; in-world credits. Runs last |
 | `setup_snow.py` | `MPC_Weather` (one scalar, `Snow`) and a snow layer in every `/Game/RedRocks` material: up-facing surfaces lerp to packed snow as `Snow` rises, in patches. Re-running skips materials that already have it |
 | `setup_explore.py` | the explorable realm: teleport spots, three shopping carts bound for Morrison, three sleds, the weather actor, `road`/`parking` tags, and the `RRGameMode` game mode. Needs the C++ module built. Runs last |
