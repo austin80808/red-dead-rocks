@@ -228,17 +228,31 @@ def climb_end(now, pawn, world):
 # the three views the Commons photos were taken from: up from the stage, across
 # the rows from mid-aisle, down from the top row.
 
-def _aisle():
-    """The more continuous of the two aisles: the smallest sideways jump between steps."""
+# The walk starts at row 4's stairs: below that, both aisles start in the stage
+# blockout's front corner (its deck stands higher than the first steps); that
+# is for the stage pass, not the seating.
+AISLE_FROM_ROW = 4
+
+
+def _aisle_steps():
+    """The more continuous of the two aisles (the smallest sideways jump between
+    steps), from row AISLE_FROM_ROW up: [(east, north, z)] in metres."""
     aisles = (manifest.get("stage") or {}).get("aisles") or {}
+    levels = (manifest.get("benches") or {}).get("tread_levels_m") or []
+    floor = levels[AISLE_FROM_ROW - 2] if len(levels) >= AISLE_FROM_ROW else -1e9
     best, best_jump = [], None
     for steps in aisles.values():
+        steps = [p for p in steps if p[2] > floor + 0.01]
         if len(steps) < 2:
             continue
         jump = max(math.hypot(b[0] - a[0], b[1] - a[1]) for a, b in zip(steps, steps[1:]))
         if best_jump is None or jump < best_jump:
             best, best_jump = steps, jump
-    return [(e * 100.0, n * 100.0) for e, n, _ in best]
+    return best
+
+
+def _aisle():
+    return [(e * 100.0, n * 100.0) for e, n, _ in _aisle_steps()]
 
 
 def _other_aisle_at(fraction):
@@ -301,13 +315,12 @@ def _aim_down(pawn):
 
 
 def seat_to_aisle(now, pawn, world):
-    """Stand at the foot of the aisle, 1.2 m before its first step (the stage
-    front is still a blockout, too tight to walk round from the deck)."""
+    """Stand on the aisle at row AISLE_FROM_ROW, 1.2 m before that step."""
     path = _aisle()
-    steps = ((manifest.get("stage") or {}).get("aisles") or {})
-    first = next((v[0] for v in steps.values() if [(e * 100.0, n * 100.0) for e, n, _ in v] == path), None)
-    if not path or first is None:
+    steps = _aisle_steps()
+    if not path:
         return True
+    first = steps[0]
     (x0, y0), (x1, y1) = path[0], path[1]
     d = math.hypot(x1 - x0, y1 - y0) or 1.0
     base = (manifest.get("benches") or {}).get("base_elevation_m", 0.0)
@@ -327,6 +340,8 @@ def seat_walk(fraction):
             note("no aisles in the manifest")
             R.s["stuck"] = True
             return True
+        base_m = (manifest.get("benches") or {}).get("base_elevation_m", 0.0)
+        feet_now = loc.z - pawn.capsule_component.get_scaled_capsule_half_height()
         if "z0" not in R.s:
             R.s["z0"] = loc.z
             R.s["t_walk"] = now
@@ -334,8 +349,11 @@ def seat_walk(fraction):
         if R.s.get("walk_frac") != fraction:  # a new leg: the view before it stood still
             R.s["walk_frac"] = fraction
             R.s["stall"] = (now, loc.z, R.s["wp"])
-        # Next point once this one is reached, or passed (we are beyond it along
-        # the leg to the next): never a shortcut past a corner.
+        # Next point once this one is reached, passed along the leg to the next,
+        # or climbed past: the path only ever goes up, so a point the walker's
+        # feet already stand above (it ran wide on a turn and kept climbing) is
+        # behind it. Never turn back down for it; never shortcut a corner.
+        steps_z = [(z - base_m) * 100.0 for _, _, z in _aisle_steps()]
         i = R.s["wp"]
         while i + 1 < len(path):
             ax, ay = path[i]
@@ -343,7 +361,8 @@ def seat_walk(fraction):
             reached = math.hypot(ax - loc.x, ay - loc.y) < 60.0
             passed = (loc.x - ax) * (bx - ax) + (loc.y - ay) * (by - ay) > 0.0 and \
                 math.hypot(ax - loc.x, ay - loc.y) < 150.0
-            if not (reached or passed):
+            above = feet_now >= steps_z[i] + 5.0 and math.hypot(ax - loc.x, ay - loc.y) < 300.0
+            if not (reached or passed or above):
                 break
             i += 1
         R.s["wp"] = i
@@ -382,12 +401,13 @@ def seat_walk(fraction):
 def seat_walk_end(now, pawn, world):
     pawn.script_release()
     lo, hi = _seat_levels_cm()
+    levels = (manifest.get("benches") or {}).get("tread_levels_m") or [0.0, 0.0]
     gain = (R.s["maxz"] - R.s["z0"]) / 100.0
-    need = (hi - lo) / 100.0 - 1.0
+    need = (levels[-1] - levels[AISLE_FROM_ROW - 1]) - 1.0
     check("walked up the aisle stairs without jumping", not R.s.get("stuck") and gain >= need
           and R.s["modes"] <= {"WALK"},
-          "gained %.1f m of the rows' %.1f m in %.0f s by step %d, modes %s"
-          % (gain, (hi - lo) / 100.0, now - R.s["t_walk"], R.s.get("wp", 0), sorted(R.s["modes"])))
+          "gained %.1f m of the %.1f m from row %d to the top in %.0f s by step %d, modes %s"
+          % (gain, need + 1.0, AISLE_FROM_ROW, now - R.s["t_walk"], R.s.get("wp", 0), sorted(R.s["modes"])))
     return True
 
 

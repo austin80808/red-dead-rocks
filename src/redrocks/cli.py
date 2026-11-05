@@ -138,15 +138,13 @@ def build(args: argparse.Namespace) -> int:
                   f"so their aisles clear {trim_info['buildings']} buildings and the scan's rock")
         layout = seating_layout(
             venue.rows, lines, ground=seat_ground, floor=walkable,
-            clearance_m=SCAN_CLEARANCE_M if on_scan else 0.0, obstacles=obstacles, top=scan_top,
+            clearance_m=SCAN_CLEARANCE_M if on_scan else 0.0,
         )
         seating = export_seating(layout, out_dir, base, ground=seat_ground, floor=walkable)
         i = layout.info
         print(f"  {seating.terraces} rows + {seating.front_steps} front steps, {seating.brackets} brackets; "
               f"rises {i['rise_min_m']:.2f}..{i['rise_max_m']:.2f} m, {i['total_rise_m']:.1f} m in all"
-              + (f"; rows {i['rows_ignored']} left out of the fit" if i["rows_ignored"] else "")
-              + (f"; {i['row_pieces_added']} row pieces split around things standing in rows"
-                 if i.get("row_pieces_added") else ""))
+              + (f"; rows {i['rows_ignored']} left out of the fit" if i["rows_ignored"] else ""))
         for name, path in seating.paths.items():
             print(f"  {seating.triangles[name]:,} triangles -> {path.name}")
 
@@ -260,7 +258,6 @@ def build(args: argparse.Namespace) -> int:
             "rise_m": {k: layout.info[k] for k in ("rise_min_m", "rise_max_m", "rise_mean_m", "total_rise_m")},
             "tread_levels_m": [round(v, 3) for v in layout.levels],
             "rows_trimmed": trim_info["rows"],
-            "row_pieces_added": layout.info.get("row_pieces_added", 0),
             "trimmed_m": round(trim_info["metres"], 1),
         }
     if scan_cut is not None:

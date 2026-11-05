@@ -25,14 +25,16 @@ Working: DEM fetch, heightmap and terrain-mesh export, OSM ingest,
 georeferencing, seating-bowl generation, monolith meshes, tests.
 
 **In Unreal:** the project is at `~/Documents/Unreal Projects/RedRocks`
-(UE 5.8, Apple Silicon). Its level `/Game/RedRocks/Lvl_RedRocks` holds the
-terrain mesh, Creation Rock and Ship Rock at their real positions, a golden-hour sun, sky
-atmosphere, sky light, height fog, a PlayerStart and a framing camera. It is the
-editor startup map and the game default map.
+(UE 5.8, Apple Silicon, a C++ module). Its level `/Game/RedRocks/Lvl_RedRocks`
+is the editor startup map and the game default map, rebuilt from scratch by
+`unreal/rebuild_level.py`: the 3.6 km terrain to Morrison, the ml0w drone scan
+of the bowl and its rocks, terraced seating with aisle stairs and the sound
+booth, the stage blockout, OSM roads, lots, buildings and rocks, about 100,000
+trees, and the explorer's rides, snow, night and concert (see Explore it).
 
 The Unreal project is versioned separately in
 [red-dead-rocks-unreal](https://github.com/austin80808/red-dead-rocks-unreal)
-(private, assets in Git LFS). After a rebuild that you want to keep, commit
+(public, assets in Git LFS). After a rebuild that you want to keep, commit
 there:
 
 ```bash
@@ -43,9 +45,13 @@ git add -A && git commit -m "Rebuild: <what changed>" && git push
 To roll the level back, `git checkout <commit> -- Content/` with the editor
 closed.
 
-The sandstone material is applied to the terrain and both rocks. Written but not
-yet run in the level: the bench import and the ml0w scan import (see the script
-table). Stage blockout generated (not yet imported). The scan's placement is fitted by `tools/fit_scan.py` (scale within 8 % of 0.516 m/unit, then terrain heights plus stage and rock landmarks); see issue #14 for the residuals.
+The scan's placement is fitted by `tools/fit_scan.py` (scale within 8 % of
+0.516 m/unit, then terrain heights plus stage and rock landmarks; issue #14 has
+the residuals), on an absolute datum (see Scan edge blend).
+
+**What is still a blockout:** the stage, its shell and the two stone towers
+beside it, the walls and rocks extruded from OSM outside the scan, and the
+parking lots. Next up is making those look like Red Rocks (see Next steps).
 
 **Look (#18):** physically lit with Lumen GI and reflections, a 120 klx
 early-morning sun low in the ENE (behind the player at spawn) through the SkyAtmosphere, a real-time sky
@@ -539,14 +545,14 @@ a time, in this order; each writes a log to `/tmp/redrocks_*.log`:
 | Script | Does |
 |---|---|
 | `rebuild_level.py` | **entry point:** runs the twelve scripts below in order, stops at the first failure |
-| `import_redrocks.py` | imports the terrain, rocks and benches OBJs to `/Game/RedRocks` and places them in `Lvl_RedRocks`. **Clears every actor in the level first.** |
+| `import_redrocks.py` | imports the terrain, rocks and seating terraces (`Benches.obj`) to `/Game/RedRocks` and places them in `Lvl_RedRocks`. **Clears every actor in the level first.** |
 | `setup_lighting.py` | low morning sun (120 klx, ENE, 24° up, behind the spawn), sky atmosphere, real-time sky light, height fog, volumetric clouds, PlayerStart. Replaces the rig on every run |
 | `configure_level.py` | writes Lumen / distance fields / VSM / eye adaptation / TSR into `Config/DefaultEngine.ini` `[SystemSettings]`; post-process volume with Lumen, auto exposure (EV100 11-14.2) and a light grade; framing camera |
 | `fix_camera.py` | lifts the camera above the 645 m ridge, removes test actors |
 | `setup_materials.py` | procedural materials: `M_Sandstone` (30° strata that fade with distance, soil, grass, slope rock) with rock and ground instances; `M_Benches` (dusty sandstone treads, stacked red flagstone risers), `M_BenchWood` (plank boards), `M_Steel` (brackets, handrail); `M_Concrete`, `M_Asphalt`, `M_Lot`, `M_Gravel` |
 | `setup_environment.py` | terrain skirt from the DEM edge out to 120 km so the world has a horizon |
 | `setup_vegetation.py` | imports `out/vegetation/` (from `redrocks vegetation`): leaf atlases, bark/leaf/crown materials, 16 Nanite tree and shrub models, and every instance into one `Vegetation` actor; tree trunks block, canopies and shrubs don't |
-| `import_scan.py` | imports the ml0w scan with Nanite and credits it; its material fades the scan out at its edge (see Scan edge blend); run after `import_redrocks.py` |
+| `import_scan.py` | imports the ml0w scan with Nanite and credits it, at `FIT_DATUM_M` above the level's datum; its material fades the scan out at its edge and over the seating (`out/scan_fade.png`, see Seating); run after `import_redrocks.py` |
 | `setup_gameplay.py` | imports Stage, Roads, Paths, Parking; complex collision on every walkable mesh and on the scan (the hidden extruded rocks get none); PlayerStart on the stage deck facing up the bowl; FirstPerson game mode; in-world credits. Runs last |
 | `setup_snow.py` | `MPC_Weather` (one scalar, `Snow`) and a snow layer in every `/Game/RedRocks` material: up-facing surfaces lerp to packed snow as `Snow` rises, in patches. Re-running skips materials that already have it |
 | `setup_explore.py` | the explorable realm: teleport spots, three shopping carts bound for Morrison, three sleds, the weather actor, `road`/`parking` tags, and the `RRGameMode` game mode. Needs the C++ module built. Runs last |
@@ -554,7 +560,7 @@ a time, in this order; each writes a log to `/tmp/redrocks_*.log`:
 | `verify_walkable.py` | headless checks: game mode, one PlayerStart, triangle counts kept, credits present; renders the spawn and bowl views |
 | `playtest.py` | **the real test:** launches Play In Editor, lets the player land, walks and jumps up the bowl for 12 s, screenshots, quits. Needs the editor GUI (`-ExecCmds="py …"`) |
 | `shoot_vegetation.py` | Play In Editor, flies to the bowl-top, hillside (a juniper and a pine) and aerial views, screenshots each and logs FPS. Needs the editor GUI |
-| `playtest_explore.py` | Play In Editor through every activity: climb, wingsuit and parachute, cart to Morrison, snow and sled, Morrison. Needs the editor GUI |
+| `playtest_explore.py` | Play In Editor through every activity: up the seating's aisle stairs (with the three photo views), climb, wingsuit and parachute, cart to Morrison, snow and sled, tubing, night, Morrison. `SCENARIOS=seating,bowl` runs a subset, `FILM=1` films. Needs the editor GUI |
 | `playtest_credits.py` | Play In Editor, checks the hint, presses C (open), C (close), screenshots each (`Shot showui`), quits. Needs the editor GUI |
 | `render_preview.py` | renders the level to `Saved/redrocks_preview.png` |
 | `diagnose.py` | lists actors, mesh triangle counts and the startup map |
@@ -565,6 +571,25 @@ instead: `py "/Users/austin/dev/redrocks-ue/unreal/diagnose.py"`.
 
 The `probe_*.py` scripts are the experiments that found the import problems
 below; they are kept for reference.
+
+### Driving the editor from Claude (MCP)
+
+The project enables Epic's `ModelContextProtocol` and `AllToolsets` plugins
+(red-dead-rocks-unreal#12), so Claude Code can work on the open level through
+Epic's [Unreal Engine skills plugin](https://github.com/EpicGames/unreal-engine-skills-for-claude-code-plugin):
+trace the world, find actors by a physics overlap, inspect materials, meshes and
+collision, run automation tests. `.mcp.json` (here and next to the `.uproject`)
+points at the editor's server, `http://127.0.0.1:8000/mcp` (localhost only). It
+starts with the editor when your per-user settings say so:
+
+```ini
+# <project>/Saved/Config/MacEditor/EditorPerProjectUserSettings.ini
+[/Script/ModelContextProtocolEngine.ModelContextProtocolSettings]
+bAutoStartServer=True
+```
+
+or run `ModelContextProtocol.StartServer` in the editor console. The scripts in
+`unreal/` stay the way the level is built; MCP is for looking at it live.
 
 ### Landscape instead of a mesh
 

@@ -285,25 +285,6 @@ def test_scan_is_cut_out_over_the_terraces_only():
     assert texel(out, meta, mid * np.cos(np.radians(45)), mid * np.sin(np.radians(45))) == 1.0  # past the row ends
 
 
-def test_rows_split_around_something_standing_in_them():
-    """A scanned object in the middle of a row (gear, a tree): the row stops
-    either side of it and the gap keeps the scan, so nothing pokes through a
-    tread and what blocks the player is something they can see."""
-    from shapely.geometry import Point
-
-    rows, lines = rows_and_lines()
-    mid = R0 + 20 * GAP
-    thing = Point(mid, 0.0).buffer(0.8)  # in row 21, on the centre line
-    layout = seating_layout(rows, lines, ground=bowl, clearance_m=0.45, obstacles=thing)
-    row21 = [t for t in layout.rows if t.row_index == 21]
-    assert len(row21) == 2 and all(t.plan().distance(thing) >= 0.4 for t in row21)
-    assert len([t for t in layout.rows if t.row_index == 30]) == 1
-    alpha, place = fade_inputs()
-    out, meta = seating_fade(alpha, place, layout)
-    assert texel(out, meta, mid + 0.6, 0.0) == 1.0  # the gap: scan shown
-    assert texel(out, meta, mid + 0.6, 6.0) == 0.0  # the row beside it: cut
-
-
 def test_inside_the_seating_the_scan_is_always_cut():
     rows, lines = rows_and_lines()
     layout = seating_layout(rows, lines, ground=bowl, clearance_m=0.45)
@@ -367,9 +348,7 @@ def test_build_writes_the_seating_meshes_and_their_manifest(monkeypatch, tmp_pat
     b = manifest["benches"]
     for key, name in (("obj", "Benches"), ("planks_obj", "Bench_Planks"), ("brackets_obj", "Bench_Brackets")):
         assert b[key] == f"{name}.obj" and (out / b[key]).exists()
-    # This fake scan slopes along the rows, so a few rows split (or drop) where it
-    # stands a step over their level tread; every venue row is counted once.
-    assert 60 <= b["rows"] <= manifest["venue"]["rows"] == 70 and b["pieces"] >= b["rows"]
+    assert b["rows"] == b["pieces"] == manifest["venue"]["rows"] == 70  # rows run unbroken
     assert len(b["tread_levels_m"]) == 70 and b["clearance_m"] == pytest.approx(0.45)
     assert b["rows_trimmed"] == 0  # nothing stands in this fake bowl's aisles
     assert np.all(np.diff(b["tread_levels_m"]) >= MIN_RISE_M - 1e-6)
@@ -482,20 +461,3 @@ def test_one_rows_trim_tapers_into_its_neighbours():
     assert starts[0] == pytest.approx(0.0, abs=1e-6) and starts[-1] == pytest.approx(0.0, abs=1e-6)
 
 
-def test_rows_split_where_the_scan_stands_a_step_above_their_tread():
-    """Hidden scan that stands higher than a step over the tread would be an
-    invisible ledge (its chunks keep collision); the row splits there instead."""
-    from redrocks.seating import SPLIT_ABOVE_TREAD_M
-
-    rows, lines = rows_and_lines()
-    probe = seating_layout(rows, lines, ground=bowl, clearance_m=0.45)
-    level21 = next(t.level_m for t in probe.rows if t.row_index == 21)
-    xs = np.arange(-20.0, 100.0) + 0.5
-    e, n = np.meshgrid(xs, np.arange(-60.0, 60.0) + 0.5)
-    top = np.vectorize(bowl)(e, n)  # under the treads everywhere ...
-    mid = R0 + 20 * GAP + 0.6
-    bump = (np.abs(e - mid) < 0.6) & (np.abs(n) < 1.5)
-    top[bump] = level21 + SPLIT_ABOVE_TREAD_M + 0.2  # ... but a ledge in row 21
-    layout = seating_layout(rows, lines, ground=bowl, clearance_m=0.45, top=ScanHeights(top, -20.0, -60.0, 1.0))
-    assert len([t for t in layout.rows if t.row_index == 21]) == 2
-    assert len([t for t in layout.rows if t.row_index == 22]) == 1
