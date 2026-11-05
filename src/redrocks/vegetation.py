@@ -346,14 +346,28 @@ def _bent(crown_c, crown_r, clump_c, w_crown: float, lift: float = 0.3):
 
 
 def _clump(meshes, rng, centre, core_r, n_cards, card_size, crown_c, crown_r, w_crown,
-           subdiv=1, tilt_up=0.3, squash=0.8, spread=0.35):
-    """Core blob plus leaf cards around it."""
+           subdiv=1, tilt_up=0.3, squash=0.8, spread=0.35, on_surface=False):
+    """Core blob plus leaf cards around it.
+
+    With ``on_surface`` the cards stand on the blob's outer side, twig end just
+    inside it, pointing away from the crown centre: they clothe the core
+    instead of hiding inside it.
+    """
     centre = np.asarray(centre, float)
-    add_blob(meshes["Crown"], centre, core_r * np.array([1.0, 1.0, squash]) * rng.uniform(0.85, 1.15, 3),
-             rng, subdiv=subdiv, bend_to=crown_c, bend=0.55)
+    radii = core_r * np.array([1.0, 1.0, squash]) * rng.uniform(0.85, 1.15, 3)
+    add_blob(meshes["Crown"], centre, radii, rng, subdiv=subdiv, bend_to=crown_c, bend=0.55)
     outward = centre - np.asarray(crown_c, float)
     outward[2] *= 0.5
     normal_fn = _bent(crown_c, crown_r, centre, w_crown)
+    if on_surface:
+        out = _unit(outward)
+        for _ in range(n_cards):
+            d = _unit(out * 1.1 + rng.normal(size=3))
+            up, side = _card_frame(rng, d, tilt_up)
+            size = card_size * rng.uniform(0.8, 1.2)
+            base = centre + d * radii * 0.8 - up * size * 0.2
+            add_card(meshes["Leaves"], base, up, side, size, size, int(rng.integers(0, 4)), normal_fn)
+        return
     for _ in range(n_cards):
         up, side = _card_frame(rng, outward + rng.normal(scale=0.6 * np.linalg.norm(outward) + 0.1, size=3),
                                tilt_up)
@@ -383,10 +397,10 @@ def _juniper(name, index, one_seed: bool) -> Model:
     meshes = {p: Mesh() for p in PARTS}
     if one_seed:
         height, n_stems, base_r, zb = 3.6, int(rng.integers(2, 5)), 0.10, 0.04
-        radius, shape_pow, n_clumps, core, card = 0.55 * 3.6, 0.6, 56, 0.3, 0.5
+        radius, shape_pow, n_clumps, core, card = 0.55 * 3.6, 0.6, 170, 0.3, 0.5
     else:
-        height, n_stems, base_r, zb = 5.0, int(rng.integers(1, 3)), 0.17, 0.10
-        radius, shape_pow, n_clumps, core, card = 0.34 * 5.0, 0.85, 64, 0.32, 0.52
+        height, n_stems, base_r, zb = 5.0, int(rng.integers(1, 3)), 0.17, 0.05
+        radius, shape_pow, n_clumps, core, card = 0.34 * 5.0, 0.85, 190, 0.32, 0.52
     lean = rng.normal(scale=0.12 * height, size=2)
     sin_w = rng.normal(size=(3, 3))
     sin_p = rng.uniform(0, 2 * math.pi, 3)
@@ -418,26 +432,30 @@ def _juniper(name, index, one_seed: bool) -> Model:
 
     crown_c = axis(0.5)
     crown_r = np.array([radius, radius, height * 0.5])
+    card_w = CARD_M["Juniper"]
+    # The crown is almost solid: opaque cores fill the envelope to 85 % of its
+    # radius, and only the outer clumps carry the fine scale-leaf sprays.
     placed = 0
     attempts = 0
     while placed < n_clumps and attempts < n_clumps * 20:
         attempts += 1
         t = rng.uniform(0.02, 1.0) ** 0.9
         theta = rng.uniform(0, 2 * math.pi)
-        rho = 0.5 + 0.5 * math.sqrt(rng.uniform())
+        rho = math.sqrt(rng.uniform()) * 0.95
         r = envelope(t, theta)
-        if r < 0.25:
+        if r < 0.12:
             continue
-        # Holes: a third of the crown's volume is open, so light gets in.
+        # A few holes (about a tenth of the crown) so it is not a perfect solid.
         hole = math.sin(2.1 * math.cos(theta) * 3 + t * 5 + sin_p[0]) * math.sin(theta * 2 + t * 3.3 + sin_p[1])
-        if hole > 0.55:
+        if hole > 0.85:
             continue
         p = axis(t) + np.array([math.cos(theta) * rho * r, math.sin(theta) * rho * r, 0.0])
-        scale = 0.65 + 0.35 * min(1.0, r / radius * 1.6)
-        _clump(meshes, rng, p, core * scale, 16, card * scale, crown_c, crown_r, 0.6,
-               subdiv=1, tilt_up=0.2, squash=0.85, spread=1.0)
+        scale = 0.7 + 0.3 * min(1.0, r / radius * 1.6)
+        outer = rho >= 0.6
+        _clump(meshes, rng, p, core * scale, 26 if outer else 0, card_w, crown_c, crown_r, 0.6,
+               subdiv=2, tilt_up=0.2, squash=0.85, on_surface=True)
         placed += 1
-        if rng.uniform() < 0.55:
+        if rng.uniform() < 0.4:
             stem = stems[int(rng.integers(0, len(stems)))]
             k = int(np.argmin(np.abs(stem[:, 2] - p[2] * 0.75)))
             start = stem[max(1, min(k, len(stem) - 2))]
@@ -586,7 +604,7 @@ MAX_TILT_DEG = 4.0
 # Steepest ground (smallest normal.z) each grows on; steeper is cliff.
 MIN_NZ = {"juniper": 0.76, "pine": 0.8, "shrub": 0.84}
 # Instance scale ranges against the model's own height.
-SCALE = {"JuniperRM": (0.62, 1.2), "JuniperOS": (0.6, 1.25), "Ponderosa": (0.58, 1.35),
+SCALE = {"JuniperRM": (0.62, 1.2), "JuniperOS": (0.56, 1.1), "Ponderosa": (0.58, 1.35),
          "Oak": (0.65, 1.3), "Mahogany": (0.6, 1.1)}
 
 

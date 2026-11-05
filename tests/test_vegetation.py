@@ -275,3 +275,30 @@ def test_matched_views_skip_unset_cameras_and_carry_fov(shots):
 
 def test_shot_views_default_to_the_repo_views_file(shots):
     assert Path(shots.VIEWS_PATH).resolve() == (UNREAL.parent / "docs/media/vegetation-real/views.json").resolve()
+
+
+@pytest.mark.parametrize("species", ["JuniperRM", "JuniperOS"])
+def test_junipers_are_dense_from_the_side(species):
+    alpha = fa.paint_atlas("Juniper", 256)[..., 3] / 255.0
+    for i in range(veg.SPECIES[species][1]):
+        model = veg.build_model(species, i)
+        assert vm.side_fill(model, alpha) >= 0.85, model.name
+
+
+_CARD_WIDTH_PENDING = {"Ponderosa": "Task 6", "Oak": "Task 7", "Mahogany": "Task 7"}
+
+
+@pytest.mark.parametrize("species", [
+    pytest.param(s, marks=pytest.mark.xfail(strict=True, reason="cards resized in %s" % _CARD_WIDTH_PENDING[s]))
+    if s in _CARD_WIDTH_PENDING else s for s in veg.SPECIES])
+def test_leaf_cards_use_their_atlas_card_width(species):
+    for i in range(veg.SPECIES[species][1]):
+        model = veg.build_model(species, i)
+        w = vm.card_widths(model)
+        assert np.all(np.abs(w / fa.CARD_M[model.atlas] - 1) <= 0.2), model.name
+
+
+def test_one_seed_juniper_instances_are_2_to_4_m():
+    lo, hi = veg.SCALE["JuniperOS"]
+    h = veg.build_model("JuniperOS", 0).height_m
+    assert 1.9 <= lo * h and hi * h <= 4.1
