@@ -8,7 +8,8 @@ placement, the scan's cut fade mask and its top raster, and reports:
 * any tree or shrub within 1 m of the seating;
 * any scan still visible inside the seating;
 * any hidden scan standing more than a step (0.55 m) above a tread, which its
-  collision would turn into an invisible ledge.
+  collision would turn into an invisible ledge, unless out/seating_cut.json is
+  there for unreal/cut_scan_collision.py to cut the seating out of that collision.
 
 Stage.obj is left out: the sound booth stands on the rows on purpose.
 
@@ -117,8 +118,12 @@ def check(out: Path, scan_dir: Path) -> list[str]:
             if t is not None and np.isfinite(z) and z - t > STEP_M:
                 ledges += 1
                 worst = max(worst, z - t)
-        if ledges:
+        if ledges and not (out / "seating_cut.json").exists():
             problems.append(f"scan: {ledges} hidden cells stand over a step above a tread (worst {worst:.2f} m)")
+        elif ledges:
+            print(f"note: {ledges} hidden scan cells stand over a step above a tread (worst {worst:.2f} m); "
+                  "out/seating_cut.json is there, so unreal/cut_scan_collision.py takes them out of the "
+                  "scan's collision")
     return problems
 
 
@@ -131,8 +136,9 @@ def main(argv=None) -> int:
     for p in problems:
         print("POKES THROUGH  " + p)
     if not problems:
-        print("clear: nothing stands above a tread, no plants and no visible scan in the seating, "
-              f"no hidden scan more than {STEP_M} m over a tread")
+        hidden = ("the scan's collision is cut out of the seating" if (args.out / "seating_cut.json").exists()
+                  else f"no hidden scan more than {STEP_M} m over a tread")
+        print(f"clear: nothing stands above a tread, no plants and no visible scan in the seating, {hidden}")
     return 1 if problems else 0
 
 

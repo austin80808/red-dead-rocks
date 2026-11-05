@@ -10,6 +10,7 @@ Runs, in order, in this one Unreal Python interpreter:
     setup_environment.py (terrain skirt to the horizon)
     setup_vegetation.py  (junipers, ponderosa and scrub from out/vegetation)
     import_scan.py
+    cut_scan_collision.py (the seating cut out of the scan's collision)
     setup_gameplay.py    (stage/park meshes, collision, player start, credits)
     setup_credits.py     (press-C credits overlay: input action, widget, actor)
     setup_snow.py        (MPC_Weather; every material whitens with its Snow)
@@ -66,6 +67,7 @@ STEPS = [
     ("setup_environment.py", _log("environment")),
     ("setup_vegetation.py", _log("vegetation")),
     ("import_scan.py", _log("scan")),
+    ("cut_scan_collision.py", _log("scan_cut")),
     ("setup_gameplay.py", _log("gameplay")),
     ("setup_credits.py", _log("credits")),
     ("setup_snow.py", _log("snow")),
