@@ -603,8 +603,9 @@ def test_aisle_path_turns_a_corner_where_the_rows_widen(tmp_path):
 def test_aisle_path_keeps_to_the_inner_half_of_each_stair(tmp_path):
     """Away from the curb on the aisle's outer side, so a walker that runs wide on a turn stays on the stairs."""
     mesh, verts, faces, rows, levels = terraced(tmp_path)
-    stair_outer = 40.0 + 0.12 + dim("stair_width")  # make_rows' rows end at +-40 m
+    gap = stage.STAIR_GAP_M
+    stair_outer = 40.0 + gap + dim("stair_width")  # make_rows' rows end at +-40 m
     for side, path in mesh.aisles.items():
         for e, n, z in path:
-            assert 40.0 + 0.12 < abs(e) < 40.0 + 0.12 + dim("stair_width") / 2 + 1e-6
+            assert 40.0 + gap < abs(e) < 40.0 + gap + dim("stair_width") / 2 + 1e-6
             assert stair_outer - abs(e) >= stage.AISLE_INSET_M + dim("stair_width") / 2 - 1e-6

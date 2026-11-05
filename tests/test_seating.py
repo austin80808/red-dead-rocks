@@ -392,9 +392,9 @@ def test_rows_stop_short_of_an_obstacle_at_their_end():
     trimmed = trim_row_ends(lines, tower)
     for k, (old, new) in enumerate(zip(lines, trimmed)):
         assert np.allclose(new[-1], old[-1])  # the far end is clear: untouched
-        if abs(k - 15) > 20:  # beyond the taper's reach (redrocks.seating.TRIM_TAPER_M)
-            assert np.allclose(new[0], old[0], atol=1e-6)
-        elif tower.distance(Point(*old[0])) < AISLE_HALF_WIDTH_M:
+        # Ends only ever come in: never past where the row naturally ends.
+        assert np.arctan2(new[0][1], new[0][0]) >= np.arctan2(old[0][1], old[0][0]) - 1e-9
+        if tower.distance(Point(*old[0])) < AISLE_HALF_WIDTH_M:
             # Shorter, and the aisle beside the new end clears the tower.
             assert np.hypot(*(new[0] - old[0])) > 0.5
             assert tower.distance(Point(*new[0])) >= AISLE_HALF_WIDTH_M - 0.3
@@ -439,25 +439,36 @@ def test_obstacles_are_buildings_and_whatever_stands_tall_in_the_scan():
     assert not obs.contains(Point(20, 20))
 
 
-def test_one_rows_trim_tapers_into_its_neighbours():
-    """A rock cutting one row back leaves no notch: the rows beside it step in
-    gradually, so their ends (and the aisle stairs on them) make a smooth line."""
+
+
+def _end_offsets(lines, trimmed):
+    """Metres each row's start and end moved in, measured along its arc."""
+    out = []
+    for old, new in zip(lines, trimmed):
+        r = np.hypot(*old[0])
+        a = lambda p: np.arctan2(p[1], p[0])  # noqa: E731
+        out.append(((a(new[0]) - a(old[0])) * r, (a(old[-1]) - a(new[-1])) * r))
+    return np.array(out)
+
+
+def test_row_ends_make_a_smooth_aisle_line():
+    """From AISLE_FROM_ROW up, each aisle's line moves at most AISLE_SLOPE_M
+    sideways from one row to the next, even where one row is cut back hard by
+    a rock: the rows around it come in to meet a straight-ish line."""
     from shapely.geometry import Point
 
-    from redrocks.seating import TRIM_TAPER_M, trim_row_ends
+    from redrocks.seating import AISLE_FROM_ROW, AISLE_SLOPE_M, trim_row_ends
 
     rows, lines = rows_and_lines()
-    k = 20
-    rock = Point(*lines[k][0]).buffer(0.4)  # small: only row 20's aisle hits it
+    rock = Point(*lines[20][0]).buffer(1.5)
     trimmed = trim_row_ends(lines, rock)
-    starts = []
-    for old, new in zip(lines, trimmed):
-        a0 = np.arctan2(old[0, 1], old[0, 0])
-        a1 = np.arctan2(new[0, 1], new[0, 0])
-        starts.append((a1 - a0) * np.hypot(*old[0]))  # metres trimmed off the start
-    starts = np.array(starts)
-    assert starts[k] > 1.0
-    assert np.abs(np.diff(starts)).max() <= TRIM_TAPER_M + 0.05
-    assert starts[0] == pytest.approx(0.0, abs=1e-6) and starts[-1] == pytest.approx(0.0, abs=1e-6)
-
-
+    for side in (0, 1):
+        ends = []
+        for new in trimmed:
+            p = new[0] if side == 0 else new[-1]
+            ends.append(np.arctan2(p[1], p[0]) * np.hypot(*p))  # arc position from the axis
+        steps = np.abs(np.diff(ends[AISLE_FROM_ROW - 1:]))
+        assert steps.max() <= AISLE_SLOPE_M + 0.05
+    # Still clear of the rock, and the far side of the bowl is untouched.
+    assert rock.distance(Point(*trimmed[20][0])) > 0.5
+    assert all(np.allclose(new[-1], old[-1]) for new, old in zip(trimmed, lines))

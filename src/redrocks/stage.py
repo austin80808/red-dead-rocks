@@ -89,6 +89,8 @@ _TRUSS_3_FROM_FRONT_M = (12 + 25 + 25) * FT
 
 # Two steps per seating row at the row ends keep each rise around 22 cm (< UE MaxStepHeight).
 STEPS_PER_ROW = 2
+# The aisle stairs butt up to the row ends (a hair's gap so faces don't fight).
+STAIR_GAP_M = 0.02
 # With the terraced seating's tread levels (redrocks.seating): the walkway sits
 # this far under the top tread, so the tread's curved back edge shows over it.
 WALKWAY_UNDER_TREAD_M = 0.02
@@ -187,10 +189,10 @@ DIMENSIONS: tuple[Dimension, ...] = (
               "Estimate: front-to-back tread depth of each half-row step on the bowl side stairs."),
     Dimension("stair_wall_thickness", 0.35, "estimate",
               "Estimate: thickness of the stepped stone cheek walls flanking the outer edges of the bowl stairs."),
-    Dimension("stair_wall_height", 0.15, "estimate",
-              "Estimate: curb height of the outer cheek wall above each row's upper stair tread. "
-              "Low enough to step over: low in the bowl the aisle drifts outward row by row, and "
-              "0.40 m walls made a sawtooth that blocked it."),
+    Dimension("stair_wall_height", 0.45, "estimate",
+              "Estimate: height of the stone wall along the aisle's outer side, above each row's "
+              "upper stair tread. The aisle is one straight-ish flight (redrocks.seating "
+              "AISLE_SLOPE_M), so the wall runs along it rather than across it."),
     Dimension("walkway_width", 4.0, "estimate",
               "Rough estimate, not measured: top-of-bowl promenade. The scan shows a flat plateau behind the top "
               "row with no edge that fixes a walkway width."),
@@ -521,7 +523,7 @@ def stage_parts(
     bench_h = 0.45     # benches.SEAT_HEIGHT_M
     wall_t = dim("stair_wall_thickness")
     wall_h = dim("stair_wall_height")
-    stair_gap = 0.12
+    stair_gap = STAIR_GAP_M
     shapes = [LineString(np.asarray(p, dtype=float)[:, :2]) for p in polylines]
     for idx, (row, line) in enumerate(zip(rows, polylines)):
         pts = np.asarray(line, dtype=float)[:, :2]
@@ -839,8 +841,9 @@ def booth_roof_parts(parts: Sequence[Part], booth: np.ndarray, a: np.ndarray) ->
     return out
 
 
-# An aisle path turns a corner when the next row's stair is this much further out.
-AISLE_CORNER_M = 0.3
+# An aisle path turns a corner when the next row's stair is this much further out
+# (only low in the bowl now: above AISLE_FROM_ROW the aisle line jogs 1 m at most).
+AISLE_CORNER_M = 1.2
 # The corner is this far up onto the next row's tread.
 AISLE_CORNER_IN_M = 0.6
 # The path keeps this far in from each stair's centre line, toward the rows, so

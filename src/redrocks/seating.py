@@ -117,9 +117,14 @@ AISLE_HALF_WIDTH_M = 1.0
 OBSTACLE_TALL_M = 1.0
 MAX_TRIM_FRACTION = 0.3
 TRIM_STEP_M = 0.25
-# A row's trim tapers into its neighbours by at most this much per row, so one
-# row cut back by a rock leaves no notch for the aisle stairs to jog around.
-TRIM_TAPER_M = 0.6
+MIN_ROW_M = 3.0  # no row is cut shorter than this
+# The side aisles are one staircase each: from AISLE_FROM_ROW up, the row ends
+# lie on a line that moves at most AISLE_SLOPE_M sideways from one row to the
+# next (row ends only ever come in to meet it), so each row's two steps overlap
+# the next row's by 0.8 m or more (the stairs are 1.8 m wide). Below AISLE_FROM_ROW the rows end in the stage
+# blockout's front corner; that is the stage's to sort out.
+AISLE_FROM_ROW = 4
+AISLE_SLOPE_M = 1.0
 
 # Scan cut.
 CUT_TEXEL_M = 0.5
@@ -267,13 +272,27 @@ def _end_trim(line: LineString, from_start: bool, obstacles) -> float:
     return float(MAX_TRIM_FRACTION * length)
 
 
-def trim_row_ends(polylines: Sequence[np.ndarray], obstacles) -> list[np.ndarray]:
-    """Each row's line with its ends pulled in until the aisle beside them is clear.
+def _bearing_to_length(pts: np.ndarray, centre, theta: float) -> float:
+    """Distance along the row line ``pts`` to bearing ``theta`` about ``centre``."""
+    cx, cy = centre
+    b = np.unwrap(np.arctan2(pts[:, 1] - cy, pts[:, 0] - cx))
+    s = np.concatenate([[0.0], np.cumsum(np.hypot(*np.diff(pts, axis=0).T))])
+    theta = b[0] + float(np.remainder(theta - b[0] + np.pi, 2 * np.pi) - np.pi)
+    if b[-1] < b[0]:
+        b, s = b[::-1], s[::-1]
+    return float(np.interp(theta, b, s))
 
-    Each end's trim (metres along the row) is then tapered into the rows around
-    it, at most ``TRIM_TAPER_M`` less per row away from it, so the row ends make
-    a smooth aisle line. Tapering only ever trims more, so every aisle stays
-    clear; no end loses more than ``MAX_TRIM_FRACTION`` of its row.
+
+def trim_row_ends(polylines: Sequence[np.ndarray], obstacles) -> list[np.ndarray]:
+    """Each row's line with its ends pulled in so the aisles beside them are
+    clear and run as one staircase up each side.
+
+    First each end comes in until the aisle beside it is clear of ``obstacles``
+    (at most ``MAX_TRIM_FRACTION`` of the row). Then, from ``AISLE_FROM_ROW``
+    up, each side's ends are brought onto the lower envelope of those positions
+    with slope ``AISLE_SLOPE_M`` a row (measured along the rows' arcs from the
+    bowl's axis): a line that never runs past where any row is allowed to end
+    and never jogs more than ``AISLE_SLOPE_M`` between rows.
     """
     from shapely.ops import substring
 
@@ -286,16 +305,43 @@ def trim_row_ends(polylines: Sequence[np.ndarray], obstacles) -> list[np.ndarray
     for i, line in enumerate(shapes):
         if prepared.intersects(line.buffer(AISLE_CLEAR_M + AISLE_HALF_WIDTH_M)):
             trims[i] = (_end_trim(line, True, obstacles), _end_trim(line, False, obstacles))
-    idx = np.arange(len(lines))
-    tapered = np.max(trims[None, :, :] - TRIM_TAPER_M * np.abs(idx[:, None] - idx[None, :])[:, :, None], axis=1)
+    ranges = [[float(t[0]), float(line.length - t[1])] for t, line in zip(trims, shapes)]
+
+    centre = _circle_centre(lines)
+    k0 = max(0, AISLE_FROM_ROW - 1)
+    if centre is not None and len(lines) > k0 + 1:
+        cx, cy = centre
+        mids = [np.array(line.interpolate(0.5, normalized=True).coords[0]) for line in shapes]
+        axis = math.atan2(float(np.mean([np.sin(math.atan2(m[1] - cy, m[0] - cx)) for m in mids])),
+                          float(np.mean([np.cos(math.atan2(m[1] - cy, m[0] - cx)) for m in mids])))
+
+        def rel(p):
+            return float(np.remainder(math.atan2(p[1] - cy, p[0] - cx) - axis + np.pi, 2 * np.pi) - np.pi)
+
+        radius = [float(np.median(np.hypot(p[:, 0] - cx, p[:, 1] - cy))) for p in lines]
+        # Arc distance of each end from the axis, on its own side (the start
+        # end's side and the end end's side of every row).
+        ends = np.array([[rel(shapes[i].interpolate(ranges[i][k]).coords[0]) * radius[i] for k in (0, 1)]
+                         for i in range(len(lines))])
+        sign = np.sign(np.median(ends[k0:, 1] - ends[k0:, 0])) or 1.0
+        out_dist = np.stack([-sign * ends[:, 0], sign * ends[:, 1]], axis=1)  # outward is positive
+        idx = np.arange(k0, len(lines))
+        for k in (0, 1):
+            allowed = out_dist[k0:, k]
+            line_d = np.min(allowed[None, :] + AISLE_SLOPE_M * np.abs(idx[:, None] - idx[None, :]), axis=1)
+            for i, d in zip(idx, line_d):
+                if d < out_dist[i, k] - 1e-6:
+                    theta = axis + (-sign if k == 0 else sign) * d / radius[i]
+                    ranges[i][k] = _bearing_to_length(lines[i], centre, theta)
     out = []
-    for i, (pts, line) in enumerate(zip(lines, shapes)):
-        cap = MAX_TRIM_FRACTION * line.length
-        s0, s1 = (float(min(max(t, 0.0), cap)) for t in tapered[i])
-        if s0 == 0.0 and s1 == 0.0:
+    for pts, line, (a, b) in zip(lines, shapes, ranges):
+        if a <= 1e-9 and b >= line.length - 1e-9:
             out.append(pts)
+        elif b - a < MIN_ROW_M:
+            out.append(np.array(substring(line, max(0.0, (a + b - MIN_ROW_M) / 2),
+                                          min(line.length, (a + b + MIN_ROW_M) / 2)).coords)[:, :2])
         else:
-            out.append(np.array(substring(line, s0, line.length - s1).coords)[:, :2])
+            out.append(np.array(substring(line, a, b).coords)[:, :2])
     return out
 
 
