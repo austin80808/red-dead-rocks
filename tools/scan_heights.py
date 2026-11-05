@@ -118,7 +118,8 @@ def write_fade(scan: ScanHeights, out_dir: Path, fade_m: float = FADE_M) -> tupl
     ny, nx = alpha.shape
     meta = {
         "about": "ml0w scan opacity in plan view, written by tools/scan_heights.py; "
-        "u = (X - x0_cm) / width_cm, v = (y1_cm - Y) / height_cm in level cm (X east, Y north)",
+        "u = (X - x0_cm) / width_cm, v = (y1_cm - Y) / height_cm in terrain-frame cm (X east, Y north; "
+        "unreal/level_frame.py maps it into the level, where Y is -north)",
         "x0_cm": round(scan.x0 * 100.0, 1),
         "y1_cm": round((scan.y0 + ny * scan.cell) * 100.0, 1),
         "width_cm": round(nx * scan.cell * 100.0, 1),

@@ -26,10 +26,15 @@ What it does, logged to /tmp/redrocks_explore.log:
 """
 
 import json
-import math
 import os
+import sys
 
 import unreal
+
+_HERE = os.path.dirname(os.path.abspath(globals().get("__file__") or "/Users/austin/dev/redrocks-ue/unreal/x"))
+if _HERE not in sys.path:
+    sys.path.insert(0, _HERE)
+import level_frame  # noqa: E402  (beside this script: terrain frame -> level frame)
 
 OUT_DIR = os.environ.get("REDROCKS_OUT_DIR", "/Users/austin/dev/redrocks-ue/out")
 LEVEL_PATH = "/Game/RedRocks/Lvl_RedRocks"
@@ -68,14 +73,19 @@ def _spawn(cls, loc, yaw, label):
 
 
 def to_cm(east_m, north_m, elevation_m, datum_m, lift_cm=LIFT_CM):
-    """Unreal location (cm) of a manifest point. Plain arithmetic, tested offline."""
-    return (east_m * 100.0, north_m * 100.0, (elevation_m - datum_m) * 100.0 + lift_cm)
+    """Level location (cm) of a manifest point (level Y = -north). Tested offline."""
+    x, y = level_frame.to_level_cm(east_m, north_m)
+    return (x, y, (elevation_m - datum_m) * 100.0 + lift_cm)
+
+
+def yaw(manifest_yaw_deg):
+    """Level yaw of a manifest ``yaw_deg`` (a terrain-frame heading)."""
+    return level_frame.level_yaw(manifest_yaw_deg)
 
 
 def row_offsets(count, spacing_cm, yaw_deg):
-    """Side-by-side offsets (cm) for ``count`` rides facing ``yaw_deg``, centred on the first."""
-    rad = math.radians(yaw_deg)
-    rx, ry = -math.sin(rad), math.cos(rad)  # right of forward in X east / Y north
+    """Side-by-side level offsets (cm) for ``count`` rides facing level ``yaw_deg``, centred on the first."""
+    rx, ry = level_frame.right_of(yaw_deg)
     return [((i - (count - 1) / 2.0) * spacing_cm * rx, (i - (count - 1) / 2.0) * spacing_cm * ry)
             for i in range(count)]
 
@@ -108,7 +118,7 @@ def _spots(explore, datum, creation):
     placed = []
     for i, spot in enumerate(explore["spots"]):
         loc = to_cm(spot["east_m"], spot["north_m"], spot["elevation_m"], datum)
-        actor = _spawn(unreal.RRSpot, loc, spot["yaw_deg"], "%sSpot_%d_%s" % (PREFIX, i + 1, spot["key"]))
+        actor = _spawn(unreal.RRSpot, loc, yaw(spot["yaw_deg"]), "%sSpot_%d_%s" % (PREFIX, i + 1, spot["key"]))
         actor.set_editor_property("order", i + 1)
         actor.set_editor_property("title", spot["title"])
         actor.set_editor_property("tip", spot["tip"])
@@ -121,8 +131,8 @@ def _spots(explore, datum, creation):
             # highest ground within 60 m and face the biggest drop.
             actor.set_editor_property("seek_summit_radius", 6000.0)
         if spot["key"] == "climb" and creation:
-            actor.set_editor_property("face_target", unreal.Vector(
-                creation["centroid_east"] * 100.0, creation["centroid_north"] * 100.0, loc[2]))
+            cx, cy = level_frame.to_level_cm(creation["centroid_east"], creation["centroid_north"])
+            actor.set_editor_property("face_target", unreal.Vector(cx, cy, loc[2]))
         placed.append(spot["title"])
     return "%d: %s" % (len(placed), ", ".join(placed))
 
@@ -132,8 +142,8 @@ def _rides(block, kind, spacing, datum, destination=None, label="Cart", route=No
         return "none in manifest"
     s = block["start"]
     base = to_cm(s["east_m"], s["north_m"], s["elevation_m"], datum)
-    for i, (dx, dy) in enumerate(row_offsets(block["count"], spacing, s["yaw_deg"])):
-        actor = _spawn(unreal.RRRide, (base[0] + dx, base[1] + dy, base[2]), s["yaw_deg"],
+    for i, (dx, dy) in enumerate(row_offsets(block["count"], spacing, yaw(s["yaw_deg"]))):
+        actor = _spawn(unreal.RRRide, (base[0] + dx, base[1] + dy, base[2]), yaw(s["yaw_deg"]),
                        "%s%s_%d" % (PREFIX, label, i + 1))
         actor.set_editor_property("kind", kind)
         if destination:
@@ -161,8 +171,8 @@ def _concert(manifest, datum):
     if not spawn:
         return "no spawn in manifest"
     loc = to_cm(spawn["east_m"], spawn["north_m"], spawn["ground_elevation_m"], datum, 0.0)
-    _spawn(unreal.RRConcert, loc, spawn["yaw_deg"], PREFIX + "Concert")
-    return "at E%.0f N%.0f facing %.0f" % (spawn["east_m"], spawn["north_m"], spawn["yaw_deg"])
+    _spawn(unreal.RRConcert, loc, yaw(spawn["yaw_deg"]), PREFIX + "Concert")
+    return "at E%.0f N%.0f, level yaw %.0f" % (spawn["east_m"], spawn["north_m"], yaw(spawn["yaw_deg"]))
 
 
 def _game_mode():

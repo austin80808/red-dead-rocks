@@ -22,8 +22,14 @@ on every run, which removes the scan actor too.
 
 import json
 import os
+import sys
 
 import unreal
+
+_HERE = os.path.dirname(os.path.abspath(globals().get("__file__") or "/Users/austin/dev/redrocks-ue/unreal/x"))
+if _HERE not in sys.path:
+    sys.path.insert(0, _HERE)
+import level_frame  # noqa: E402  (beside this script: terrain frame -> level frame)
 
 # The redrocks build output; REDROCKS_OUT_DIR points a test copy at another build.
 OUT_DIR = os.environ.get("REDROCKS_OUT_DIR", "/Users/austin/dev/redrocks-ue/out")
@@ -117,8 +123,9 @@ def main():
             return
 
         actor.static_mesh_component.set_static_mesh(mesh)
-        # The OBJ importer negates Y; scale -1 restores north (see README gotchas).
-        actor.set_actor_scale3d(unreal.Vector(1.0, -1.0, 1.0))
+        # The OBJ importer negates Y, which is the terrain -> level map (level
+        # Y = -north, level_frame.py), so the actor takes no flip.
+        actor.set_actor_scale3d(unreal.Vector(*level_frame.OBJ_ACTOR_SCALE))
         actor.set_actor_label(asset_name)
         actor.set_mobility(unreal.ComponentMobility.STATIC)
         log.append("placed %s at %s" % (asset_name, location))
@@ -136,14 +143,8 @@ def main():
     ) * 100.0
     for rock in manifest["monoliths"]:
         label = rock["name"].split(" (")[0].replace(" ", "_")
-        _place(
-            label,
-            unreal.Vector(
-                rock["centroid_east"] * 100.0,
-                rock["centroid_north"] * 100.0,
-                rock_z_cm,
-            ),
-        )
+        x, y = level_frame.to_level_cm(rock["centroid_east"], rock["centroid_north"])
+        _place(label, unreal.Vector(x, y, rock_z_cm))
 
     level_subsystem.save_current_level()
     log.append("saved %s" % LEVEL_PATH)

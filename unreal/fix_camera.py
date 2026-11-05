@@ -9,13 +9,20 @@ Run headless:
 """
 
 import os
+import sys
 import unreal
+
+_HERE = os.path.dirname(os.path.abspath(globals().get("__file__") or "/Users/austin/dev/redrocks-ue/unreal/x"))
+if _HERE not in sys.path:
+    sys.path.insert(0, _HERE)
+import level_frame  # noqa: E402  (beside this script: terrain frame -> level frame)
 
 LEVEL_PATH = "/Game/RedRocks/Lvl_RedRocks"
 
 # 800 m up, 1.6 km south-east of the bowl: clears the 645 m ridge with room.
-CAMERA_LOCATION = unreal.Vector(70000.0, -110000.0, 80000.0)
-CAMERA_ROTATION = unreal.Rotator(pitch=-24.0, yaw=32.0, roll=0.0)
+# Terrain-frame position and heading, carried into the level (level_frame.py).
+CAMERA_LOCATION = unreal.Vector(*level_frame.to_level(70000.0, -110000.0), 80000.0)
+CAMERA_ROTATION = unreal.Rotator(pitch=-24.0, yaw=level_frame.level_yaw(32.0), roll=0.0)
 
 log = []
 

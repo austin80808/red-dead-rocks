@@ -99,7 +99,11 @@ class Route:
 
 
 def yaw_deg(dx: float, dy: float) -> float:
-    """Unreal yaw (degrees) for a direction in east/north metres (X east, Y north)."""
+    """Terrain-frame heading (degrees counter-clockwise from east) of an east/north direction.
+
+    The manifest's ``yaw_deg`` values are these; unreal/level_frame.level_yaw
+    turns one into an Unreal yaw (its negative: the level has north on -Y).
+    """
     return math.degrees(math.atan2(dy, dx))
 
 

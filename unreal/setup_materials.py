@@ -69,7 +69,7 @@ def srgb_to_linear(hex_color):
     return unreal.LinearColor(r=out[0], g=out[1], b=out[2], a=1.0)
 
 
-# Bedding dips 30 deg to the west (X east, Y north, Z up): the planes descend
+# Bedding dips 30 deg to the west (level X east, Z up; Y plays no part): the planes descend
 # toward -X, i.e. z = x * tan30, whose upward unit normal is (-sin30, 0, cos30).
 DIP = math.radians(30.0)
 BED_NORMAL = (-math.sin(DIP), 0.0, math.cos(DIP))

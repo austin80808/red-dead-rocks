@@ -25,7 +25,13 @@ Log: /tmp/redrocks_lighting.log ("ok"/"FAIL" lines).
 """
 
 import os
+import sys
 import unreal
+
+_HERE = os.path.dirname(os.path.abspath(globals().get("__file__") or "/Users/austin/dev/redrocks-ue/unreal/x"))
+if _HERE not in sys.path:
+    sys.path.insert(0, _HERE)
+import level_frame  # noqa: E402  (beside this script: terrain frame -> level frame)
 
 LEVEL_PATH = "/Game/RedRocks/Lvl_RedRocks"
 LOG_PATH = os.path.join(os.environ.get("REDROCKS_LOG_DIR", "/tmp"), "redrocks_lighting.log")
@@ -37,8 +43,9 @@ LOG_PATH = os.path.join(os.environ.get("REDROCKS_LOG_DIR", "/tmp"), "redrocks_li
 # morning sun is behind them and lights the rows and rock faces they see; an
 # afternoon sun (WNW) backlit the whole view into silhouette. The light travels
 # away from the sun:
-# compass bearing (sun azimuth + 180), which in Unreal's frame (X east, Y north,
-# yaw counter-clockwise from +X) is yaw = 90 - bearing.
+# compass bearing (sun azimuth + 180), which in the level frame (X east, Y
+# south, yaw clockwise from +X seen from above, level_frame.py) is
+# yaw = bearing - 90.
 SUN_AZIMUTH_DEG = 75.0    # compass bearing of the sun, clockwise from north (ENE)
 SUN_ELEVATION_DEG = 24.0  # above the horizon: low and warm, but the bowl is still lit
 # Outside the atmosphere the sun gives about 120,000 lux; the SkyAtmosphere
@@ -80,9 +87,7 @@ def sun_rotation(azimuth_deg, elevation_deg):
     Plain arithmetic, tested offline. The light points away from the sun, so it
     pitches down by the elevation and faces the opposite bearing.
     """
-    bearing = (azimuth_deg + 180.0) % 360.0
-    yaw = (90.0 - bearing + 180.0) % 360.0 - 180.0
-    return -elevation_deg, yaw
+    return -elevation_deg, level_frame.compass_yaw(azimuth_deg + 180.0)
 
 
 def _step(label, fn, *args, **kwargs):

@@ -29,9 +29,15 @@ Pass SCENARIOS=cart,sled (env) to run a subset.
 import json
 import math
 import os
+import sys
 import time
 
 import unreal
+
+_HERE = os.path.dirname(os.path.abspath(globals().get("__file__") or "/Users/austin/dev/redrocks-ue/unreal/x"))
+if _HERE not in sys.path:
+    sys.path.insert(0, _HERE)
+import level_frame  # noqa: E402  (beside this script: terrain frame -> level frame)
 
 OUT_DIR = os.environ.get("REDROCKS_OUT_DIR", "/Users/austin/dev/redrocks-ue/out")
 LOG_PATH = os.path.join(os.environ.get("REDROCKS_LOG_DIR", "/tmp"), "redrocks_playtest_explore.log")
@@ -256,7 +262,8 @@ def _aisle_steps():
 
 
 def _aisle():
-    return [(e * 100.0, n * 100.0) for e, n, _ in _aisle_steps()]
+    """The aisle's steps in level cm."""
+    return [level_frame.to_level_cm(e, n) for e, n, _ in _aisle_steps()]
 
 
 def _other_aisle_at(fraction):
@@ -264,7 +271,7 @@ def _other_aisle_at(fraction):
     aisles = list(((manifest.get("stage") or {}).get("aisles") or {}).values())
     mine = _aisle()
     for steps in aisles:
-        pts = [(e * 100.0, n * 100.0) for e, n, _ in steps]
+        pts = [level_frame.to_level_cm(e, n) for e, n, _ in steps]
         if pts and pts != mine:
             return pts[min(len(pts) - 1, int(fraction * len(pts)))]
     return None
@@ -278,6 +285,7 @@ def _seat_levels_cm():
 
 
 def _yaw_to(pawn, x, y):
+    """Level yaw from the pawn to level (x, y) cm."""
     loc = pawn.get_actor_location()
     return math.degrees(math.atan2(y - loc.y, x - loc.x))
 
@@ -315,7 +323,7 @@ def _aim_across(pawn):
 
 def _aim_down(pawn):
     stage = next(sp for sp in explore["spots"] if sp["key"] == "stage")
-    return _yaw_to(pawn, stage["east_m"] * 100.0, stage["north_m"] * 100.0)
+    return _yaw_to(pawn, *level_frame.to_level_cm(stage["east_m"], stage["north_m"]))
 
 
 def seat_to_aisle(now, pawn, world):
@@ -587,7 +595,7 @@ def board_step(now, pawn, world):
     key = {"cart": "carts", "sled": "sleds", "tubing": "tubes"}[R.s["name"]]
     datum = manifest["terrain_mesh"]["min_elevation_m"]
     pts = explore[key]["run" if key == "sleds" else "route"]
-    R.s["route"] = [(p[0] * 100.0, p[1] * 100.0, (p[2] - datum) * 100.0) for p in pts]
+    R.s["route"] = [level_frame.to_level_cm(p[0], p[1]) + ((p[2] - datum) * 100.0,) for p in pts]
     note("boarded at x=%.0f y=%.0f z=%.0f" % (start.x, start.y, start.z))
     return True
 
@@ -727,7 +735,8 @@ def morrison_shot(now, pawn, world):
     if R.s["i"] >= 2:
         loc = pawn.get_actor_location()
         end = explore["carts"]["route"][-1]
-        d = math.hypot(end[0] * 100 - loc.x, end[1] * 100 - loc.y) / 100.0
+        ex, ey = level_frame.to_level_cm(end[0], end[1])
+        d = math.hypot(ex - loc.x, ey - loc.y) / 100.0
         check("Morrison is in the world", d < 50.0, "%.0f m from Bear Creek Ave" % d)
         return True
     pawn.script_look(R.s["yaw0"] + 180.0 * R.s["i"], -4.0)
