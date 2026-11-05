@@ -357,3 +357,102 @@ def test_scaled_shrubs_reach_their_real_heights(species, lo_m, hi_m):
     for i in range(veg.SPECIES[species][1]):
         h = veg.build_model(species, i).height_m
         assert lo * h >= lo_m * 0.95 and hi * h <= hi_m * 1.05, (species, i, h)
+
+
+# ------------------------------------------------------------- thickets & groves
+
+SHRUBS = ("Oak", "OakPatch", "Mahogany")
+
+
+def _low_gentle_ground():
+    return veg.Ground(_slope_grid(n=81, size=320000.0, fn=lambda x, y: 0.08 * x + 20000.0))
+
+
+def _open_points(ground, step=400.0):
+    x0, y0, x1, y1 = ground.extent
+    xx, yy = np.meshgrid(np.arange(x0 + 1000, x1 - 1000, step), np.arange(y0 + 1000, y1 - 1000, step))
+    pts = np.stack([xx.ravel(), yy.ravel()], 1)
+    far = np.hypot(pts[:, 0] - veg.SCAN_CENTRE_CM[0], pts[:, 1] - veg.SCAN_CENTRE_CM[1]) > veg.SCAN_CLEAR_CM + 1000
+    return pts[far]
+
+
+@pytest.fixture(scope="module")
+def low_ground_plants(models):
+    by_name = {mm.name: mm for mm in models}
+    g = _low_gentle_ground()
+    return g, by_name, veg.place(g, set(), by_name)
+
+
+def test_thicket_field_is_seeded_noise_in_0_1():
+    x = np.linspace(-100000, 100000, 500)
+    f = veg.thicket_field(x, x * 0.3, veg.SEED)
+    assert f.min() >= 0.0 and f.max() <= 1.0 and f.std() > 0.05
+    assert np.array_equal(f, veg.thicket_field(x, x * 0.3, veg.SEED))
+
+
+def test_thickets_are_continuous_and_openings_are_open(low_ground_plants):
+    g, by_name, out = low_ground_plants
+    pts = _open_points(g)
+    inside = veg.in_thicket(g, pts[:, 0], pts[:, 1], veg.SEED)
+    assert 0.15 < inside.mean() < 0.6
+    assert vm.canopy_cover(out, by_name, pts[inside], SHRUBS) >= 0.60
+    assert vm.canopy_cover(out, by_name, pts[~inside], SHRUBS) <= 0.15
+
+
+def test_shrub_canopy_stays_off_masked_cells(models):
+    by_name = {mm.name: mm for mm in models}
+    g = veg.Ground(_slope_grid(n=41, size=160000.0, fn=lambda x, y: 0.05 * x + 20000.0))
+    road = np.asarray([(-80000.0 + i * 200.0, 30000.0, 0.0) for i in range(800)])
+    blocked = veg.blocked_cells(road, dilate=1)
+    out = veg.place(g, blocked, by_name)
+
+    def cell_of(x, y):
+        return int(math.floor(x / veg.BLOCK_CELL_CM)), int(math.floor(y / veg.BLOCK_CELL_CM))
+
+    n = 0
+    for name, rows in out.items():
+        if not name.startswith(SHRUBS):
+            continue
+        r = vm.footprint_radius_m(by_name[name]) * 100
+        for x, y, z, yaw, pitch, roll, sxy, sz in rows:
+            n += 1
+            for dx, dy in ((r * sxy, 0), (-r * sxy, 0), (0, r * sxy), (0, -r * sxy)):
+                assert cell_of(x + dx, y + dy) not in blocked, name
+    assert n > 100
+
+
+def _group_sizes(pts, link):
+    """Single-linkage group sizes: union-find over pairs closer than ``link``."""
+    parent = list(range(len(pts)))
+
+    def find(i):
+        while parent[i] != i:
+            parent[i] = parent[parent[i]]
+            i = parent[i]
+        return i
+
+    for i in range(len(pts)):
+        d = np.hypot(pts[i + 1:, 0] - pts[i, 0], pts[i + 1:, 1] - pts[i, 1])
+        for j in np.flatnonzero(d < link) + i + 1:
+            parent[find(i)] = find(int(j))
+    roots = [find(i) for i in range(len(pts))]
+    return np.bincount(np.unique(roots, return_inverse=True)[1])
+
+
+def test_ponderosa_grows_in_groves(models):
+    by_name = {mm.name: mm for mm in models}
+    g = veg.Ground(_slope_grid(n=81, size=320000.0, fn=lambda x, y: 90000.0 - 0.25 * y))
+    out = veg.place(g, set(), by_name)
+    pines = np.array([r[:2] for n, rs in out.items() if n.startswith("Ponderosa") for r in rs])
+    assert len(pines) > 50
+    assert 3 <= np.median(_group_sizes(pines, 1500.0)) <= 8
+
+
+def test_instance_count_is_bounded(low_ground_plants):
+    _, _, out = low_ground_plants
+    assert sum(map(len, out.values())) <= 0.25 * (3200 ** 2) / 9  # at most one plant per 36 m²
+
+
+def test_oak_patches_are_placed(low_ground_plants):
+    _, _, out = low_ground_plants
+    assert sum(len(r) for n, r in out.items() if n.startswith("OakPatch")) > 100

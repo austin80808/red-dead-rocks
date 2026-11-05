@@ -799,14 +799,121 @@ def _smooth(lo, hi, x):
     return t * t * (3 - 2 * t)
 
 
+THICKET_LEVEL = 0.55          # in a thicket where the (adjusted) thicket field is at least this
+THICKET_SPACING_CM = 380.0    # jittered grid for shrubs inside thickets
+OPENING_SHRUB_P = 0.35        # chance a 6.5 m candidate in the open grows a lone shrub
+GROVE_SEED_P = 0.4            # share of pine picks that seed a grove
+GROVE_GAP_CM = 2200.0         # no new grove seed this close to a pine
+GROVE_RADIUS_CM = 1200.0
+SHRUBS = ("Oak", "OakPatch", "Mahogany")
+
+
+def thicket_field(x, y, seed: int) -> np.ndarray:
+    """0..1 two-octave noise whose high ground is scrub thicket (before terrain terms)."""
+    return 0.75 * value_noise(x, y, 9000.0, seed) + 0.25 * value_noise(x, y, 2200.0, seed + 1)
+
+
+def _elevation01(ground: Ground, z):
+    zmin, zmax = float(ground.z.min()), float(ground.z.max())
+    return (np.asarray(z, float) - zmin) / max(zmax - zmin, 1.0)
+
+
+def _draw(ground: Ground, x, y, d: float = 4000.0):
+    """-1..1: positive in draws and hollows (concave ground over 40 m), negative on ridges."""
+    h = ground.height
+    lap = (h(x + d, y) + h(x - d, y) + h(x, y + d) + h(x, y - d) - 4.0 * h(x, y)) / d
+    return np.clip(lap / 0.5, -1.0, 1.0)
+
+
+def in_thicket(ground: Ground, x, y, seed: int = SEED) -> np.ndarray:
+    """True where scrub oak and mahogany thicket covers the ground: the thicket field,
+    fewer on the upper slopes, more in draws, never on cliffs or in the scanned bowl.
+    Masks (roads, benches...) are applied by ``place``, not here."""
+    x, y = np.asarray(x, float), np.asarray(y, float)
+    e = _elevation01(ground, ground.height(x, y))
+    nz = ground.normal(x, y)[2]
+    f = thicket_field(x, y, seed) - 0.18 * _smooth(0.45, 0.85, e) + 0.08 * _draw(ground, x, y)
+    ok = (f >= THICKET_LEVEL) & (nz >= MIN_NZ["shrub"]) & ground.contains(x, y)
+    return ok & (np.hypot(x - SCAN_CENTRE_CM[0], y - SCAN_CENTRE_CM[1]) >= SCAN_CLEAR_CM)
+
+
+def _dilate(cells: set, n: int) -> set:
+    out = set(cells)
+    for i, j in cells:
+        for di in range(-n, n + 1):
+            for dj in range(-n, n + 1):
+                out.add((i + di, j + dj))
+    return out
+
+
+def _cells_free(xs, ys, blocked: set) -> np.ndarray:
+    if not blocked:
+        return np.ones(len(np.atleast_1d(xs)), bool)
+    cells = np.floor(np.stack([np.atleast_1d(xs), np.atleast_1d(ys)], 1) / BLOCK_CELL_CM).astype(np.int64)
+    return np.array([tuple(c) not in blocked for c in cells.tolist()], bool)
+
+
+def _add_rows(out: dict, models: dict, ground: Ground, rng, names, px, py, tilt) -> None:
+    """Append instance rows for (name, x, y, tilt) picks, in order, all at once."""
+    if not names:
+        return
+    px, py, tilt = (np.asarray(v, float) for v in (px, py, tilt))
+    lo = np.array([SCALE[n.rsplit("_", 1)[0]][0] for n in names])
+    hi = np.array([SCALE[n.rsplit("_", 1)[0]][1] for n in names])
+    s = lo + (hi - lo) * rng.beta(2.0, 2.0, len(names))
+    nz = ground.normal(px, py)[2]
+    steep = np.sqrt(np.maximum(0.0, 1 - nz ** 2)) / np.maximum(nz, 0.3)
+    pz = ground.height(px, py)
+    trunk = np.array([models[n].trunk_radius_m for n in names])
+    sink = 12.0 + trunk * 100.0 * s * steep * 1.3
+    yaw = rng.uniform(0, 360, len(names))
+    pitch = rng.normal(size=len(names)) * tilt
+    roll = rng.normal(size=len(names)) * tilt
+    sxy = s * rng.uniform(0.92, 1.08, len(names))
+    for k, n in enumerate(names):
+        out[n].append([round(float(px[k]), 1), round(float(py[k]), 1), round(float(pz[k] - sink[k]), 1),
+                       round(float(yaw[k]), 2), round(float(pitch[k]), 2), round(float(roll[k]), 2),
+                       round(float(sxy[k]), 3), round(float(s[k]), 3)])
+
+
 def place(ground: Ground, blocked: set, models: dict, seed: int = SEED) -> dict:
     """Instances by model name: [[x, y, z, yaw, pitch, roll, scale_xy, scale_z], ...] (cm, deg).
 
-    ``models`` maps model name to its Model (for trunk radius and species).
-    Deterministic for a seed.
+    ``models`` maps model name to its Model (for trunk radius, species and
+    footprint). Deterministic for a seed. Scrub oak and mahogany fill thickets
+    (``in_thicket``) on a jittered 3 m grid, mostly as oak patches; the
+    openings between keep a few lone shrubs. Junipers stand singly or in
+    twos and threes, more on rocky south-facing ground; ponderosa grows in
+    groves of 3-8 on the upper and north-facing slopes.
     """
+    from .vegetation_metrics import footprint_radius_m
+
     rng = np.random.default_rng(seed)
     x0, y0, x1, y1 = ground.extent
+    by_species = {}
+    for name in sorted(models):
+        by_species.setdefault(name.rsplit("_", 1)[0], []).append(name)
+    out = {name: [] for name in models}
+    reach = max([footprint_radius_m(models[n]) * 100.0 * SCALE[n.rsplit("_", 1)[0]][1] * 1.08
+                 for n in models if n.rsplit("_", 1)[0] in SHRUBS] or [0.0])
+    shrub_blocked = _dilate(blocked, int(math.ceil(reach / BLOCK_CELL_CM))) if blocked else set()
+
+    def usable(px, py, min_nz, mask):
+        px, py = np.atleast_1d(px), np.atleast_1d(py)
+        ok = ground.contains(px, py)
+        ok &= np.hypot(px - SCAN_CENTRE_CM[0], py - SCAN_CENTRE_CM[1]) >= SCAN_CLEAR_CM
+        ok &= ground.normal(px, py)[2] >= min_nz
+        return ok & _cells_free(px, py, mask)
+
+    def pick(sp):
+        return by_species[sp][int(rng.integers(len(by_species[sp])))]
+
+    names, px, py, tilt = [], [], [], []
+
+    def add(name, x, y, t):
+        names.append(name), px.append(float(x)), py.append(float(y)), tilt.append(t)
+
+    # Trees and lone shrubs on the 6.5 m grid.
     gx = np.arange(x0, x1, SPACING_CM)
     gy = np.arange(y0, y1, SPACING_CM)
     xx, yy = np.meshgrid(gx, gy)
@@ -814,25 +921,19 @@ def place(ground: Ground, blocked: set, models: dict, seed: int = SEED) -> dict:
     y = (yy + rng.uniform(0, SPACING_CM, yy.shape)).ravel()
     keep_roll = rng.uniform(size=x.shape)
     pick_roll = rng.uniform(size=x.shape)
-    ok = ground.contains(x, y)
-    ok &= np.hypot(x - SCAN_CENTRE_CM[0], y - SCAN_CENTRE_CM[1]) >= SCAN_CLEAR_CM
-    if blocked:
-        cells = np.floor(np.stack([x, y], 1) / BLOCK_CELL_CM).astype(np.int64)
-        ok &= np.array([tuple(c) not in blocked for c in cells.tolist()], bool)
+    ok = usable(x, y, 0.0, blocked)
     z = ground.height(x, y)
     nx, ny, nz = ground.normal(x, y)
-    zmin, zmax = float(ground.z.min()), float(ground.z.max())
-    e = (z - zmin) / max(zmax - zmin, 1.0)
+    e = _elevation01(ground, z)
     slope = np.hypot(nx, ny)
     north = np.where(slope > 1e-6, ny / np.maximum(slope, 1e-6), 0.0) * np.clip(slope / 0.3, 0, 1)
-    thicket = 0.75 * value_noise(x, y, 9000.0, seed) + 0.25 * value_noise(x, y, 2200.0, seed + 1)
     meadow = value_noise(x, y, 25000.0, seed + 2)
-    density = np.clip((thicket - 0.25) * 2.0, 0, 1) * (0.45 + 0.55 * _smooth(0.2, 0.55, meadow))
-
+    density = np.clip((thicket_field(x, y, seed) - 0.25) * 2.0, 0, 1) * (0.45 + 0.55 * _smooth(0.2, 0.55, meadow))
     rocky = _smooth(0.97, 0.84, nz)
     w_pine = (_smooth(0.3, 0.55, e) * (1 + 1.4 * north) + 0.5 * _smooth(0.12, 0.3, e) * np.clip(north, 0, 1))
     w_pine = np.clip(w_pine, 0, None) * 0.55
-    w_jun = (1 - 0.65 * _smooth(0.5, 0.8, e)) * (1 - 0.4 * north) * (0.6 + 0.9 * rocky)
+    w_jun = ((1 - 0.65 * _smooth(0.5, 0.8, e)) * (1 - 0.4 * north) * (0.6 + 0.9 * rocky)
+             * (1 + 0.6 * np.clip(-north, 0, 1)))
     w_shrub = (1.5 - 1.2 * _smooth(0.15, 0.45, e)) * (0.6 + 0.7 * _smooth(0.86, 0.97, nz)) * (1 + 0.3 * north)
     w_pine = np.where(nz >= MIN_NZ["pine"], w_pine, 0)
     w_jun = np.where(nz >= MIN_NZ["juniper"], w_jun, 0)
@@ -842,43 +943,67 @@ def place(ground: Ground, blocked: set, models: dict, seed: int = SEED) -> dict:
     ok &= keep_roll < density * 0.85
     p_pine = w_pine / np.maximum(total, 1e-9)
     p_jun = w_jun / np.maximum(total, 1e-9)
+    thick = in_thicket(ground, x, y, seed)
+    pine_cells = {}
 
-    by_species = {}
-    for name in sorted(models):
-        by_species.setdefault(name.rsplit("_", 1)[0], []).append(name)
-    out = {name: [] for name in models}
-
-    def add(model_name, px, py, tilt):
-        m = models[model_name]
-        lo, hi = SCALE[model_name.rsplit("_", 1)[0]]
-        s = lo + (hi - lo) * rng.beta(2.0, 2.0)
-        n = ground.normal(np.array([px]), np.array([py]))
-        steep = math.sqrt(max(0.0, 1 - float(n[2][0]) ** 2)) / max(float(n[2][0]), 0.3)
-        pz = float(ground.height(np.array([px]), np.array([py]))[0])
-        sink = 12.0 + m.trunk_radius_m * 100.0 * s * steep * 1.3
-        out[model_name].append([round(px, 1), round(py, 1), round(pz - sink, 1),
-                                round(float(rng.uniform(0, 360)), 2),
-                                round(float(rng.normal(scale=tilt)), 2), round(float(rng.normal(scale=tilt)), 2),
-                                round(s * rng.uniform(0.92, 1.08), 3), round(s, 3)])
+    def near_pine(qx, qy, d):
+        ci, cj = int(qx // d), int(qy // d)
+        for di in (-1, 0, 1):
+            for dj in (-1, 0, 1):
+                for ox, oy in pine_cells.get((ci + di, cj + dj), ()):
+                    if math.hypot(ox - qx, oy - qy) < d:
+                        return True
+        return False
 
     for k in np.flatnonzero(ok):
         r = pick_roll[k]
         if r < p_pine[k]:
-            add(by_species["Ponderosa"][int(rng.integers(len(by_species["Ponderosa"])))], x[k], y[k], 0.8)
+            if rng.uniform() >= GROVE_SEED_P or near_pine(x[k], y[k], GROVE_GAP_CM):
+                continue
+            members = [(x[k], y[k])]
+            for _ in range(int(rng.integers(2, 8))):
+                a, d = rng.uniform(0, 2 * math.pi), GROVE_RADIUS_CM * math.sqrt(rng.uniform())
+                members.append((x[k] + math.cos(a) * d, y[k] + math.sin(a) * d))
+            mx, my = np.array(members).T
+            for qx, qy in zip(mx[usable(mx, my, MIN_NZ["pine"], blocked)], my[usable(mx, my, MIN_NZ["pine"], blocked)]):
+                add(pick("Ponderosa"), qx, qy, 0.8)
+                pine_cells.setdefault((int(qx // GROVE_GAP_CM), int(qy // GROVE_GAP_CM)), []).append((qx, qy))
         elif r < p_pine[k] + p_jun[k]:
-            rm = rng.uniform() < 0.2 + 0.6 * _smooth(0.15, 0.5, e[k])
-            sp = "JuniperRM" if rm else "JuniperOS"
-            add(by_species[sp][int(rng.integers(len(by_species[sp])))], x[k], y[k], MAX_TILT_DEG)
-        else:
-            sp = "Mahogany" if rng.uniform() < 0.25 + 0.5 * rocky[k] else "Oak"
-            # Scrub oak grows in clonal thickets: a few stems around the spot.
-            for _ in range(int(rng.integers(1, 4)) if sp == "Oak" else int(rng.integers(1, 3))):
-                px = x[k] + rng.normal(scale=180.0)
-                py = y[k] + rng.normal(scale=180.0)
-                if not bool(ground.contains(np.array([px]), np.array([py]))[0]):
-                    continue
-                add(by_species[sp][int(rng.integers(len(by_species[sp])))], px, py, MAX_TILT_DEG)
-    return {name: rows for name, rows in out.items()}
+            if rng.uniform() > 0.6:
+                continue
+            n = 1 + int(rng.uniform() > 0.55) + int(rng.uniform() > 0.85)
+            mx = x[k] + np.concatenate([[0.0], rng.normal(scale=200.0, size=n - 1)])
+            my = y[k] + np.concatenate([[0.0], rng.normal(scale=200.0, size=n - 1)])
+            keep = usable(mx, my, MIN_NZ["juniper"], blocked)
+            for qx, qy in zip(mx[keep], my[keep]):
+                rm = rng.uniform() < 0.2 + 0.6 * _smooth(0.15, 0.5, e[k])
+                add(pick("JuniperRM" if rm else "JuniperOS"), qx, qy, MAX_TILT_DEG)
+
+    # Lone shrubs scattered through the grassy openings between thickets.
+    lone = (~thick) & (rng.uniform(size=x.shape) < OPENING_SHRUB_P * np.clip(w_shrub / 1.5, 0, 1))
+    lone &= usable(x, y, MIN_NZ["shrub"], shrub_blocked)
+    for k in np.flatnonzero(lone):
+        add(pick("Mahogany" if rng.uniform() < 0.25 + 0.5 * rocky[k] else "Oak"), x[k], y[k], MAX_TILT_DEG)
+
+    # Thickets: a jittered 3 m grid of shrubs, mostly clonal oak patches.
+    tx = np.arange(x0, x1, THICKET_SPACING_CM)
+    ty = np.arange(y0, y1, THICKET_SPACING_CM)
+    txx, tyy = np.meshgrid(tx, ty)
+    sx = (txx + rng.uniform(0, THICKET_SPACING_CM, txx.shape)).ravel()
+    sy = (tyy + rng.uniform(0, THICKET_SPACING_CM, tyy.shape)).ravel()
+    inside = in_thicket(ground, sx, sy, seed)
+    sx, sy = sx[inside], sy[inside]
+    free = _cells_free(sx, sy, shrub_blocked)
+    sx, sy = sx[free], sy[free]
+    s_rocky = _smooth(0.97, 0.84, ground.normal(sx, sy)[2])
+    roll = rng.uniform(size=len(sx))
+    for qx, qy, rr, rk in zip(sx, sy, roll, s_rocky):
+        p_mah = 0.08 + 0.2 * rk
+        sp = "Mahogany" if rr < p_mah else "Oak" if rr < p_mah + 0.18 else "OakPatch"
+        add(pick(sp), qx, qy, MAX_TILT_DEG)
+
+    _add_rows(out, models, ground, rng, names, px, py, tilt)
+    return out
 
 
 # ---------------------------------------------------------------------- build
