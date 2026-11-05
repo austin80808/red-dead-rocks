@@ -19,7 +19,8 @@ from .spawn import player_spawn
 from .stage import DIMENSIONS, export_stage_obj
 from .park import TerrainSurface as ParkSurface, export_park
 from .seating import (
-    SCAN_CLEARANCE_M, export_seating, seating_fade, seating_layout, seating_obstacles, trim_row_ends,
+    SCAN_CLEARANCE_M, export_seating, seating_cut_runs, seating_fade, seating_layout, seating_obstacles,
+    trim_row_ends,
 )
 from .scan_blend import (
     FADE_M, FALLOFF_M, MARGIN_M, ScanGround, ScanHeights, blend_summary, conform_dem,
@@ -154,8 +155,12 @@ def build(args: argparse.Namespace) -> int:
                                  levels=layout.levels, booth=booth_plan)
         print(f"  {len(stage.parts)} parts, {stage.triangles} triangles -> {stage.path.name}")
         print(f"  {stage.handrail_triangles} triangles -> {stage.handrail_path.name}")
+        (out_dir / "seating_cut.json").unlink(missing_ok=True)
         if on_scan:
             scan_cut = _cut_scan_fade(args, layout, out_dir, extra=stage.cut_plans)
+            cut = seating_cut_runs(layout, extra=stage.cut_plans)
+            (out_dir / "seating_cut.json").write_text(json.dumps(cut) + "\n")
+            print(f"  {len(cut['runs'])} runs -> seating_cut.json (for the scan's collision cut in Unreal)")
         if stage.booth_path is not None:
             print(f"  sound booth on OSM way {booth_way.id}, deck {stage.booth_deck_elevation_m:.2f} m "
                   f"-> {stage.booth_path.name}")

@@ -716,3 +716,31 @@ def seating_fade(
         "cut_m2": round(float(cut.sum()) * tx * ty, 1),
     }
     return out, meta
+
+
+def seating_cut_runs(layout: SeatingLayout, extra=None, texel_m: float = CUT_TEXEL_M) -> dict:
+    """Where the scan is cut out of the seating, as run-length rows on a grid.
+
+    Plain JSON for ``unreal/cut_scan_collision.py`` (Unreal's Python has no
+    Shapely or Pillow): ``runs`` are ``[row, first_col, end_col]`` with row 0 at
+    ``y1_cm`` (north) and columns from ``x0_cm`` (west), in level centimetres
+    (X east, Y north). Covers the terraces and ``extra`` plans (stairs, booth)
+    plus ``CUT_MARGIN_M``, the same area ``seating_fade`` hides.
+    """
+    plans = [t.plan() for t in layout.terraces] + [p for p in (extra or []) if p is not None]
+    area = unary_union(plans).buffer(CUT_MARGIN_M)
+    x0, y0, x1, y1 = area.bounds
+    x0, y1 = math.floor(x0 / texel_m) * texel_m, math.ceil(y1 / texel_m) * texel_m
+    nx = int(math.ceil((x1 - x0) / texel_m)) + 1
+    ny = int(math.ceil((y1 - y0) / texel_m)) + 1
+    e, n = np.meshgrid(x0 + (np.arange(nx) + 0.5) * texel_m, y1 - (np.arange(ny) + 0.5) * texel_m)
+    mask = shapely.contains_xy(area, e, n)
+    runs = []
+    for i in range(ny):
+        row = np.concatenate([[False], mask[i], [False]])
+        edges = np.flatnonzero(row[1:] != row[:-1])
+        runs += [[i, int(a), int(b)] for a, b in zip(edges[::2], edges[1::2])]
+    return {"about": "seating cut out of the ml0w scan's collision; runs are [row, first_col, end_col], "
+                     "row 0 at y1_cm (north), columns from x0_cm, level cm",
+            "x0_cm": round(x0 * 100.0, 1), "y1_cm": round(y1 * 100.0, 1), "texel_cm": texel_m * 100.0,
+            "nx": nx, "ny": ny, "runs": runs}

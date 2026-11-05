@@ -472,3 +472,23 @@ def test_row_ends_make_a_smooth_aisle_line():
     # Still clear of the rock, and the far side of the bowl is untouched.
     assert rock.distance(Point(*trimmed[20][0])) > 0.5
     assert all(np.allclose(new[-1], old[-1]) for new, old in zip(trimmed, lines))
+
+
+def test_seating_cut_runs_cover_the_terraces_for_unreal():
+    """A plain-JSON grid of where the scan is cut (run-length rows), for the
+    Unreal script that cuts the seating out of the scan's collision."""
+    from redrocks.seating import seating_cut_runs
+
+    rows, lines = rows_and_lines()
+    layout = seating_layout(rows, lines, ground=bowl, clearance_m=0.45)
+    cut = seating_cut_runs(layout, texel_m=0.5)
+    assert cut["texel_cm"] == 50.0
+
+    def inside(e, n):
+        i = int((cut["y1_cm"] - n * 100) // cut["texel_cm"])
+        j = int((e * 100 - cut["x0_cm"]) // cut["texel_cm"])
+        return any(r == i and a <= j < b for r, a, b in cut["runs"])
+
+    mid = R0 + 20 * GAP + GAP / 2
+    assert inside(mid, 0.0) and inside(R0 + 39 * GAP + 0.6, 5.0)
+    assert not inside(R0 - 6.0, 0.0) and not inside(mid * np.cos(np.radians(45)), mid * np.sin(np.radians(45)))
