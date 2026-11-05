@@ -456,3 +456,56 @@ def test_instance_count_is_bounded(low_ground_plants):
 def test_oak_patches_are_placed(low_ground_plants):
     _, _, out = low_ground_plants
     assert sum(len(r) for n, r in out.items() if n.startswith("OakPatch")) > 100
+
+
+# ------------------------------------------------------------- Unreal: colour and culling
+
+def test_every_model_maps_to_materials_and_cull(sv, models):
+    for mm in models:
+        assert sv.bark_group(mm.name) in sv.BARK and mm.atlas in sv.FOLIAGE
+        for part in veg.PARTS:
+            s, e = sv.cull_distances(mm.name, part)
+            assert (s, e) == (0, 0) or 0 < s < e
+
+
+def test_shrub_parts_cull_together_and_crowns_never(sv):
+    for name in ("Oak_0", "OakPatch_1", "Mahogany_2"):
+        assert sv.cull_distances(name, "Crown") == (0, 0)
+        assert sv.cull_distances(name, "Leaves") == sv.cull_distances(name, "Trunk") == (32000, 40000)
+    for name in ("Ponderosa_4", "JuniperRM_0", "JuniperOS_2"):
+        for part in veg.PARTS:
+            assert sv.cull_distances(name, part) == (0, 0)
+
+
+def test_ponderosa_bark_is_dark_grey_brown_at_distance(sv):
+    assert sv.BARK["Ponderosa"][2] == "#5A5236"
+    for group, (near_light, near_dark, far, plate, stretch, contrast) in sv.BARK.items():
+        assert vm.hex_to_lab(far)[0] < vm.hex_to_lab(near_light)[0]  # far reads darker than sunlit plates
+
+
+def test_foliage_carries_the_atlas_colour_and_photo_cores(sv):
+    for atlas, ((ta, tb), (ca, cb), sss) in sv.FOLIAGE.items():
+        for tint in (ta, tb):
+            assert min(vm.hex_rgb(tint)) >= 0.88 * 255  # within ~10 % of white: the atlas carries the colour
+        if atlas in fa.PHOTO_COLOUR:
+            photo = vm.hex_rgb(fa.PHOTO_COLOUR[atlas])
+            assert np.allclose(vm.hex_rgb(ca), photo * 0.8, atol=2) and np.allclose(vm.hex_rgb(cb), photo * 0.95, atol=2)
+
+
+def test_snow_runs_after_vegetation_and_covers_veg_materials():
+    saved = sys.modules.get("unreal")
+    sys.modules["unreal"] = types.ModuleType("unreal")
+    try:
+        spec = importlib.util.spec_from_file_location("rebuild_level_under_test", UNREAL / "rebuild_level.py")
+        rl = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(rl)
+    finally:
+        if saved is None:
+            del sys.modules["unreal"]
+        else:
+            sys.modules["unreal"] = saved
+    steps = [s for s, _ in rl.STEPS]
+    assert steps.index("setup_snow.py") > steps.index("setup_vegetation.py")
+    snow = (UNREAL / "setup_snow.py").read_text()
+    assert 'GAME_DIR = "/Game/RedRocks"' in snow and "list_assets(GAME_DIR, recursive=True" in snow
+    assert 'ASSET_DIR = "/Game/RedRocks/Vegetation"' in (UNREAL / "setup_vegetation.py").read_text()
