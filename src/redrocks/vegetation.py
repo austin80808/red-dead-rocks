@@ -575,32 +575,80 @@ def _ponderosa(name, index) -> Model:
 
 
 def _shrub(name, index, mahogany: bool) -> Model:
+    """Gambel oak: a 2.6 m multi-stemmed bush, a dense leafy dome of real-size
+    leaves. Mountain mahogany: 2.1 m, fewer stems forking into twigs, an open
+    grey-green crown of small leaves in tufts at the twig ends."""
     rng = np.random.default_rng(_seed(name, index))
     meshes = {p: Mesh() for p in PARTS}
+    atlas = "Mahogany" if mahogany else "Oak"
+    card_w = CARD_M[atlas]
     if mahogany:
-        height, n_stems, n_clumps, core, card, atlas = 1.9, int(rng.integers(3, 6)), 20, 0.15, 0.6, "Mahogany"
+        height, n_stems = 2.1, int(rng.integers(5, 9))
     else:
-        height, n_stems, n_clumps, core, card, atlas = 1.6, int(rng.integers(5, 9)), 28, 0.2, 0.55, "Oak"
+        height, n_stems = 2.6, int(rng.integers(6, 11))
+    crown_c = np.array([0.0, 0.0, 0.5 * height])
+    crown_r = np.array([0.5, 0.47, 0.5]) * height * rng.uniform(0.9, 1.12, 3)
     stems = []
     for _ in range(n_stems):
         az = rng.uniform(0, 2 * math.pi)
-        tilt = rng.uniform(0.2, 0.7)
+        tilt = rng.uniform(0.15, 0.6)
         start = np.array([math.cos(az), math.sin(az), 0.0]) * rng.uniform(0.0, 0.25) + [0, 0, -0.2]
         d = np.array([math.cos(az) * tilt, math.sin(az) * tilt, 1.0])
-        path = _wobbly_path(rng, start, d, height * rng.uniform(0.7, 1.0), 5, 0.08)
-        add_tube(meshes["Trunk"], path, [0.04, 0.032, 0.024, 0.016, 0.009], 5, rng=rng)
+        path = _wobbly_path(rng, start, d, height * rng.uniform(0.7, 0.95), 5, 0.1)
+        add_tube(meshes["Trunk"], path, [0.045, 0.036, 0.027, 0.018, 0.01], 5, rng=rng)
         stems.append(path)
-    crown_c = np.array([0.0, 0.0, 0.55 * height])
-    crown_r = np.array([0.62, 0.58, 0.48]) * height * rng.uniform(0.9, 1.15, 3)
-    for _ in range(n_clumps):
-        d = _unit(rng.normal(size=3))
-        d[2] = abs(d[2]) * 0.9 - 0.15
-        p = crown_c + d * crown_r * rng.uniform(0.55, 1.0)
-        p[2] = max(p[2], 0.25 * height)
-        _clump(meshes, rng, p, core * rng.uniform(0.8, 1.2), 8, card, crown_c,
-               crown_r, 0.65, subdiv=1, tilt_up=0.4, squash=0.8, spread=0.7)
+    if mahogany:
+        # Twigs fork off the upper stems; leaf tufts sit at the twig ends.
+        for path in stems:
+            for _ in range(3):
+                j = int(rng.integers(1, 4))
+                d = _unit(path[j + 1] - path[j]) + rng.normal(scale=0.7, size=3) + np.array([0, 0, 0.3])
+                twig = _wobbly_path(rng, path[j], d, rng.uniform(0.4, 0.8), 4, 0.06)
+                add_tube(meshes["Trunk"], twig, [0.016, 0.012, 0.008, 0.005], 4, rng=rng)
+                for end in (twig[-1], twig[-2]):
+                    _clump(meshes, rng, end, 0.1 * rng.uniform(0.8, 1.2), 7, card_w, crown_c, crown_r, 0.6,
+                           subdiv=1, tilt_up=0.4, squash=0.8, spread=1.0)
+            _clump(meshes, rng, path[-1], 0.12, 8, card_w, crown_c, crown_r, 0.6, subdiv=1, tilt_up=0.4,
+                   squash=0.8, spread=1.0)
+    else:
+        # A dense dome: cores fill it, leafy sprays clothe the outer clumps.
+        for _ in range(60):
+            d = _unit(rng.normal(size=3))
+            d[2] = abs(d[2]) * 1.1 - 0.45
+            rho = math.sqrt(rng.uniform()) * 0.95
+            p = crown_c + d * crown_r * rho
+            p[2] = max(p[2], 0.14 * height)
+            _clump(meshes, rng, p, 0.24 * rng.uniform(0.85, 1.15), 12 if rho > 0.55 else 0, card_w, crown_c,
+                   crown_r, 0.65, subdiv=2, tilt_up=0.4, squash=0.85, on_surface=True)
     return Model("%s_%d" % (name, index), "mountain_mahogany" if mahogany else "gambel_oak",
-                 atlas, height, 0.04, meshes)
+                 atlas, height, 0.045, meshes)
+
+
+def _oak_patch(name, index) -> Model:
+    """A clonal Gambel oak patch, 3-6 m across once scaled: many stems from one
+    root system under one continuous, flattened leafy dome."""
+    rng = np.random.default_rng(_seed(name, index))
+    meshes = {p: Mesh() for p in PARTS}
+    height = 2.6
+    card_w = CARD_M["Oak"]
+    ax, ay = rng.uniform(2.0, 2.2), rng.uniform(1.85, 2.1)
+    for _ in range(int(rng.integers(12, 26))):
+        u, a = math.sqrt(rng.uniform()), rng.uniform(0, 2 * math.pi)
+        base = np.array([math.cos(a) * ax * u * 0.85, math.sin(a) * ay * u * 0.85, -0.2])
+        h = height * (1.0 - 0.45 * u * u) * rng.uniform(0.75, 0.95)
+        d = np.array([math.cos(a) * 0.3 * u, math.sin(a) * 0.3 * u, 1.0]) + rng.normal(scale=0.12, size=3)
+        path = _wobbly_path(rng, base, d, h, 5, 0.1)
+        add_tube(meshes["Trunk"], path, [0.04, 0.032, 0.024, 0.016, 0.009], 5, rng=rng)
+    crown_c = np.array([0.0, 0.0, 0.5 * height])
+    crown_r = np.array([ax, ay, 0.5 * height])
+    for _ in range(150):
+        u, a = math.sqrt(rng.uniform()), rng.uniform(0, 2 * math.pi)
+        top = height * (1.0 - 0.45 * u * u)  # the dome falls toward the patch edge
+        p = np.array([math.cos(a) * ax * u, math.sin(a) * ay * u, rng.uniform(0.12, 1.0) * top])
+        outer = u > 0.75 or p[2] > top * 0.75
+        _clump(meshes, rng, p, 0.26 * rng.uniform(0.85, 1.15), 12 if outer else 0, card_w, crown_c, crown_r,
+               0.65, subdiv=2, tilt_up=0.4, squash=0.8, on_surface=True)
+    return Model("%s_%d" % (name, index), "gambel_oak", "Oak", height, 0.04, meshes)
 
 
 # name -> (builder, variant count)
@@ -609,6 +657,7 @@ SPECIES = {
     "JuniperOS": (lambda i: _juniper("JuniperOS", i, one_seed=True), 3),
     "Ponderosa": (lambda i: _ponderosa("Ponderosa", i), 5),
     "Oak": (lambda i: _shrub("Oak", i, mahogany=False), 3),
+    "OakPatch": (lambda i: _oak_patch("OakPatch", i), 3),
     "Mahogany": (lambda i: _shrub("Mahogany", i, mahogany=True), 3),
 }
 
@@ -644,7 +693,7 @@ MAX_TILT_DEG = 4.0
 MIN_NZ = {"juniper": 0.76, "pine": 0.8, "shrub": 0.84}
 # Instance scale ranges against the model's own height.
 SCALE = {"JuniperRM": (0.62, 1.2), "JuniperOS": (0.56, 1.1), "Ponderosa": (0.7, 1.3),
-         "Oak": (0.65, 1.3), "Mahogany": (0.6, 1.1)}
+         "Oak": (0.6, 1.5), "OakPatch": (0.8, 1.3), "Mahogany": (0.55, 1.4)}
 
 
 def read_obj_vertices(path) -> np.ndarray:

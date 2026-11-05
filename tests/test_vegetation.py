@@ -69,7 +69,7 @@ def test_variants_are_deterministic_and_distinct(tmp_path):
 
 @pytest.mark.parametrize("species,lo,hi", [
     ("JuniperRM", 3.5, 6.5), ("JuniperOS", 2.5, 5.0), ("Ponderosa", 15.0, 21.0),
-    ("Oak", 1.0, 2.2), ("Mahogany", 1.2, 2.6),
+    ("Oak", 2.0, 3.0), ("Mahogany", 1.6, 2.6), ("OakPatch", 2.0, 3.2),
 ])
 def test_model_heights_match_the_species(species, lo, hi):
     for i in range(veg.SPECIES[species][1]):
@@ -285,12 +285,7 @@ def test_junipers_are_dense_from_the_side(species):
         assert vm.side_fill(model, alpha) >= 0.85, model.name
 
 
-_CARD_WIDTH_PENDING = {"Oak": "Task 7", "Mahogany": "Task 7"}
-
-
-@pytest.mark.parametrize("species", [
-    pytest.param(s, marks=pytest.mark.xfail(strict=True, reason="cards resized in %s" % _CARD_WIDTH_PENDING[s]))
-    if s in _CARD_WIDTH_PENDING else s for s in veg.SPECIES])
+@pytest.mark.parametrize("species", list(veg.SPECIES))
 def test_leaf_cards_use_their_atlas_card_width(species):
     for i in range(veg.SPECIES[species][1]):
         model = veg.build_model(species, i)
@@ -342,3 +337,23 @@ def test_old_ponderosa_is_flat_topped_and_young_is_conical():
     young, old = veg.build_model("Ponderosa", 0), veg.build_model("Ponderosa", 4)
     assert _crown_width_at(young, 0.9) < 0.35 * _crown_width_at(young, 0.3)
     assert _crown_width_at(old, 0.9) > 0.6 * _crown_width_at(old, 0.5)
+
+
+def test_oak_patches_are_3_to_6_m_across_with_a_continuous_canopy():
+    alpha = fa.paint_atlas("Oak", 256)[..., 3] / 255.0
+    for i in range(3):
+        p = veg.build_model("OakPatch", i)
+        lo, hi = veg.SCALE["OakPatch"]
+        across = 2 * vm.footprint_radius_m(p)
+        assert across * lo >= 3.0 and across * hi <= 6.0, (p.name, across)
+        assert vm.side_fill(p, alpha) >= 0.7, p.name
+        assert len(p.parts["Trunk"].f) > 0 and veg.closed_and_outward(p.parts["Trunk"])
+        assert p.species == "gambel_oak" and p.atlas == "Oak"
+
+
+@pytest.mark.parametrize("species,lo_m,hi_m", [("Oak", 1.5, 4.0), ("Mahogany", 1.0, 3.0)])
+def test_scaled_shrubs_reach_their_real_heights(species, lo_m, hi_m):
+    lo, hi = veg.SCALE[species]
+    for i in range(veg.SPECIES[species][1]):
+        h = veg.build_model(species, i).height_m
+        assert lo * h >= lo_m * 0.95 and hi * h <= hi_m * 1.05, (species, i, h)
