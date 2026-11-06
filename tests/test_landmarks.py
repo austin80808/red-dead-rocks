@@ -64,7 +64,9 @@ def test_stage_roof_and_deck_corners(cat, manifest):
         n, s = (np.array(cat[f"stage_roof_{end}_{side}"]) for side in ("north", "south"))
         assert n[2] == pytest.approx(roof_top, abs=0.05) and s[2] == pytest.approx(roof_top, abs=0.05)
         assert n[1] > s[1]
-        assert np.linalg.norm(n[:2] - s[:2]) == pytest.approx(dims["stage_width"], abs=0.05)
+        # The front corners are the 45° chamfers' inner points (roof_chamfer cut off each side).
+        width = dims["stage_width"] - (2 * dims["roof_chamfer"] if end == "front" else 0.0)
+        assert np.linalg.norm(n[:2] - s[:2]) == pytest.approx(width, abs=0.05)
         setback = ((n[:2] + s[:2]) / 2 - front) @ axis  # along the axis toward the audience
         assert setback == pytest.approx(0.0 if end == "front" else -dims["roof_depth"], abs=0.1)
     for side in ("north", "south"):
