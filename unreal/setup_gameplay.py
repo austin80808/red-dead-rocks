@@ -28,8 +28,10 @@ What it does, each step logged to /tmp/redrocks_gameplay.log as "ok" or "FAIL":
   7. When the ml0w scan is present: the scan chunks get complex collision and
      the extruded rocks are hidden in game with no collision (#16), so what
      blocks the player is the rock they see.
-  8. Places the attribution as text in the world, beside the spawn, so the
-     CC BY 4.0 (ml0w scan) and ODbL (OpenStreetMap) credits show in-game.
+  8. Places the attribution as text in the world, beside the spawn, for the
+     editor (CC BY 4.0 ml0w scan, ODbL OpenStreetMap). It is hidden in game:
+     in play the credits are the press-C overlay (setup_credits.py), whose hint
+     shows at the start, so no sign floats over the bowl in every view.
 """
 
 import json
@@ -406,6 +408,9 @@ def _credits(manifest, spawn):
     comp.set_editor_property("horizontal_alignment", unreal.HorizTextAligment.EHTA_CENTER)
     comp.set_editor_property("text_render_color", unreal.Color(r=255, g=244, b=225, a=255))
     actor.tags = [unreal.Name("credits")]
+    # Floating text over the rows was the blockout's credit; play shows the
+    # press-C overlay instead, so keep this for the editor only.
+    actor.set_actor_hidden_in_game(True)
     return loc
 
 

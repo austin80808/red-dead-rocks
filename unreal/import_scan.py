@@ -614,6 +614,9 @@ def main():
         credit.text_render.set_editor_property("world_size", 120.0)
         credit.set_actor_label(ACTOR_LABEL + "_Credit")
         credit.set_folder_path("Credits")
+        # Editor-only: 120 cm letters over the bowl would hang in every view in
+        # play; the press-C credits overlay carries the scan's CC BY credit.
+        credit.set_actor_hidden_in_game(True)
     except Exception as exc:
         log.append("credit text actor failed: %r" % (exc,))
     log.append("CREDIT: %s" % CREDIT)
