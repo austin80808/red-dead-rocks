@@ -49,9 +49,11 @@ The scan's placement is fitted by `tools/fit_scan.py` (scale within 8 % of
 0.516 m/unit, then terrain heights plus stage and rock landmarks; issue #14 has
 the residuals), on an absolute datum (see Scan edge blend).
 
-**What is still a blockout:** the stage, its shell and the two stone towers
-beside it, the walls and rocks extruded from OSM outside the scan, and the
-parking lots. Next up is making those look like Red Rocks (see Next steps).
+**What is still a blockout:** the stage's shell and back walls, the walls and
+rocks extruded from OSM outside the scan, and the parking lots. The stage's
+roof, steel frame and the two stone towers beside it are modelled from the scan
+and the photo board (see Stage blockout). Next up is making the rest look like
+Red Rocks (see Next steps).
 
 **Look (#18):** physically lit with Lumen GI and reflections, a 120 klx
 summer late-morning sun high in the south-east (behind the player at spawn, the
@@ -62,7 +64,9 @@ plains stay crisp to Denver) and histogram auto exposure clamped to EV100
 and olive grass on gentle slopes, banded red rock on steep ones, bands that fade
 to their average colour with distance instead of shimmering. The rows are
 terraces of stacked red flagstone with pale dusty concrete treads and pale plank
-benches on steel brackets (see Seating); the stage is concrete; roads,
+benches on steel brackets (see Seating); the stage is concrete with an
+oxide-red steel frame, a maroon roof with a near-black front band and two
+stacked-flagstone towers; roads,
 lots and paths are asphalt and gravel with dusty edges. A generated terrain skirt
 carries the hills out to the horizon (no more flat blue plane past the 3.6 km
 terrain), and about 100,000 procedural junipers, ponderosa pines and scrub oak /
@@ -86,7 +90,11 @@ out/
   Stairs.obj               row-end aisle stairs and cheek walls, two steps per row (5,040 triangles)
   Booth.obj                the sound booth's posts and maroon roof, on its OSM footprint (way 229359709), squared to the stage
   scan_fade.png, .json     the scan's fade mask with the seating cut out (see Seating)
-  Stage.obj                stage, Y-columns, trusses, FOH booth & bowl end stairs (462 parts, 5,536 triangles)
+  Stage.obj                the stage's concrete: deck, steps, shell, walls, walkway, FOH deck, the towers' bases (31 parts, 428 triangles)
+  Stage_Steel.obj          Y-columns, trusses, purlins, the side roofs' columns and box-beam headers (29 parts, 348 triangles)
+  Stage_Roof.obj           the roof slab on the SkyDeck grid and the two lower side roofs (3 parts, 44 triangles)
+  Stage_Fascia.obj         the roof's near-black front band and its cut corners (3 parts, 36 triangles)
+  Stage_Towers.obj         the two towers' stacked flagstone and the sloped walls joining them to the stage (4 parts, 80 triangles)
   Roads.obj, Paths.obj     OSM highways as draped ribbons (57,146 / 34,472 triangles)
   Parking.obj              53 OSM parking lots as terrain-following patches (52,338 triangles)
   Buildings.obj            314 OSM park & Morrison buildings with buried foundations & parapets (5,852 triangles)
@@ -362,6 +370,38 @@ retaining wall from the rock it stands against.
 | Deck top | row 1 elevation minus 0.2 m (was 1.2 m estimate) | derived + measured | deck level with the row-1 tread within 0.4 m, low confidence |
 | Retaining wall gap / height | 2.1 m / 12.9 m (were 2.0 / 6.0 estimates) | measured | low (+-1 m / +-2 m): the height is the whole rear face, rock included |
 | Front setback, columns size, shell, walkway width | see `stage.py` | estimate | not resolvable in the scan |
+
+**The roof, steel and towers** (P3 of the look spec). The roof slab's front
+corners are cut at 45 degrees and a near-black band covers its front
+(`Stage_Fascia.obj`), as the photo from the top row shows; lower side roofs
+4.1 m wide stand either side on rust-red columns with box-beam headers. Two
+stone towers stand either side of the downstage end, outside the deck: a pale
+concrete base, stacked red flagstone above it and a concrete cap, the inner
+front corner rounded; the right (south) tower's base has a tall round-arched
+opening right through it. A sloped stone wall joins each tower's back to the
+stage. Their plans and heights are measured on the scan's top surface by
+`tools/measure_stage_towers.py` (`tower_*` in `DIMENSIONS`): the scan's own stage
+sits about 11 degrees turned and 1.3 m off the blockout's and is 8% small as
+placed, so each tower is measured from the scan's roof and scaled to 0.516 m per
+unit like the other measured sizes. The left (north) tower is 6.7 x 9.2 m and
+15.7 m high, the right 5.5 x 6.2 m and 15.0 m, both just over the roof's top
+(14.3 m), as in the photos. The bases, arch, rounded corners and side roofs'
+frames are photo estimates. Because the scan's own roof and towers stand beside
+the new ones, `redrocks build` also cuts the scan out where it stands over 11 m
+above the deck around the stage (`stage.scan_stage_cut`), along with the towers'
+plans. Each material has its own OBJ: `M_Concrete` (Stage), `M_StageSteel`
+(Stage_Steel, new: painted oxide red, a little worn), `M_Roof` (Stage_Roof),
+`M_Steel` (Stage_Fascia) and `M_Benches` (Stage_Towers); all collide.
+`tools/render_stage_check.py` draws a flat-shaded check from the top row
+(`out/check_stage.png`, with `--photo` beside the postcard).
+
+| Dimension | Value | Kind | Source |
+|---|---|---|---|
+| Left tower: inner / outer face from the centre line | 20.9 / 27.7 m | measured | scan top, scaled; the top-row photo agrees within about 1 m |
+| Left tower: front / back of the front edge, top | +2.4 / -6.8 m, 15.7 m | measured | same |
+| Right tower: inner / outer, front / back, top | 23.3 / 28.8 m, +1.6 / -4.6 m, 15.0 m | measured | same |
+| Side roofs: width, depth, top | 4.1 m, 5.1 m, 13.0 m | measured | the scan's right side roof; OSM roof outline 4.0-4.2 m |
+| Tower base, corner, arch | 6.4 m, r 2.0 m, 2.0 m wide | estimate | photos |
 
 Re-run the measurement (needs `usd-core` in a venv, not a project dependency):
 `.venv/bin/python tools/measure_stage_scan.py --cache $SCRATCH/scan.npz --out $SCRATCH/diag`.

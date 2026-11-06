@@ -20,9 +20,14 @@ no textures to import):
     M_Benches           the terraced rows (redrocks.seating): pale dusty concrete
                         treads on top, stacked red flagstone on the risers
     M_BenchWood         the bench planks: pale weathered boards with seams
-    M_Steel             bench brackets and the top handrail: dark, rust-tinted
-    M_Roof              the sound booth's posts and roof: maroon painted metal
-    M_Concrete          stage: warm grey with stains and speckle
+    M_Steel             bench brackets, the top handrail and the stage roof's dark
+                        front band (Stage_Fascia): dark, rust-tinted
+    M_Roof              the sound booth's posts and roof, the stage roof and its
+                        side roofs (Stage_Roof): maroon painted metal
+    M_StageSteel        the stage's columns, trusses and the side roofs' frames
+                        (Stage_Steel): oxide-red paint, a little worn
+    M_Concrete          stage (deck, shell, walls, the towers' bases): warm grey
+                        with stains and speckle
     M_Asphalt           roads: oxidised asphalt, worn patches, dusty edges
     M_Lot               parking: the same asphalt without road edges
     M_Gravel            paths: red decomposed-granite gravel, dusty edges
@@ -342,7 +347,9 @@ def build_benches(mat):
     tread on top. The risers' flagstone courses use world height, so they run
     level whatever depth the buried bottom reaches: thin courses (about 8 cm,
     as in the photos) of stones 22-72 cm long with wandering joints, each its
-    own red-brown. Stairs.obj (the row-end aisle stairs) takes it too.
+    own red-brown. Stairs.obj (the row-end aisle stairs) takes it too, and
+    Stage_Towers.obj: the stage towers' sides are the same stacked flagstone
+    (their prism UVs are metres too) and their tops take the tread colour.
     """
     lib.delete_all_material_expressions(mat)
     g = Graph(mat)
@@ -447,6 +454,26 @@ def build_steel(mat):
     # Painted, not bare: from the top row a metallic strap mirrored the sky and
     # the bracket lines read white; in the photos they are dark.
     g.output(col, g.lerp(0.65, 0.9, rust), metallic=0.1)
+
+
+def build_stage_steel(mat):
+    """The stage's steel (Stage_Steel: columns, Y-arms, trusses, purlins, the
+    side roofs' columns and box-beam headers): oxide-red paint, about #A0482E in
+    the photos' sun, slightly rough. A little wear: broad sun-fading, paler
+    chalky patches where the paint is thin, small dark rust spots seen up close,
+    and red dust on whatever faces up."""
+    lib.delete_all_material_expressions(mat)
+    g = Graph(mat)
+    wpos = g.world_pos()
+    fade = g.noise(wpos, 600.0, levels=2)
+    wear = g.smooth(0.62, 0.82, g.noise(wpos, 45.0, levels=3))
+    rust = g.smooth(0.72, 0.9, g.noise(wpos, 9.0, levels=2))
+    col = g.lerp(g.color("#86381F"), g.color("#9A4A2F"), fade)
+    col = g.lerp(col, g.color("#A86F58"), g.mul(wear, 0.35))
+    col = g.lerp(col, g.color("#4A2015"), g.mul(rust, g.mul(g.near_fade(1200.0, 5000.0), 0.6)))
+    top = g.smooth(0.55, 0.75, g.sat(g.normal_z()))
+    col = g.lerp(col, g.color("#9A6A50"), g.mul(top, 0.25))
+    g.output(col, g.lerp(0.55, 0.78, wear), metallic=0.15)
 
 
 def _concrete_color(g, wpos, light_hex, dark_hex):
@@ -598,12 +625,20 @@ SURFACES = [
     ("M_BenchWood", build_bench_wood, "Bench_Planks"),
     ("M_Steel", build_steel, "Bench_Brackets"),
     ("M_Roof", build_roof, "Booth"),
+    ("M_StageSteel", build_stage_steel, "Stage_Steel"),
     ("M_Concrete", build_concrete, "Stage"),
     ("M_Asphalt", build_asphalt, "Roads"),
     ("M_Lot", build_lot, "Parking"),
     ("M_Gravel", build_gravel, "Paths"),
     ("M_Buildings", build_buildings, "Buildings"),
 ]
+# More meshes that take a material SURFACES builds (when they are already imported).
+ALSO_APPLY = {
+    "M_Concrete": ["Walls"],
+    "M_Steel": ["Handrail", "Stage_Fascia"],
+    "M_Roof": ["Stage_Roof"],
+    "M_Benches": ["Stage_Towers"],
+}
 
 
 def main():
@@ -626,12 +661,11 @@ def main():
 
     for mat_name, builder, mesh_name in SURFACES:
         mat = _step(mat_name, make_material, mat_name, builder)
-        if mat is not None and mesh_name:
-            _step("apply %s" % mesh_name, apply_to_mesh, mesh_name, mat)
-        if mat_name == "M_Concrete" and mat is not None:
-            _step("apply Walls", apply_to_mesh, "Walls", mat)
-        if mat_name == "M_Steel" and mat is not None:
-            _step("apply Handrail", apply_to_mesh, "Handrail", mat)
+        if mat is None:
+            continue
+        for name in [mesh_name] + ALSO_APPLY.get(mat_name, []):
+            if name:
+                _step("apply %s" % name, apply_to_mesh, name, mat)
 
     log.append("done")
 

@@ -8,9 +8,11 @@ or from the editor console:
     py "/Users/austin/dev/redrocks-ue/unreal/setup_gameplay.py"
 
 What it does, each step logged to /tmp/redrocks_gameplay.log as "ok" or "FAIL":
-  1. Imports Stage, Roads, Paths and Parking from out/ (skips any that are
-     missing) and places them at the origin: they are already in the terrain's
-     frame, in centimetres. Re-running replaces the actors, it never duplicates.
+  1. Imports the stage (Stage, the concrete, and Stage_Steel, Stage_Roof,
+     Stage_Fascia and Stage_Towers, one material each), Roads, Paths, Parking
+     and the rest of NEW_MESHES from out/ (skips any that are missing) and
+     places them at the origin: they are already in the terrain's frame, in
+     centimetres. Re-running replaces the actors, it never duplicates.
      Denver (downtown's skyline, 20 km out) gets M_DistantCity, no collision,
      no shadow, and is never culled by distance (FAR_AWAY_SETTINGS).
   2. Gives every OBJ actor scale (1, 1, 1): the OBJ importer negates Y, which
@@ -20,7 +22,8 @@ What it does, each step logged to /tmp/redrocks_gameplay.log as "ok" or "FAIL":
      stage and park meshes, so the player walks on the real triangles instead
      of falling through or tripping on a convex hull.
   3. Gives roads, paths, parking and the stage their materials (asphalt,
-     gravel, lot asphalt, concrete; built by setup_materials.py).
+     gravel, lot asphalt; the stage's concrete, oxide-red steel, maroon roof,
+     dark fascia and the towers' flagstone; built by setup_materials.py).
   4. Moves the PlayerStart onto the stage, 5 m behind the downstage edge,
      facing up the bowl, at the height of manifest.json's spawn block (the
      higher of the deck and the terrain under the player).
@@ -56,9 +59,11 @@ LEVEL_PATH = "/Game/RedRocks/Lvl_RedRocks"
 GAME_MODE = "/Game/FirstPerson/Blueprints/BP_FirstPersonGameMode"
 LOG_PATH = os.path.join(os.environ.get("REDROCKS_LOG_DIR", "/tmp"), "redrocks_gameplay.log")
 
+# The stage's OBJs (redrocks.stage.STAGE_MESHES): the concrete, then one per material.
+STAGE_MESHES = ["Stage", "Stage_Steel", "Stage_Roof", "Stage_Fascia", "Stage_Towers"]
 # Meshes placed by this script (all in the terrain frame, origin, no rotation).
-NEW_MESHES = ["Stage", "Roads", "Paths", "Parking", "Buildings", "Walls", "Rocks", "Water",
-              "Bench_Planks", "Bench_Brackets", "Handrail", "Booth", "Stairs", "Denver"]
+NEW_MESHES = STAGE_MESHES + ["Roads", "Paths", "Parking", "Buildings", "Walls", "Rocks", "Water",
+                             "Bench_Planks", "Bench_Brackets", "Handrail", "Booth", "Stairs", "Denver"]
 # Seen but not stood on: the planks and brackets sit on the terraces' riser
 # edges, a few cm over the treads; colliding with them would make every row a
 # step too tall to walk up (redrocks.seating). Denver is 20 km away.
@@ -89,12 +94,17 @@ PLAIN = {
     # Downtown Denver at 20 km: pale grey-beige concrete and glass, sRGB
     # (170, 170, 165); the sky atmosphere's haze does the rest.
     "M_DistantCity": ("aaaaa5", 0.6),
+    "M_StageSteel": ("8e3f28", 0.65),  # the stage's painted oxide-red steel
 }
 MESH_MATERIAL = {
     "Roads": "M_Asphalt",
     "Paths": "M_Gravel",
     "Parking": "M_Lot",
     "Stage": "M_Concrete",
+    "Stage_Steel": "M_StageSteel",  # columns, Y-arms, trusses, purlins, side roofs' frames
+    "Stage_Roof": "M_Roof",  # the roof slab and side roofs: maroon painted metal, like the booth's
+    "Stage_Fascia": "M_Steel",  # the roof's dark front band: near-black painted steel
+    "Stage_Towers": "M_Benches",  # the towers' stacked red flagstone, like the risers
     "Buildings": "M_Buildings",
     "Walls": "M_Concrete",
     "Rocks": "MI_Sandstone_Rock",
