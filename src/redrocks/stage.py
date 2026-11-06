@@ -1,16 +1,22 @@
-"""Blockout of the Red Rocks stage, shell, retaining walls and top walkway.
+"""Blockout of the Red Rocks stage, its roof, steel frame and stone towers, the
+shell, retaining walls and top walkway.
 
 None of this exists in free geodata, so it is built from a handful of boxes and
-wedges (vertical prisms with a convex plan) and positioned from the data the
-rest of the package already has: row 1 of the generated seating bowl (the stage
-end) and the last row (the top of the bowl).
+wedges (prisms with a convex plan) and positioned from the data the rest of the
+package already has: row 1 of the generated seating bowl (the stage end) and
+the last row (the top of the bowl).
 
-The OBJ shares the terrain and bench frame, so it needs no transform in Unreal:
+The OBJs share the terrain and bench frame, so they need no transform in Unreal:
 centimetres, X east, Y north, Z up, centred on the same origin, Z measured from
 the terrain's lowest elevation (pass the same ``base_elevation_m`` the benches
 used; see ``benches.terrain_base_elevation``). Faces wind counter-clockwise seen
 from outside, every face carries a UV index (Unreal's OBJ importer decimates
-meshes without ``vt``) and the single ``Stage`` object is watertight.
+meshes without ``vt``) and every part is a closed prism. The parts are split by
+material, one OBJ each (``stage_mesh_for``): ``Stage`` (concrete: deck, shell,
+walls, walkway, the towers' bases and caps), ``Stage_Steel`` (columns, trusses,
+the side roofs' frames), ``Stage_Roof`` (the roof slab and side roofs),
+``Stage_Fascia`` (the roof's dark front band) and ``Stage_Towers`` (the towers'
+stacked flagstone and the walls that join them to the stage).
 
 Layout
 ------
@@ -48,6 +54,11 @@ Sources:
 * Red Rocks official history (https://www.redrocksonline.com/our-story/history/):
   about 100 ft rise from stage to the top row (already in ``venue.py``).
 * OSM ``amenity=theatre`` footprint and the USGS 3DEP DEM, via ``venue.py``.
+* The photo board (``docs/superpowers/specs/2026-11-05-look-like-red-rocks-design.md``):
+  Commons photos from the top row ("Red Rocks Amphitheater.JPG", Scapler,
+  CC BY-SA 3.0) and the front rows ("Red Rock Amphitheatre.jpg", Mitul0520,
+  CC BY-SA 3.0), for what the scan cannot size: the towers' concrete bases and
+  rounded corners, the arch, the side roofs' frames and the roof's dark band.
 """
 
 from __future__ import annotations
@@ -62,6 +73,8 @@ from shapely.geometry import LineString, Point, Polygon
 
 import numpy as np
 
+from .benches import _face_normal
+from .scan_blend import ScanHeights
 from .terrain_mesh import CM_PER_M
 from .venue import Row
 
@@ -112,6 +125,11 @@ BOOTH_POST_M = 0.12
 SKYDECK_BEAM_COUNT = 3
 
 _SCAN = "ml0w scan (CC BY 4.0), "
+_TOWER = _SCAN + (
+    "tools/measure_stage_towers.py: the tower's flat top on the scan's top surface (scan_top.npz, 1 m cells), "
+    "its 5-95 % extent across and along the scan's own roof (from that roof's front-edge centre: the scan's stage "
+    "is turned 11 degrees and sits 1.3 m off the blockout's), scaled from the scan as placed (0.4748 m per unit) "
+    "to 0.516 like the stage's other measured sizes. Medium-low confidence (+-1 m). ")
 
 DIMENSIONS: tuple[Dimension, ...] = (
     Dimension("stage_width", 26.3, "measured",
@@ -200,6 +218,74 @@ DIMENSIONS: tuple[Dimension, ...] = (
     Dimension("walkway_gap", 0.5, "estimate", "Estimate: clearance between the last bench and the walkway."),
     Dimension("walkway_parapet_height", 0.85, "estimate",
               "Estimate: low perimeter retaining/parapet wall along the rear edge of the top promenade."),
+    # The two stone towers (WPA, 1941) either side of the stage. "Left" and
+    # "right" are as seen from the seats: left is north at Red Rocks.
+    Dimension("tower_left_inner", 20.9, "measured",
+              _TOWER + "Left tower: inner face from the stage centre line, 7.8 m out from the roof's side "
+              "(the photo from the top row shows about 8.8 m)."),
+    Dimension("tower_left_outer", 27.7, "measured",
+              _TOWER + "Left tower: outer face from the stage centre line, so 6.7 m wide (the top-row photo "
+              "shows it about 7.9 m across, its front and a little of its inner side)."),
+    Dimension("tower_left_front", 2.4, "measured",
+              _TOWER + "Left tower: front face, in front of the deck's front edge."),
+    Dimension("tower_left_back", 6.8, "measured",
+              _TOWER + "Left tower: back face, behind the deck's front edge (9.2 m deep)."),
+    Dimension("tower_left_height", 15.7, "measured",
+              _TOWER + "Left tower: top of its cap over the deck, the flat top's median; 1.4 m over the roof's "
+              "top, as the top-row photo shows it, just over the roof's front edge."),
+    Dimension("tower_right_inner", 23.3, "measured",
+              _TOWER + "Right tower: inner face from the stage centre line, 10.2 m out from the roof's side "
+              "(the top-row photo shows about 11 m)."),
+    Dimension("tower_right_outer", 28.8, "measured",
+              _TOWER + "Right tower: outer face from the stage centre line, so 5.5 m wide (about 6.4 m across "
+              "in the top-row photo)."),
+    Dimension("tower_right_front", 1.6, "measured",
+              _TOWER + "Right tower: front face, in front of the deck's front edge."),
+    Dimension("tower_right_back", 4.6, "measured",
+              _TOWER + "Right tower: back face, behind the deck's front edge (6.2 m deep)."),
+    Dimension("tower_right_height", 15.0, "measured",
+              _TOWER + "Right tower: top of its cap over the deck; 0.6 m over the roof's top (the top-row "
+              "photo shows both tops at about the roof's front edge)."),
+    Dimension("tower_base_height", 6.4, "estimate",
+              "Photos (top row, front rows): each tower is stacked flagstone on a pale concrete base, the stone "
+              "about 52 % of what shows above the ground; this is the base's top over the deck."),
+    Dimension("tower_corner_radius", 2.0, "estimate",
+              "Top-row photo: each tower's inner front corner is rounded, the curve about a third of its width."),
+    Dimension("tower_cap_thickness", 0.3, "estimate", "Photos: a thin pale concrete cap on each tower."),
+    Dimension("tower_cap_overhang", 0.15, "estimate", "Photos: the cap stands a little proud of the stone."),
+    Dimension("tower_buried", 2.0, "estimate",
+              "Without a ground to stand on, the towers and their walls reach this far under the deck."),
+    Dimension("tower_arch_width", 2.0, "estimate",
+              "Top-row photo: the right tower's base has a tall round-arched opening through it, about a "
+              "third of its front, near its outer side."),
+    Dimension("tower_arch_crown", 5.9, "estimate",
+              "Top-row photo: the arch's crown sits just under the stone, 0.5 m under the base's top."),
+    Dimension("tower_arch_outer_pier", 0.6, "estimate", "Top-row photo: the narrow pier outside the arch."),
+    Dimension("tower_link_thickness", 0.8, "estimate",
+              "Estimate: the stone wall that joins each tower to the stage, between its side roof and the tower."),
+    Dimension("tower_link_low", 10.0, "estimate",
+              "Front-row photo: that wall's top slopes up from about 10 m over the deck by the side roof..."),
+    Dimension("tower_link_below_top", 1.5, "estimate", "...to about 1.5 m under the tower's top."),
+    # The lower side roofs either side of the main roof, and its dark front band.
+    Dimension("roof_wing_width", 4.1, "measured",
+              _SCAN + "tools/measure_stage_towers.py: the right side roof (the only one the scan reconstructs) "
+              "reaches 4.1 m past the main roof's side. OSM's roof outline (way 91483344) has 4.0-4.2 m wide "
+              "notches there; the top-row photo shows about 4.5 m."),
+    Dimension("roof_wing_depth", 5.1, "measured",
+              _SCAN + "tools/measure_stage_towers.py: the right side roof runs 5.1 m back from the front edge "
+              "(5-95 %; OSM's notches are about 4 m deep)."),
+    Dimension("roof_wing_top", 13.0, "measured",
+              _SCAN + "tools/measure_stage_towers.py: the right side roof's top over the deck, 1.3 m under the "
+              "main roof's; the top-row photo puts it about 1.5 m lower."),
+    Dimension("roof_wing_thickness", 0.6, "estimate", "Top-row photo: the side roofs' edge is a thin band."),
+    Dimension("roof_chamfer", 1.0, "estimate",
+              "Top-row photo: the main roof's front corners are cut at 45 degrees, its dark band turning with them."),
+    Dimension("fascia_thickness", 0.12, "estimate",
+              "The near-black band across the roof's front and its cut corners (photos), the roof's full depth."),
+    Dimension("wing_column_size", 0.5, "estimate",
+              "Front-row photo: square rust-red columns carry the side roofs at their outer corners."),
+    Dimension("wing_header_depth", 1.0, "estimate", "Front-row photo: deep box-beam headers under the side roofs."),
+    Dimension("wing_header_width", 0.6, "estimate", "Front-row photo: the headers' width."),
 )
 
 _D = {d.name: d for d in DIMENSIONS}
@@ -217,7 +303,13 @@ STAGE_DROP_M = dim("stage_drop")
 
 @dataclass
 class Part:
-    """A vertical prism: convex plan polygon (world E, N metres) from ``z0`` to ``z1`` (metres above base)."""
+    """A vertical prism: convex plan polygon (world E, N metres) from ``z0`` to ``z1`` (metres above base).
+
+    With ``axes`` (rows e1, e2, e3 of a right-handed orthonormal frame) the
+    polygon is in the (e1, e2) plane instead and the prism runs from ``z0`` to
+    ``z1`` along e3: a profile in a vertical plane, for a wall's sloped top or
+    the curve of an arch.
+    """
 
     name: str
     plan: np.ndarray
@@ -225,6 +317,7 @@ class Part:
     z1: float
     # Row-end stair steps: (uphill unit, outward unit, the row's band depth), for the aisle path.
     frame: tuple | None = None
+    axes: tuple | None = None
 
 
 @dataclass
@@ -252,6 +345,48 @@ class StageMesh:
     cut_plans: list = field(default_factory=list)
     stairs_triangles: int = 0
     handrail_triangles: int = 0
+    # The other stage OBJs, one per material (Stage_Steel, Stage_Roof, ...): name -> PartsMesh.
+    meshes: dict = field(default_factory=dict)
+    # Each tower ("left", "right" as seen from the seats): its centre (east, north, m),
+    # the top of its cap (absolute m) and its plan's corners (local metres).
+    towers: dict = field(default_factory=dict)
+
+
+@dataclass
+class PartsMesh:
+    """One OBJ object written from parts: where, which triangles are which part, how many."""
+
+    path: Path
+    parts: dict[str, tuple[int, int]]  # name -> (first triangle, end triangle)
+    triangles: int
+    vertices: int
+
+
+# The OBJ (and so the material) each part goes in, by its name; the rest is concrete Stage.obj.
+STAGE_MESHES = ("Stage", "Stage_Steel", "Stage_Roof", "Stage_Fascia", "Stage_Towers")
+STEEL_PREFIXES = ("column_", "y_arm_", "truss_", "skydeck_beam_", "wing_column_", "wing_header_")
+
+
+def stage_mesh_for(name: str) -> str:
+    """Which OBJ a stage part is written to: ``Stairs`` or one of ``STAGE_MESHES``.
+
+    Steel (columns, Y-arms, trusses, purlins, the side roofs' columns and
+    headers) is painted oxide red; the roof slab and side roofs are maroon
+    metal; the fascia is the roof's dark front band; the towers' stone (their
+    masonry and the walls joining them to the stage) is stacked flagstone. The
+    towers' concrete bases and caps stay with the concrete.
+    """
+    if name.startswith("stair_"):
+        return "Stairs"
+    if name.startswith(STEEL_PREFIXES):
+        return "Stage_Steel"
+    if name.startswith("roof"):
+        return "Stage_Roof"
+    if name.startswith("fascia_"):
+        return "Stage_Fascia"
+    if name.startswith("tower_") and name.endswith(("_masonry", "_link")):
+        return "Stage_Towers"
+    return "Stage"
 
 
 def stage_axis(rows: Sequence[Row]) -> np.ndarray:
@@ -350,7 +485,9 @@ def stage_parts(
     ``ground(east, north)`` (metres) is the ground the benches stand on (the
     ml0w scan's, or the terrain's); the deck and the walkway sit on it. Without
     it the deck sits ``STAGE_DROP_M`` below row 1's elevation and the walkway
-    at the last row's, regardless of the terrain.
+    at the last row's, regardless of the terrain. The towers, the walls joining
+    them to the stage and the side roofs' columns reach half a metre under the
+    lowest ground below them (without it, ``tower_buried`` under the deck).
 
     ``levels`` are the terraced seating's tread elevations, one per row
     (``seating.tread_levels``). With them the side stairs climb from each tread
@@ -382,7 +519,10 @@ def stage_parts(
 
     parts: list[Part] = []
     parts.append(Part("deck", _rect(origin, a, l, -hw, hw, -D, 0.0), deck_bot, deck_top))
-    parts.append(Part("roof", _rect(origin, a, l, -hw, hw, -RD, 0.0), roof_bot, roof_top))
+    # The roof slab on the SkyDeck grid, its front corners cut at 45 degrees (the photo from the top row).
+    c = dim("roof_chamfer")
+    parts.append(Part("roof", _poly(origin, a, l, [(-hw, -RD), (hw, -RD), (hw, -c), (hw - c, 0.0),
+                                                   (c - hw, 0.0), (-hw, -c)]), roof_bot, roof_top))
 
     # Four columns, in from each side, under trusses 1 and 3, plus their 36'10" Y-column forks.
     cs = dim("column_size")
@@ -435,6 +575,9 @@ def stage_parts(
             _rect(origin, a, l, bx - tw / 2, bx + tw / 2, -s3 + tw / 2 + 0.05, -s2 - tw / 2 - 0.05),
             roof_bot - td * 0.55, roof_bot))
 
+    # The roof's dark front band, and the lower side roofs either side on their own steel frames.
+    parts += _roof_trim(origin, a, l, hw, deck_bot, roof_bot, roof_top, deck_top, ground, base_elevation_m)
+
     # Shell: back wall, overhead acoustic reflector canopy, splayed outer wing walls, and inner baffles.
     t = dim("shell_thickness")
     parts.append(Part("shell_back", _rect(origin, a, l, -hw, hw, -D, -D + t), deck_top, roof_bot))
@@ -470,6 +613,9 @@ def stage_parts(
     for sx, nm in ((1, "e"), (-1, "w")):
         pts = [(sx * rw_hw, rw_y0), (sx * rw_hw, rw_y1), (sx * (rw_hw + g), rw_y1)]
         parts.append(Part(f"retaining_gusset_{nm}", _poly(origin, a, l, pts), rz0, rz1))
+
+    # The two stone towers either side of the downstage end, and the walls joining them to the stage.
+    parts += tower_parts(origin, a, l, hw, deck_top, ground, base_elevation_m)
 
     # Downstage side access stairs bridging the stage deck corners toward Row 1's side aisles.
     stair_w = dim("stair_width")
@@ -600,6 +746,240 @@ def stage_parts(
     return parts
 
 
+# Below each tower, wall or column that stands on the ground, by this much.
+GROUND_EMBED_M = 0.5
+ARCH_SEGMENTS = 6  # pieces of the arch over the right tower's opening
+CORNER_SEGMENTS = 4  # sides on each tower's rounded corner
+
+
+def _ground_min(plan: np.ndarray, ground, base_elevation_m: float) -> float | None:
+    """Lowest ground (metres over base) under a plan polygon: its corners and a
+    ``DECK_SAMPLE_M`` grid inside it. None without a ground."""
+    if ground is None:
+        return None
+    poly = Polygon(np.asarray(plan, dtype=float)[:, :2])
+    x0, y0, x1, y1 = poly.bounds
+    pts = [tuple(p) for p in np.asarray(plan, dtype=float)[:, :2]]
+    pts += [(x, y) for x in np.arange(x0, x1, DECK_SAMPLE_M) for y in np.arange(y0, y1, DECK_SAMPLE_M)
+            if poly.contains(Point(x, y))]
+    return min(float(ground(x, y)) for x, y in pts) - base_elevation_m
+
+
+def _bottom(plan: np.ndarray, deck_top: float, ground, base_elevation_m: float) -> float:
+    """Bottom (metres over base) of something standing beside the deck: under the ground there."""
+    low = deck_top - dim("tower_buried")
+    g = _ground_min(plan, ground, base_elevation_m)
+    return low if g is None else min(low, g - GROUND_EMBED_M)
+
+
+def _vertical_axes(l: np.ndarray) -> tuple:
+    """Rows (e1, e2, e3) for a profile across the stage: e1 = ``l``, e2 up, e3 = e1 x e2 (toward the back)."""
+    return ((float(l[0]), float(l[1]), 0.0), (0.0, 0.0, 1.0), (float(l[1]), -float(l[0]), 0.0))
+
+
+def _profile_part(name: str, origin, a, l, xz, y0: float, y1: float) -> Part:
+    """A prism with a convex profile ``xz`` ((x across the stage, z) pairs, z
+    metres over base) in a vertical plane, running from y0 to y1 along the axis."""
+    axes = _vertical_axes(l)
+    e3 = np.array(axes[2][:2])
+    ol, oe = float(origin @ l), float(origin @ e3)
+    plan = np.array([(ol + x, z) for x, z in xz], dtype=float)
+    # e3 is -a: a point y along the axis is at oe - y along e3.
+    t0, t1 = sorted((oe - y0, oe - y1))
+    return Part(name, plan, t0, t1, axes=axes)
+
+
+def _roof_trim(origin, a, l, hw, deck_bot, roof_bot, roof_top, deck_top, ground, base_elevation_m) -> list[Part]:
+    """The roof's dark front band, the lower side roofs and their columns and box-beam headers.
+
+    ``left`` and ``right`` are as seen from the seats (``+l`` is the left).
+    The fascia covers the roof slab's front face and its cut corners, a
+    ``fascia_thickness`` plate standing proud of them. Each side roof runs
+    ``roof_wing_width`` out from the main roof's side (tucked in under its cut
+    corner) and ``roof_wing_depth`` back from the front, its top
+    ``roof_wing_top`` over the deck, on two columns at its outer corners with a
+    header along its front and one along its outer side.
+    """
+    c, t = dim("roof_chamfer"), dim("fascia_thickness")
+    parts = [Part("fascia_front", _rect(origin, a, l, c - hw - t / 2, hw - c + t / 2, 0.0, t), roof_bot, roof_top)]
+    for sx, side in ((1, "left"), (-1, "right")):
+        p0, p1 = np.array([sx * (hw - c), 0.0]), np.array([sx * hw, -c])
+        n = np.array([sx, 1.0]) / math.sqrt(2.0)
+        parts.append(Part(f"fascia_chamfer_{side}", _poly(origin, a, l, [p0, p1, p1 + n * t, p0 + n * t]),
+                          roof_bot, roof_top))
+
+    ww, wd = dim("roof_wing_width"), dim("roof_wing_depth")
+    wtop = deck_top + dim("roof_wing_top")
+    wbot = wtop - dim("roof_wing_thickness")
+    cs, hd, hb = dim("wing_column_size"), dim("wing_header_depth"), dim("wing_header_width")
+    for sx, side in ((1, "left"), (-1, "right")):
+        out = hw + ww
+        parts.append(Part(f"roof_wing_{side}", _rect(origin, a, l, *sorted((sx * (hw - c), sx * out)), -wd, 0.0),
+                          wbot, wtop))
+        xc = sx * (out - cs / 2)
+        for pos, yc in (("front", -cs / 2), ("back", -(wd - cs / 2))):
+            plan = _rect(origin, a, l, xc - cs / 2, xc + cs / 2, yc - cs / 2, yc + cs / 2)
+            low = deck_bot if ground is None else min(deck_bot, _ground_min(plan, ground, base_elevation_m) - 0.3)
+            parts.append(Part(f"wing_column_{side}_{pos}", plan, low, wbot - hd))
+        parts.append(Part(f"wing_header_{side}_front",
+                          _rect(origin, a, l, *sorted((sx * (hw - 0.5), sx * out)), -hb, 0.0), wbot - hd, wbot))
+        parts.append(Part(f"wing_header_{side}_side",
+                          _rect(origin, a, l, *sorted((sx * (out - hb), sx * out)), -wd, 0.0), wbot - hd, wbot))
+    return parts
+
+
+def _tower_plan(sx: int, inner: float, outer: float, front: float, back: float, r: float) -> np.ndarray:
+    """Stage (x across, y along) corners of a tower: a rectangle from ``inner``
+    to ``outer`` across (on the ``sx`` side) and from ``back`` behind the front
+    edge to ``front`` in front of it, its inner front corner rounded to ``r``."""
+    xi, xo = sx * inner, sx * outer
+    pts = [(xi, -back), (xo, -back), (xo, front)]
+    cx, cy = xi + sx * r, front - r
+    for k in range(CORNER_SEGMENTS + 1):
+        t = 0.5 * math.pi * k / CORNER_SEGMENTS
+        pts.append((cx - sx * r * math.sin(t), cy + r * math.cos(t)))
+    return np.array(pts)
+
+
+def _clip_across(plan_xy: np.ndarray, x0: float, x1: float) -> np.ndarray:
+    """The part of a convex stage-coordinate plan between x0 and x1 across (still convex)."""
+    from shapely.geometry import box
+
+    lo, hi = sorted((x0, x1))
+    clipped = Polygon(plan_xy).intersection(box(lo, -1e4, hi, 1e4)).simplify(1e-6)
+    return np.array(clipped.exterior.coords)[:-1]
+
+
+def tower_parts(origin, a, l, hw: float, deck_top: float, ground=None, base_elevation_m: float = 0.0
+                ) -> list[Part]:
+    """The two stone towers (WPA, 1941) beside the downstage end, and the walls joining them to the stage.
+
+    Each tower (``tower_left_*``, ``tower_right_*`` as seen from the seats;
+    ``+l`` is the left) stands on the plan its ``tower_<side>_*`` dimensions
+    give, measured on the scan: a pale concrete base up to ``tower_base_height``
+    over the deck, stacked flagstone above it (``*_masonry``) and a concrete cap
+    ``tower_cap_overhang`` proud of the stone whose top is the tower's measured
+    height. The inner front corner is rounded. The right tower's base has a
+    tall round-arched opening running through it front to back, near its outer
+    side: two piers and the arch's pieces over the opening, which is a real
+    passage. A sloped stone wall (``*_link``) joins each tower's back to the
+    stage, from by its side roof (``tower_link_low`` over the deck) up to
+    ``tower_link_below_top`` under the tower's top. Bottoms reach under the
+    ground (``_bottom``). Everything here is convex, like every other part.
+    """
+    r, base_h = dim("tower_corner_radius"), dim("tower_base_height")
+    cap_t, cap_o = dim("tower_cap_thickness"), dim("tower_cap_overhang")
+    parts: list[Part] = []
+    for sx, side in ((1, "left"), (-1, "right")):
+        inner, outer = dim(f"tower_{side}_inner"), dim(f"tower_{side}_outer")
+        front, back = dim(f"tower_{side}_front"), dim(f"tower_{side}_back")
+        top = deck_top + dim(f"tower_{side}_height")
+        if not (hw < inner < outer and r < min(outer - inner, front + back)):
+            raise ValueError(f"tower_{side}: plan does not fit beside the deck")
+        xy = _tower_plan(sx, inner, outer, front, back, r)
+        plan = _poly(origin, a, l, xy)
+        z_bot, z_base = _bottom(plan, deck_top, ground, base_elevation_m), deck_top + base_h
+        z_stone = top - cap_t
+        if side == "right":
+            # Piers either side of the arched opening, near the outer side.
+            pier, w = dim("tower_arch_outer_pier"), dim("tower_arch_width")
+            if pier + w > (outer - inner) - r:
+                raise ValueError("tower_right: the arch runs into the rounded corner")
+            xo, xa, xb = sx * outer, sx * (outer - pier), sx * (outer - pier - w)
+            parts.append(Part(f"tower_{side}_pier_outer", _poly(origin, a, l, _clip_across(xy, xo, xa)), z_bot, z_base))
+            parts.append(Part(f"tower_{side}_pier_inner", _poly(origin, a, l, _clip_across(xy, xb, sx * inner)),
+                              z_bot, z_base))
+            # The arch: pieces from its curve up to the stone, through the base's depth.
+            rad = w / 2
+            xc, zs = (xa + xb) / 2, deck_top + dim("tower_arch_crown") - rad
+            if zs + rad >= z_base:
+                raise ValueError("tower_right: the arch's crown is above its base")
+            ring = [(xc + rad * math.cos(math.pi * k / ARCH_SEGMENTS), zs + rad * math.sin(math.pi * k / ARCH_SEGMENTS))
+                    for k in range(ARCH_SEGMENTS + 1)]
+            for k, (p, q) in enumerate(zip(ring, ring[1:]), start=1):
+                parts.append(_profile_part(f"tower_{side}_arch_{k}", origin, a, l,
+                                           [p, q, (q[0], z_base), (p[0], z_base)], -back, front))
+        else:
+            parts.append(Part(f"tower_{side}_base", plan, z_bot, z_base))
+        parts.append(Part(f"tower_{side}_masonry", plan, z_base, z_stone))
+        cap = np.array(Polygon(xy).buffer(cap_o, join_style=2).simplify(1e-6).exterior.coords)[:-1]
+        parts.append(Part(f"tower_{side}_cap", _poly(origin, a, l, cap), z_stone, top))
+
+        # The sloped stone wall from by the side roof to the tower's inner face, along its back.
+        x_end = sx * (hw + dim("roof_wing_width") + 0.3)
+        if abs(x_end) < inner - 0.5:
+            t = dim("tower_link_thickness")
+            foot = _poly(origin, a, l, [(x_end, -back), (sx * inner, -back), (sx * inner, t - back), (x_end, t - back)])
+            zb = _bottom(foot, deck_top, ground, base_elevation_m)
+            z_lo, z_hi = deck_top + dim("tower_link_low"), top - dim("tower_link_below_top")
+            parts.append(_profile_part(f"tower_{side}_link", origin, a, l,
+                                       [(x_end, zb), (sx * inner, zb), (sx * inner, z_hi), (x_end, z_lo)],
+                                       -back, t - back))
+    return parts
+
+
+def part_mesh(part: Part):
+    """(verts[N,3] world metres over base, tris, uvs, tri_uvs) of a part, its ``axes`` applied."""
+    verts, tris, uvs, tuvs = prism(part.plan, part.z0, part.z1)
+    if part.axes is not None:
+        verts = verts @ np.asarray(part.axes, dtype=float)
+    return verts, tris, uvs, tuvs
+
+
+def part_footprint(part: Part) -> Polygon:
+    """A part's outline seen from above (local metres)."""
+    if part.axes is None:
+        return Polygon(np.asarray(part.plan, dtype=float)[:, :2])
+    from shapely.geometry import MultiPoint
+
+    return MultiPoint([tuple(v) for v in part_mesh(part)[0][:, :2]]).convex_hull
+
+
+# Where the scan stands this far over the deck near the new stage it is its own
+# roof, side roofs or towers: the scan's stage is turned about 11 degrees and
+# sits a few metres off the blockout's (tools/measure_stage_towers.py), so they
+# would show beside the blockout's. Linking walls and balconies stay (under 10 m).
+SCAN_STAGE_TALL_M = 11.0
+SCAN_STAGE_ZONE_M = 4.0  # around the roof, side roofs and towers
+SCAN_STAGE_EDGE_M = 1.0  # each tall cell's cut reaches this far past it, so its walls go too
+
+
+def scan_stage_cut(top: ScanHeights, parts: Sequence[Part], origin, a, deck_top_m: float) -> list[Polygon]:
+    """Plans (local metres) to cut the ml0w scan out of: its own stage's tall structures.
+
+    The zone is the outline of the roof, the side roofs and the towers grown by
+    ``SCAN_STAGE_ZONE_M``, in front of the rock behind the stage (no further
+    back than a metre behind the roof). Every ``top`` cell in it standing
+    ``SCAN_STAGE_TALL_M`` over the deck top (``deck_top_m``, absolute) is cut,
+    ``SCAN_STAGE_EDGE_M`` around.
+    """
+    from shapely.geometry import box
+    from shapely.ops import unary_union
+
+    keep = [part_footprint(p) for p in parts if p.name.startswith(("roof", "tower_"))]
+    if not keep:
+        return []
+    a = np.asarray(a, dtype=float)
+    l = np.array([a[1], -a[0]])
+    back = dim("roof_depth") + 1.0
+    hull = unary_union(keep).convex_hull.buffer(SCAN_STAGE_ZONE_M)
+    front_half = Polygon([origin - a * back + l * 1e4, origin - a * back - l * 1e4,
+                          origin + a * 1e4 - l * 1e4, origin + a * 1e4 + l * 1e4])
+    zone = hull.intersection(front_half)
+    east, north = top.centres()
+    with np.errstate(invalid="ignore"):
+        tall = np.nan_to_num(top.heights - deck_top_m, nan=-1e9) > SCAN_STAGE_TALL_M
+    x0, y0, x1, y1 = zone.bounds
+    tall &= (east > x0 - 1) & (east < x1 + 1) & (north > y0 - 1) & (north < y1 + 1)
+    half = top.cell / 2
+    cells = [box(e - half, n - half, e + half, n + half) for e, n in zip(east[tall], north[tall])
+             if zone.contains(Point(e, n))]
+    if not cells:
+        return []
+    cut = unary_union(cells).buffer(SCAN_STAGE_EDGE_M, join_style=2)
+    return [g for g in getattr(cut, "geoms", [cut]) if not g.is_empty]
+
+
 def _ccw(plan: np.ndarray) -> np.ndarray:
     x, y = plan[:, 0], plan[:, 1]
     area = 0.5 * float(np.sum(x * np.roll(y, -1) - np.roll(x, -1) * y))
@@ -671,8 +1051,15 @@ def export_stage_obj(
     ground: Callable[[float, float], float] | None = None,
     levels: Sequence[float] | None = None,
     booth: np.ndarray | None = None,
+    scan_top: ScanHeights | None = None,
 ) -> StageMesh:
-    """Write the blockout as one OBJ object, ``Stage``.
+    """Write the blockout: ``Stage.obj`` (concrete) and one OBJ per other material.
+
+    Every part goes in the OBJ ``stage_mesh_for`` names: the concrete in
+    ``out_path`` (object ``Stage``), the rest in ``Stage_Steel.obj``,
+    ``Stage_Roof.obj``, ``Stage_Fascia.obj`` and ``Stage_Towers.obj`` beside it
+    (objects named like the files, with flat ``vn`` normals so a material can
+    tell tops from sides), the row-end stairs in ``Stairs.obj``.
 
     Args:
         rows: venue rows (``venue.rows``), row 1 = stage end, last = top.
@@ -683,6 +1070,8 @@ def export_stage_obj(
         ground: the ground the benches stand on, which the deck and walkway
             sit on (``scan_blend.ScanGround`` or ``terrain_mesh.TerrainSurface``);
             optional, see ``stage_parts``.
+        scan_top: the ml0w scan's top raster; with it ``cut_plans`` also
+            covers the scan's own tall stage structures (``scan_stage_cut``).
     """
     parts = stage_parts(rows, polylines, base_elevation_m, ground, levels, booth)
     # The row-end aisle stairs and cheek walls go in Stairs.obj, which takes the
@@ -694,14 +1083,26 @@ def export_stage_obj(
         f"centimetres, base {base_elevation_m:.3f} m",
     ]) if stairs else (0, {})
 
+    # Steel, roof, fascia and the towers' stone: one OBJ (so one material) each.
+    Path(out_path).parent.mkdir(parents=True, exist_ok=True)
+    meshes: dict[str, PartsMesh] = {}
+    for name in STAGE_MESHES[1:]:
+        group = [p for p in parts if stage_mesh_for(p.name) == name]
+        path = Path(out_path).parent / f"{name}.obj"
+        if group:
+            meshes[name] = _write_group(group, path, name, base_elevation_m)
+        else:
+            path.unlink(missing_ok=True)
+
     all_v: list[np.ndarray] = []
     all_uv: list[np.ndarray] = []
     faces: list[str] = []
     ranges: dict[str, tuple[int, int]] = {}
     v_off = uv_off = n_tris = 0
     comments: list[str] = []
-    for part in (p for p in parts if not p.name.startswith("stair_")):
-        verts, tris, uvs, tuvs = prism(part.plan, part.z0, part.z1)
+    concrete = [p for p in parts if stage_mesh_for(p.name) == "Stage"]
+    for part in concrete:
+        verts, tris, uvs, tuvs = part_mesh(part)
         all_v.append(verts)
         all_uv.append(uvs)
         start = n_tris
@@ -715,8 +1116,10 @@ def export_stage_obj(
 
     verts_cm = np.vstack(all_v) * CM_PER_M
     lines = [
-        "# Red Rocks stage blockout: deck, roof, columns, shell, retaining walls, walkway",
-        f"# {len(parts)} parts, {n_tris} triangles, centimetres, base {base_elevation_m:.3f} m",
+        "# Red Rocks stage blockout, the concrete: deck, steps, shell, retaining walls, walkway, "
+        "the towers' bases and caps",
+        f"# {len(concrete)} parts, {n_tris} triangles, centimetres, base {base_elevation_m:.3f} m",
+        "# steel, roof, fascia and the towers' stone are in Stage_*.obj beside this file",
         "# dimensions and sources: see redrocks.stage.DIMENSIONS",
         "o Stage",
     ]
@@ -771,9 +1174,49 @@ def export_stage_obj(
         stairs_path=stairs_path if stairs else None,
         stairs_parts=stairs_ranges,
         cut_plans=[Polygon(np.asarray(p.plan, dtype=float)) for p in parts
-                   if p.name.startswith(("stair_", "foh_", "stage_step_"))],
+                   if p.name.startswith(("stair_", "foh_", "stage_step_"))]
+        + [part_footprint(p) for p in parts if p.name.startswith("tower_")]
+        + (scan_stage_cut(scan_top, parts, origin, a, deck_top_elevation(rows, ground))
+           if scan_top is not None else []),
         stairs_triangles=stairs_tris,
+        meshes=meshes,
+        towers=_tower_summary(parts, base_elevation_m),
     )
+
+
+def _tower_summary(parts: Sequence[Part], base_elevation_m: float) -> dict:
+    """``left`` / ``right``: each tower's centre (east, north m), cap top (absolute m) and plan corners."""
+    out = {}
+    for side in ("left", "right"):
+        stone = next((p for p in parts if p.name == f"tower_{side}_masonry"), None)
+        cap = next((p for p in parts if p.name == f"tower_{side}_cap"), None)
+        if stone is None or cap is None:
+            continue
+        plan = Polygon(np.asarray(stone.plan, dtype=float))
+        out[side] = {
+            "east_m": float(plan.centroid.x),
+            "north_m": float(plan.centroid.y),
+            "top_elevation_m": float(cap.z1 + base_elevation_m),
+            "plan_m": [tuple(float(v) for v in p) for p in np.asarray(stone.plan, dtype=float)],
+        }
+    return out
+
+
+STAGE_MESH_ABOUT = {
+    "Stage_Steel": "Red Rocks stage steel, painted oxide red: Y-columns, trusses and SkyDeck purlins, "
+                   "the side roofs' columns and box-beam headers",
+    "Stage_Roof": "Red Rocks stage roof, maroon painted metal: the slab on the SkyDeck grid and the lower side roofs",
+    "Stage_Fascia": "Red Rocks stage roof's near-black front band and its cut corners",
+    "Stage_Towers": "Red Rocks stage towers' stacked flagstone, and the sloped stone walls joining them to the stage",
+}
+
+
+def _write_group(parts: Sequence[Part], path: Path, name: str, base_elevation_m: float) -> PartsMesh:
+    tris, ranges = _write_parts_obj(parts, path, name, [
+        STAGE_MESH_ABOUT[name],
+        f"{len(parts)} parts, centimetres, base {base_elevation_m:.3f} m; dimensions: redrocks.stage.DIMENSIONS",
+    ], normals=True)
+    return PartsMesh(path=path, parts=ranges, triangles=tris, vertices=sum(2 * len(p.plan) for p in parts))
 
 
 def _row_at(point: np.ndarray, shapes: Sequence[LineString]) -> int:
@@ -894,26 +1337,36 @@ def _aisles(stairs: Sequence[Part], base_elevation_m: float) -> dict[str, list[t
     return out
 
 
-def _write_parts_obj(parts: Sequence[Part], path: Path, name: str, header: Sequence[str]
-                     ) -> tuple[int, dict[str, tuple[int, int]]]:
-    """One OBJ object of prisms; returns (triangles, part name -> (first, end) triangle)."""
+def _write_parts_obj(parts: Sequence[Part], path: Path, name: str, header: Sequence[str],
+                     normals: bool = False) -> tuple[int, dict[str, tuple[int, int]]]:
+    """One OBJ object of prisms; returns (triangles, part name -> (first, end) triangle).
+
+    With ``normals`` every face also carries its flat normal (``vn``), so
+    Unreal keeps the prisms' edges hard and a material can tell tops from sides.
+    """
     lines = [f"# {h}" for h in header] + [f"o {name}"]
     vs, uvs, faces = [], [], []
+    vns: dict[tuple[float, float, float], int] = {}
     ranges: dict[str, tuple[int, int]] = {}
     v_off = uv_off = n_tris = 0
     for part in parts:
-        verts, tris, puv, tuvs = prism(part.plan, part.z0, part.z1)
+        verts, tris, puv, tuvs = part_mesh(part)
         vs.append(verts)
         uvs.append(puv)
         faces.append(f"# {part.name.replace('_', ' ')}")
         for t, tu in zip(tris, tuvs):
-            faces.append("f " + " ".join(f"{v_off + v + 1}/{uv_off + u + 1}" for v, u in zip(t, tu)))
+            if normals:
+                nid = vns.setdefault(_face_normal(verts, t), len(vns) + 1)
+                faces.append("f " + " ".join(f"{v_off + v + 1}/{uv_off + u + 1}/{nid}" for v, u in zip(t, tu)))
+            else:
+                faces.append("f " + " ".join(f"{v_off + v + 1}/{uv_off + u + 1}" for v, u in zip(t, tu)))
         ranges[part.name] = (n_tris, n_tris + len(tris))
         n_tris += len(tris)
         v_off += len(verts)
         uv_off += len(puv)
     lines += [f"v {x:.3f} {y:.3f} {z:.3f}" for x, y, z in np.vstack(vs) * CM_PER_M]
     lines += [f"vt {u:.4f} {v:.4f}" for u, v in np.vstack(uvs)]
+    lines += [f"vn {x:.4f} {y:.4f} {z:.4f}" for x, y, z in vns]
     lines += faces
     path.write_text("\n".join(lines) + "\n")
     return n_tris, ranges

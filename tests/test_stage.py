@@ -48,7 +48,8 @@ def load(path):
         elif tok[0] == "o":
             objects.append(tok[1])
         elif tok[0] == "f":
-            faces.append([tuple(int(i) for i in t.split("/")) for t in tok[1:]])
+            # v/vt, or v/vt/vn in the Stage_*.obj files: keep (v, vt).
+            faces.append([tuple(int(i) for i in t.split("/")[:2]) for t in tok[1:]])
     return np.array(verts), np.array(uvs), faces, objects
 
 
@@ -59,17 +60,33 @@ def export(tmp_path, rows=None, lines=None):
     return mesh, load(tmp_path / "Stage.obj"), rows
 
 
+def every_part(mesh):
+    """Every stage part's name, in Stage.obj and the Stage_*.obj beside it."""
+    return list(mesh.parts) + [name for m in mesh.meshes.values() for name in m.parts]
+
+
 def part_verts(mesh, verts, faces, name):
-    a, b = mesh.parts[name]
+    """A part's vertices: from Stage.obj (``verts``, ``faces``) or the Stage_*.obj that holds it."""
+    if name in mesh.parts:
+        a, b = mesh.parts[name]
+    else:
+        sub = next((m for m in mesh.meshes.values() if name in m.parts), None)
+        if sub is None:
+            raise KeyError(name)
+        verts, _, faces, _ = load(sub.path)
+        a, b = sub.parts[name]
     return verts[sorted({i - 1 for f in faces[a:b] for i, _ in f})]
 
 
 def test_single_object_and_parts(tmp_path):
     mesh, (verts, uvs, faces, objects), _ = export(tmp_path)
     assert objects == ["Stage"]
-    for expected in ("deck", "roof", "shell_back", "retaining_wall", "walkway"):
+    for expected in ("deck", "shell_back", "retaining_wall", "walkway"):
         assert expected in mesh.parts
-    assert sum(1 for p in mesh.parts if p.startswith("column_")) == stage.COLUMN_COUNT
+    # The roof and the steel are no longer concrete: they have their own OBJs.
+    assert "roof" in mesh.meshes["Stage_Roof"].parts and "roof" not in mesh.parts
+    assert sum(1 for p in mesh.meshes["Stage_Steel"].parts if p.startswith("column_")) == stage.COLUMN_COUNT
+    assert not any(p.startswith("column_") for p in mesh.parts)
     assert mesh.triangles == len(faces)
     assert mesh.vertices == len(verts)
     assert sum(b - a for a, b in mesh.parts.values()) == len(faces)
@@ -164,22 +181,24 @@ def test_roof_is_shorter_than_the_deck_and_starts_at_its_front(tmp_path):
 def test_columns_sit_under_the_roof(tmp_path):
     mesh, (verts, _, faces, _), _ = export(tmp_path)
     roof = part_verts(mesh, verts, faces, "roof")
-    for name in mesh.parts:
-        if name.startswith("column_"):
-            v = part_verts(mesh, verts, faces, name)
-            assert v[:, 1].min() > roof[:, 1].min()
-            assert v[:, 1].max() < roof[:, 1].max()
+    columns = [name for name in every_part(mesh) if name.startswith("column_")]
+    assert len(columns) == stage.COLUMN_COUNT
+    for name in columns:
+        v = part_verts(mesh, verts, faces, name)
+        assert v[:, 1].min() > roof[:, 1].min()
+        assert v[:, 1].max() < roof[:, 1].max()
 
 
 def test_columns_span_deck_to_roof(tmp_path):
     mesh, (verts, _, faces, _), _ = export(tmp_path)
     roof_bot = part_verts(mesh, verts, faces, "roof")[:, 2].min()
     deck_top = part_verts(mesh, verts, faces, "deck")[:, 2].max()
-    for name in mesh.parts:
-        if name.startswith("column_"):
-            v = part_verts(mesh, verts, faces, name)
-            assert v[:, 2].min() == pytest.approx(deck_top, abs=0.01)
-            assert v[:, 2].max() == pytest.approx(roof_bot, abs=0.01)
+    columns = [name for name in every_part(mesh) if name.startswith("column_")]
+    assert len(columns) == stage.COLUMN_COUNT
+    for name in columns:
+        v = part_verts(mesh, verts, faces, name)
+        assert v[:, 2].min() == pytest.approx(deck_top, abs=0.01)
+        assert v[:, 2].max() == pytest.approx(roof_bot, abs=0.01)
 
 
 def test_retaining_wall_is_behind_the_shell(tmp_path):
@@ -287,6 +306,14 @@ def test_cli_build_writes_stage_and_manifest(monkeypatch, tmp_path):
     assert st["parts"]["deck"]["end_triangle"] > st["parts"]["deck"]["first_triangle"]
     assert {d["name"] for d in st["dimensions"]} == {d.name for d in DIMENSIONS}
     assert st["base_elevation_m"] == manifest["benches"]["base_elevation_m"]
+    # Steel, roof, fascia and the towers' stone each have their own OBJ, in the manifest.
+    assert set(st["objs"]) == {"Stage_Steel", "Stage_Roof", "Stage_Fascia", "Stage_Towers"}
+    for name, block in st["objs"].items():
+        v, uv, f, objs = load(tmp_path / block["obj"])
+        assert objs == [name] and block["triangles"] == len(f) and len(uv) > 0
+        assert max(p["end_triangle"] for p in block["parts"].values()) == len(f)
+    assert set(st["towers"]) == {"left", "right"}
+    assert all(t["top_elevation_m"] > st["deck_top_elevation_m"] + 10 for t in st["towers"].values())
 
 
 def test_deck_rises_above_terrain_that_would_bury_it():
@@ -400,7 +427,7 @@ def test_y_columns_and_skydeck_trusses_match_published_stations(tmp_path):
     roof_bot = part_verts(mesh, verts, faces, "roof")[:, 2].min()
     fork_z = deck_top + stage.Y_COLUMN_FORK_ABOVE_DECK_M * 100.0
 
-    y_arms = [name for name in mesh.parts if name.startswith("y_arm_")]
+    y_arms = [name for name in every_part(mesh) if name.startswith("y_arm_")]
     assert len(y_arms) == 8
     for name in y_arms:
         v = part_verts(mesh, verts, faces, name)
@@ -408,12 +435,12 @@ def test_y_columns_and_skydeck_trusses_match_published_stations(tmp_path):
         assert v[:, 2].max() == pytest.approx(roof_bot, abs=0.05)
 
     for tname in ("truss_1", "truss_2", "truss_3"):
-        assert tname in mesh.parts
+        assert tname in every_part(mesh)
         tv = part_verts(mesh, verts, faces, tname)
         assert tv[:, 2].max() == pytest.approx(roof_bot, abs=0.05)
         assert tv[:, 2].min() == pytest.approx(roof_bot - dim("truss_depth") * 100.0, abs=0.05)
 
-    beams = [name for name in mesh.parts if name.startswith("skydeck_beam_")]
+    beams = [name for name in every_part(mesh) if name.startswith("skydeck_beam_")]
     assert len(beams) == 6
     assert "shell_canopy" in mesh.parts
     assert "shell_baffle_e" in mesh.parts and "shell_baffle_w" in mesh.parts

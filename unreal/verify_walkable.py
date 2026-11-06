@@ -144,6 +144,8 @@ def main():
         expected["Benches"] = manifest["benches"]["triangles"]
     if "stage" in manifest:
         expected["Stage"] = manifest["stage"]["triangles"]
+        for name, block in manifest["stage"].get("objs", {}).items():
+            expected[name] = block["triangles"]  # Stage_Steel, Stage_Roof, Stage_Fascia, Stage_Towers
     for key, block in manifest.get("park", {}).items():
         expected[block["obj"][:-4]] = block["triangles"]
     for name, want in expected.items():

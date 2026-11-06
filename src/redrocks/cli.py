@@ -152,8 +152,10 @@ def build(args: argparse.Namespace) -> int:
         print("\nblocking out the stage ...")
         booth_way, booth_plan = _sound_booth(osm, venue_way, projection)
         stage = export_stage_obj(venue.rows, lines, out_dir / "Stage.obj", base, ground=seat_ground,
-                                 levels=layout.levels, booth=booth_plan)
+                                 levels=layout.levels, booth=booth_plan, scan_top=scan_top)
         print(f"  {len(stage.parts)} parts, {stage.triangles} triangles -> {stage.path.name}")
+        for sub in stage.meshes.values():
+            print(f"  {len(sub.parts)} parts, {sub.triangles} triangles -> {sub.path.name}")
         print(f"  {stage.handrail_triangles} triangles -> {stage.handrail_path.name}")
         (out_dir / "seating_cut.json").unlink(missing_ok=True)
         if on_scan:
@@ -302,6 +304,21 @@ def build(args: argparse.Namespace) -> int:
             "front_edge_east_m": round(stage.front_edge_east, 3),
             "front_edge_north_m": round(stage.front_edge_north, 3),
             "axis_east_north": [round(stage.axis[0], 6), round(stage.axis[1], 6)],
+            # Stage.obj is the concrete; these hold the rest, one material each.
+            "objs": {
+                name: {
+                    "obj": sub.path.name,
+                    "triangles": sub.triangles,
+                    "parts": {p: {"first_triangle": a, "end_triangle": b} for p, (a, b) in sub.parts.items()},
+                }
+                for name, sub in stage.meshes.items()
+            },
+            # The two stone towers ("left"/"right" as seen from the seats): centre and cap top.
+            "towers": {
+                side: {"east_m": round(t["east_m"], 3), "north_m": round(t["north_m"], 3),
+                       "top_elevation_m": round(t["top_elevation_m"], 3)}
+                for side, t in stage.towers.items()
+            },
             "dimensions": [
                 {"name": d.name, "value_m": round(d.value_m, 4), "kind": d.kind, "source": d.source}
                 for d in DIMENSIONS

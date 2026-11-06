@@ -11,7 +11,9 @@ placement, the scan's cut fade mask and its top raster, and reports:
   collision would turn into an invisible ledge, unless out/seating_cut.json is
   there for unreal/cut_scan_collision.py to cut the seating out of that collision.
 
-Stage.obj is left out: the sound booth stands on the rows on purpose.
+Stage.obj is left out: the sound booth stands on the rows on purpose. The
+stage's steel, roofs and towers (Stage_Steel, Stage_Roof, Stage_Fascia,
+Stage_Towers) are checked like the rest.
 
     .venv/bin/python tools/check_seating_clear.py [--out out]
 
@@ -36,7 +38,8 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 from redrocks.scan_blend import ScanHeights  # noqa: E402
 
-MESHES = ("RedRocks_Terrain", "Rocks", "Walls", "Buildings", "Paths", "Roads", "Parking", "Water")
+MESHES = ("RedRocks_Terrain", "Rocks", "Walls", "Buildings", "Paths", "Roads", "Parking", "Water",
+          "Stage_Steel", "Stage_Roof", "Stage_Fascia", "Stage_Towers")
 STEP_M = 0.55
 
 
