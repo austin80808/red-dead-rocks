@@ -150,7 +150,9 @@ def _stage_corners(out_dir: Path, stage: dict) -> dict[str, Point]:
         top = v[np.isclose(v[:, 2], v[:, 2].max())]
         along = (top[:, :2] - origin) @ axis
         order = np.argsort(-along)  # front (audience side) first
-        for end, pair in zip(("front", "back"), (top[order[:2]], top[order[2:4]])):
+        # The roof's chamfered corners add top vertices 1 m behind the front
+        # pair, so the back corners are the two REARMOST, not the next two.
+        for end, pair in zip(("front", "back"), (top[order[:2]], top[order[-2:]])):
             if end not in ends:
                 continue
             north, south = sorted(pair, key=lambda p: -p[1])
