@@ -4,6 +4,7 @@ import importlib.util
 import json
 from pathlib import Path
 
+import numpy as np
 import pytest
 
 from redrocks import landmarks
@@ -41,6 +42,38 @@ def manifest():
 
 def test_every_name_present(cat):
     assert set(NAMES) <= set(cat)
+    assert set(cat) == set(landmarks.NAMES)
+
+
+def test_every_row_has_aisle_ends_on_its_tread(cat, manifest):
+    treads = manifest["benches"]["tread_levels_m"]
+    for n in landmarks.ROWS:
+        for side in ("start", "end"):
+            assert abs(cat[f"aisle_{side}_row{n}"][2] - treads[n - 1]) < 0.6, (side, n)
+        assert cat[f"aisle_start_row{n}"][1] > cat[f"aisle_end_row{n}"][1], n
+
+
+def test_stage_roof_and_deck_corners(cat, manifest):
+    stage = manifest["stage"]
+    dims = {d["name"]: d["value_m"] for d in stage["dimensions"]}
+    deck = stage["deck_top_elevation_m"]
+    axis = np.array(stage["axis_east_north"])
+    front = np.array(cat["stage_front_centre"][:2])
+    roof_top = deck + dims["roof_grid_above_deck"] + dims["roof_thickness"]
+    for end in ("front", "back"):
+        n, s = (np.array(cat[f"stage_roof_{end}_{side}"]) for side in ("north", "south"))
+        assert n[2] == pytest.approx(roof_top, abs=0.05) and s[2] == pytest.approx(roof_top, abs=0.05)
+        assert n[1] > s[1]
+        assert np.linalg.norm(n[:2] - s[:2]) == pytest.approx(dims["stage_width"], abs=0.05)
+        setback = ((n[:2] + s[:2]) / 2 - front) @ axis  # along the axis toward the audience
+        assert setback == pytest.approx(0.0 if end == "front" else -dims["roof_depth"], abs=0.1)
+    for side in ("north", "south"):
+        d = np.array(cat[f"stage_deck_front_{side}"])
+        r = np.array(cat[f"stage_roof_front_{side}"])
+        assert d[2] == pytest.approx(deck, abs=0.01)
+        assert np.linalg.norm(d[:2] - r[:2]) < 0.05  # the roof's front edge is over the deck's lip
+    mid = (np.array(cat["stage_deck_front_north"][:2]) + np.array(cat["stage_deck_front_south"][:2])) / 2
+    assert np.linalg.norm(mid - front) < 0.05
 
 
 def test_creation_rock_summit_near_manifest(cat, manifest):

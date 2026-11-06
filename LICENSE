@@ -32,6 +32,10 @@ ATTRIBUTION.md and the in-game credits, press C):
 - Reference photos in the docs/media/vegetation-real/ composites: Wikimedia Commons, each
   credited on the image and in the README (CC BY 2.0, CC BY-SA 3.0, CC BY-SA 4.0); the
   composites are CC BY-SA.
+- Reference photos on the photo board (docs/media/photo-board/, listed with their authors
+  and licences in its views.json): Wikimedia Commons, CC BY-SA 3.0 and CC BY-SA 4.0. The
+  photos are fetched at run time and never committed; the board composites that include
+  them are CC BY-SA because of the photos in them.
 
 "Red Rocks Amphitheatre" is a trademark of the City and County of Denver. This
 is an unofficial, non-commercial fan project with no affiliation.
