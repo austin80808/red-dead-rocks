@@ -423,6 +423,7 @@ with Pillow at real size, and `redrocks vegetation --out out` writes them to
 | Species | Models | Instances | Looks like |
 |---|---|---|---|
 | Rocky Mountain juniper | `JuniperRM_0..2`, 5.0 m | 3-6 m | a dense, almost solid oval-to-conical mass, dark grey-green, shaggy edge |
+| Rocky Mountain juniper, columnar | `JuniperRM_3..4`, 5.0 m | 3.7-5.8 m, beside the aisle stairs only | the narrow upright form planted along the aisles: one straight leader, dense to the ground, about 1.5 m across, tapering to a blunt point |
 | One-seed juniper | `JuniperOS_0..2`, 3.6 m | 2-4 m | several stems, a broad rounded crown down to the ground |
 | Ponderosa pine | `Ponderosa_0..4`, 18 m | 12-25 m | a straight trunk clear for about a third of its height; crooked limbs that dip and turn up; needles only in foxtail tufts at the branch and twig tips, sky between the tiers. 0 young and conical, 1-3 mature, 4 old and flat-topped |
 | Gambel oak | `Oak_0..2`, 2.6 m | 1.5-4 m | many stems, leafy almost to the ground |
@@ -457,7 +458,8 @@ the same):
   south-facing ground. **Ponderosa** grows in groves of 3-8 on the upper
   and north-facing slopes.
 - Nothing grows on cliffs (steeper than 33 degrees for shrubs, 37 for pines,
-  40 for junipers), in the scanned bowl, or in buildings and walls. Trees keep
+  40 for junipers), in the scanned bowl (but for the strips beside the aisle
+  stairs, below), or in buildings and walls. Trees keep
   8 m off roads, paths, parking, buildings, walls, benches, the stage and the
   sled run, and 2.5 m (pines) or 1 m (junipers) from each other; scrub grows
   right up to the edge of roads, paths and buildings (2 m cells from their
@@ -466,6 +468,37 @@ the same):
   however it is turned: oak patches on a slope root deeper downhill.
 - Shrub crowns are never culled, so the hillsides read as covered from the
   air; shrub leaves and stems fade out from 320 to 400 m.
+
+**Beside the aisle stairs** (`redrocks.vegetation.place_aisles`). At the real
+venue the two side aisles climb beside planted strips: narrow upright junipers
+with scrub oak and mountain mahogany at their feet, between the stairs' outer
+cheek walls and the rock. The hillside pass keeps out of the scanned bowl, so
+these strips are planted on their own, on the scan's surface:
+
+- The strip runs out from each row's cheek wall, from 0.6 m to 8.6 m, and stops
+  where the scan's ground gets steeper than 35 degrees (rock face) or where it
+  meets the stage, the booth, the handrail or an OSM road, path, lot, building,
+  wall or rock (their triangles, at 0.5 m cells).
+- Plants come in clumps of 2-5: a short line of columnar junipers close to the
+  stairs with an oak or mahogany at their feet, or a juniper with a few shrubs,
+  2-4 m apart between clumps low in the bowl and by the stage-end towers and
+  further apart toward the top, plus a young ponderosa about every 15-25 m where
+  the strip is at least 5 m wide and the pine's crown clears everything.
+- No crown (the plant's whole reach in plan) comes within 0.3 m of a stair step
+  or cheek wall, the aisle path, the seating cut, the booth, the stage or those
+  OSM meshes, and no trunk within 1 m of a tread.
+- Trunks stand on the scan's ground (`assets/scan/scan_ground.npz`, not the
+  3DEP terrain), 10 cm under it (15 cm where a root would otherwise show on a
+  slope; no plant where even that is not enough), and not where the scan stands
+  more than 1.5 m over its ground within 0.5 m (`scan_top.npz`: the scan's own
+  trees and rocks, which fill much of the strips low on the south side).
+- `redrocks vegetation` reads the rasters from `--scan-ground` and `--scan-top`
+  (defaults in `assets/scan`) and sums the strips up under `aisle_planting` in
+  `vegetation.json`, every clump with the stair rows it stands beside. On the
+  real build: 54 plants in 22 clumps, 31 in 12 up the north aisle and 23 in 10
+  up the south one (26 columnar and 2 broad junipers, 16 scrub oak, 7 mountain
+  mahogany, 3 ponderosa), at least one clump in every ten rows on both sides.
+  The hillsides' placement is unchanged.
 
 **Side by side with Red Rocks Park** (before | after | photo; colour error
 ΔE of the sampled foliage and bark in [`delta_e.json`](docs/media/vegetation-real/delta_e.json)):
