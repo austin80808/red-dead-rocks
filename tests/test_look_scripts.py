@@ -7,6 +7,7 @@ import sys
 import types
 from pathlib import Path
 
+import numpy as np
 import pytest
 
 UNREAL = Path(__file__).resolve().parent.parent / "unreal"
@@ -153,4 +154,74 @@ def test_skirt_starts_on_the_terrain_edge_and_faces_up(env):
 
 
 def test_far_profile_rises_to_the_west(env):
-    assert env.far_height(-1.0, 0.0) > env.far_height(0.0, 1.0) >= env.far_height(1.0, 0.0)
+    # far_height takes a position (cm from the centre) since the east follows the
+    # plains by distance; this compared unit directions (1 cm), where the plains
+    # profile is at its Morrison end. Compared at 20 km now.
+    km20 = 2000000.0
+    assert env.far_height(-km20, 0.0) > env.far_height(0.0, km20) >= env.far_height(km20, 0.0)
+
+
+BASE_M = 1742.098
+
+
+def _far_m(env, east_km, north_km=0.0):
+    return BASE_M + env.far_height(east_km * 100000.0, north_km * 100000.0, BASE_M) / 100.0
+
+
+@pytest.mark.parametrize("east_km,metres", [(2, 1780.0), (12, 1650.0), (24, 1600.0), (60, 1565.0)])
+def test_far_profile_east_follows_the_plains(env, east_km, metres):
+    """Morrison ~1.78 km, 12 km out ~1.65 km, Denver (24 km) 1.60 km, ~1.55-1.58 km beyond."""
+    assert _far_m(env, east_km) == pytest.approx(metres, abs=30.0)
+
+
+def test_far_profile_east_is_smooth_and_falls(env):
+    xs = np.linspace(1.8, 125.0, 400)
+    zs = np.array([_far_m(env, x) for x in xs])
+    assert np.all(np.diff(zs) <= 0)
+    assert np.max(np.abs(np.diff(zs, 2))) < 1.0  # no kinks
+    # Downtown Denver's ground is ~1.59-1.61 km where the skirt passes under it.
+    assert 1595.0 < _far_m(env, 20.6 * math.sin(math.radians(65.0)), 20.6 * math.cos(math.radians(65.0))) < 1625.0
+
+
+@pytest.mark.parametrize("angle_deg", [90.0, 120.0, 150.0, 180.0, 210.0, 240.0, 270.0])
+def test_far_profile_west_is_unchanged(env, angle_deg):
+    """Due north, every western direction and due south keep the old profile."""
+    a = math.radians(angle_deg)
+    for r_km in (3.0, 20.0, 120.0):
+        dx, dy = r_km * 100000.0 * math.cos(a), r_km * 100000.0 * math.sin(a)
+        west = max(0.0, -math.cos(a))
+        old = -4000.0 + (90000.0 + 4000.0) * west ** 1.5  # before the plains profile
+        assert env.far_height(dx, dy, BASE_M) == pytest.approx(old, abs=1e-6)
+        assert env.wave_weight(dx, dy) == pytest.approx(0.35 + 0.65 * west, abs=1e-9)
+
+
+def test_plains_undulate_by_metres_not_hills(env):
+    for angle in np.radians(np.arange(-65.0, 66.0, 5.0)):  # 25 to 155 degrees compass
+        w = env.wave_weight(math.cos(angle), math.sin(angle))
+        assert max(env.RING_WAVE_CM) * w <= 1500.0  # at most 15 m
+    assert max(env.RING_WAVE_CM) * env.wave_weight(-1.0, 0.0) == max(env.RING_WAVE_CM)  # west keeps its hills
+
+
+def test_skirt_curvature(env):
+    assert env.curvature_drop_cm(2500000.0) / 100.0 == pytest.approx(42.67, abs=0.05)  # 25 km
+    assert env.curvature_drop_cm(2400000.0) / 100.0 == pytest.approx(39.33, abs=0.05)  # 24 km
+    assert env.curvature_drop_cm(12000000.0) / 100.0 == pytest.approx(983.2, abs=0.5)  # 120 km
+    level = [(x, y, 500.0) for x, y, _ in _grid()]  # a flat edge: smoothing leaves it at 5 m
+    border = env.grid_border(level)
+    verts, _, _ = env.skirt_mesh(border, BASE_M)
+    n = len(border)
+    east = max(range(n), key=lambda i: border[i][0] - abs(border[i][1]))  # the east edge's middle
+    for k in range(1, len(env.RING_OUT_CM)):
+        x, y, z = verts[k * n + east]
+        flat = env.far_height(x, y, BASE_M) * env.RING_BLEND[k] + 500.0 * (1.0 - env.RING_BLEND[k])
+        wave = env.RING_WAVE_CM[k] * env.wave_weight(x, y) * env._wave(math.atan2(y, x), k)
+        assert z == pytest.approx(flat + wave - env.curvature_drop_cm(math.hypot(x, y)), abs=1.0)
+    # The outer ring, 120 km east: the plains at 1.58 km, ~983 m below the flat level.
+    x, y, z = verts[(len(env.RING_OUT_CM) - 1) * n + east]
+    assert BASE_M + z / 100.0 == pytest.approx(1580.0 - 983.2, abs=2.0)
+
+
+def test_skirt_reads_the_base_from_the_manifest(env, tmp_path):
+    (tmp_path / "manifest.json").write_text('{"terrain_mesh": {"min_elevation_m": 1700.5}}')
+    assert env.terrain_base_m(str(tmp_path / "manifest.json")) == 1700.5
+    assert env.terrain_base_m(str(tmp_path / "missing.json")) == env.BASE_M
