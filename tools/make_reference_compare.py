@@ -22,64 +22,21 @@ import sys
 from pathlib import Path
 
 import numpy as np
-import requests
-from PIL import Image, ImageDraw, ImageFont
+import requests  # noqa: F401  (fetch_photo's HTTP client; tests patch rc.requests.get)
+from PIL import Image
 
+# Shared with tools/make_board_compare.py (the photo board), not copied.
+from redrocks.board_images import compose, fetch_photo  # noqa: F401
+from redrocks.board_images import cover as _cover  # noqa: F401  (the old name)
+from redrocks.board_images import photo_caption as _photo_caption
 from redrocks.vegetation_metrics import delta_e, median_hex
 
 REPO = Path(__file__).resolve().parent.parent
 VIEWS = REPO / "docs" / "media" / "vegetation-real" / "views.json"
-USER_AGENT = "redrocks-ue-reference/0.1"
-CAPTION_H = 34
 
 
 def load_views(path: Path) -> list[dict]:
     return json.loads(Path(path).read_text())["views"]
-
-
-def fetch_photo(photo: dict, cache_dir: Path) -> Path:
-    """The photo's 1280 px Commons thumb, downloaded once into ``cache_dir``."""
-    cache_dir = Path(cache_dir)
-    path = cache_dir / ("%s.jpg" % photo["id"])
-    if path.exists():
-        return path
-    cache_dir.mkdir(parents=True, exist_ok=True)
-    resp = requests.get(photo["file_url"], headers={"User-Agent": USER_AGENT}, timeout=60)
-    resp.raise_for_status()
-    path.write_bytes(resp.content)
-    return path
-
-
-def _cover(img: Image.Image, w: int, h: int) -> Image.Image:
-    img = img.convert("RGB")
-    scale = max(w / img.width, h / img.height)
-    img = img.resize((max(w, round(img.width * scale)), max(h, round(img.height * scale))), Image.LANCZOS)
-    x0, y0 = (img.width - w) // 2, (img.height - h) // 2
-    return img.crop((x0, y0, x0 + w, y0 + h))
-
-
-def _font(size: int):
-    for name in ("/System/Library/Fonts/Helvetica.ttc", "/System/Library/Fonts/SFNS.ttf"):
-        try:
-            return ImageFont.truetype(name, size)
-        except OSError:
-            continue
-    return ImageFont.load_default()
-
-
-def compose(before: Image.Image, after: Image.Image, photo: Image.Image, captions: tuple[str, str, str],
-            aspect: tuple[int, int], panel_w: int = 640) -> Image.Image:
-    """Three panels side by side, each cover-cropped to ``aspect``, over a caption strip."""
-    panel_h = round(panel_w * aspect[1] / aspect[0])
-    out = Image.new("RGB", (panel_w * 3, CAPTION_H + panel_h), (18, 18, 18))
-    draw = ImageDraw.Draw(out)
-    font = _font(15)
-    for i, (img, text) in enumerate(zip((before, after, photo), captions)):
-        out.paste(_cover(img, panel_w, panel_h), (i * panel_w, CAPTION_H))
-        while draw.textlength(text, font=font) > panel_w - 12 and len(text) > 4:
-            text = text[:-2].rstrip() + "…"
-        draw.text((i * panel_w + 6, 9), text, fill=(235, 235, 235), font=font)
-    return out
 
 
 def region_hex(img, box, kind: str) -> str:
@@ -102,10 +59,6 @@ def _sample(img, s: dict, which: str) -> str:
     if "%s_box" % which in s:
         return region_hex(img, s["%s_box" % which], s["kind"])
     return median_hex(img, s["%s_xy" % which])
-
-
-def _photo_caption(photo: dict) -> str:
-    return "%s — %s, %s" % (photo["title"], photo["author"], photo["licence"])
 
 
 def main(argv: list[str] | None = None) -> int:

@@ -76,13 +76,12 @@ def _in_boxes(xs: np.ndarray, rows: np.ndarray, boxes) -> np.ndarray:
     return out
 
 
-def skyline_error(game: Image.Image, photo: Image.Image, ignore: list[list[int]]) -> float | None:
-    """Mean |game row - photo row| / height over columns with sky in both.
-
-    Measured at the photo's size after ``fit_to``. Columns without sky in either
-    image are left out (never row 0), as are columns where either skyline point
-    lies in an ``ignore`` box (photo pixels). ``None`` when fewer than 20 % of
-    the columns qualify.
+def skyline_stats(game: Image.Image, photo: Image.Image,
+                  ignore: list[list[int]]) -> tuple[float | None, float]:
+    """(skyline_error, share): the error as ``skyline_error`` measures it, and the
+    share of the photo's columns it rests on (sky in both images, outside the
+    ``ignore`` boxes). A share near the 20 % floor means few columns count: a game
+    rock too tall for the frame removes columns rather than raising the error.
     """
     photo_rgb = np.asarray(photo.convert("RGB"))
     game_rgb = np.asarray(fit_to(game.convert("RGB"), photo.size))
@@ -91,9 +90,21 @@ def skyline_error(game: Image.Image, photo: Image.Image, ignore: list[list[int]]
     xs = np.arange(len(sp))
     if ignore:
         keep &= ~_in_boxes(xs, sp, ignore) & ~_in_boxes(xs, sg, ignore)
+    share = float(keep.sum() / len(sp)) if len(sp) else 0.0
     if keep.sum() < MIN_SHARED_SKY * len(sp):
-        return None
-    return float(np.abs(sg[keep] - sp[keep]).mean() / photo_rgb.shape[0])
+        return None, share
+    return float(np.abs(sg[keep] - sp[keep]).mean() / photo_rgb.shape[0]), share
+
+
+def skyline_error(game: Image.Image, photo: Image.Image, ignore: list[list[int]]) -> float | None:
+    """Mean |game row - photo row| / height over columns with sky in both.
+
+    Measured at the photo's size after ``fit_to``. Columns without sky in either
+    image are left out (never row 0), as are columns where either skyline point
+    lies in an ``ignore`` box (photo pixels). ``None`` when fewer than 20 % of
+    the columns qualify.
+    """
+    return skyline_stats(game, photo, ignore)[0]
 
 
 def _is_green(r: np.ndarray) -> np.ndarray:
@@ -125,7 +136,8 @@ def region_hex(rgb: np.ndarray, box: list[int], kind: str) -> str:
 
 
 def score_view(view: dict, game: Image.Image, photo: Image.Image) -> dict:
-    """Colour delta E per sample region and the skyline error for one board view.
+    """Colour delta E per sample region and the skyline error for one board view,
+    with ``skyline_share``, the share of columns that error rests on (``skyline_stats``).
 
     ``view["samples"]`` carry ``photo_box`` and ``game_box``, both in photo
     pixels; the game render is fitted to the photo's size first.
@@ -138,8 +150,8 @@ def score_view(view: dict, game: Image.Image, photo: Image.Image) -> dict:
         p = region_hex(photo_rgb, s["photo_box"], s["kind"])
         g = region_hex(game_rgb, s["game_box"], s["kind"])
         regions[s["label"]] = {"kind": s["kind"], "photo": p, "game": g, "delta_e": delta_e(g, p)}
-    return {"regions": regions,
-            "skyline_error": skyline_error(game, photo, view.get("skyline_ignore", []))}
+    error, share = skyline_stats(game, photo, view.get("skyline_ignore", []))
+    return {"regions": regions, "skyline_error": error, "skyline_share": share}
 
 
 def worst_regions(scores: dict[str, dict], n: int = 3) -> list[tuple[str, str, float]]:

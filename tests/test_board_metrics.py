@@ -100,3 +100,18 @@ def test_score_view_scores_each_sample_and_the_skyline():
     assert s["regions"]["sky"] == {"kind": "sky", "photo": "#5A8CDC", "game": "#5A8CDC", "delta_e": 0.0}
     assert s["regions"]["rock"]["delta_e"] == pytest.approx(0.0, abs=1e-6)
     assert s["skyline_error"] == pytest.approx(0.0, abs=1e-9)
+
+
+def test_skyline_stats_report_the_share_of_columns_the_error_rests_on():
+    """A game rock too tall for the frame removes columns rather than raising the
+    error, so the share says when to distrust a small skyline_error."""
+    from redrocks.board_metrics import skyline_stats
+    photo = Image.fromarray(scene(400, 300)[0])
+    assert skyline_stats(Image.fromarray(scene(400, 300)[0]), photo, []) == (pytest.approx(0.0, abs=1e-9), 1.0)
+    tall_rock = Image.fromarray(scene(400, 300, rock_cols=100)[0])  # rock to the top edge in 25 % of columns
+    err, share = skyline_stats(tall_rock, photo, [])
+    assert err == pytest.approx(0.0, abs=1e-9) and share == pytest.approx(0.75)
+    few = Image.fromarray(scene(400, 300, sky_cols=40)[0])
+    assert skyline_stats(few, photo, []) == (None, pytest.approx(0.1))
+    s = score_view({"samples": [], "skyline_ignore": []}, tall_rock, photo)
+    assert s["skyline_share"] == pytest.approx(0.75) and s["skyline_error"] == pytest.approx(0.0, abs=1e-9)
