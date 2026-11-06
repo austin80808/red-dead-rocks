@@ -17,7 +17,7 @@ no textures to import):
                         ground is red soil with patches of olive and dry grass.
     MI_Sandstone_Rock   instance for Creation_Rock and Ship_Rock: all rock
     MI_Sandstone_Ground instance for the terrain: soil and grass, rock on slopes
-    M_Benches           the terraced rows (redrocks.seating): dusty sandstone
+    M_Benches           the terraced rows (redrocks.seating): pale dusty concrete
                         treads on top, stacked red flagstone on the risers
     M_BenchWood         the bench planks: pale weathered boards with seams
     M_Steel             bench brackets and the top handrail: dark, rust-tinted
@@ -369,9 +369,10 @@ def build_benches(mat):
     head = g.add(g.smooth(0.95, 0.99, sf), g.one_minus(g.smooth(0.0, 0.02, sf)))
     joint = g.mul(g.sat(g.add(bed, g.mul(head, 0.8))), near)
     tint = g.noise(g.append(g.append(g.mul(stone, 713.0), g.mul(course, 1931.0)), 0.0), 1000.0, levels=1)
-    # Lyons/Fountain sandstone: dark red-brown to rust, a few paler buff stones.
-    rock = g.lerp(g.color("#5E2618"), g.color("#8E4227"), tint)
-    rock = g.lerp(rock, g.color("#A0694C"), g.mul(g.smooth(0.8, 0.97, tint), 0.7))
+    # Lyons/Fountain sandstone: red-brown to rust, a few paler buff stones. The
+    # photo board's risers in sun sample #7B4632 to #8F6D54: dusty, not rust-orange.
+    rock = g.lerp(g.color("#66301F"), g.color("#925137"), tint)
+    rock = g.lerp(rock, g.color("#A97C60"), g.mul(g.smooth(0.8, 0.97, tint), 0.7))
     blot = g.noise(wpos, 25.0, levels=2)
     rock = g.mul(rock, g.lerp(0.82, 1.1, blot))
     grain = g.noise(wpos, 4.0, levels=1, func="VALUE_ALU")
@@ -380,11 +381,13 @@ def build_benches(mat):
     rock = g.lerp(rock, g.color("#9A6A50"), g.mul(g.smooth(0.6, 0.88, cf), 0.25))
     riser = g.lerp(rock, g.color("#2A140D"), g.mul(joint, 0.75))
 
-    # Treads: packed red-tan sandstone and dust, worn paler where people walk.
+    # Treads: pale pink-beige concrete under red dust, worn paler where people
+    # walk. The photo board samples them at #FAE3CB in full sun (up the rows) and
+    # #C2B1A6 from the top row; the old red-tan (#A2735A) rendered orange.
     blotch = g.noise(wpos, 350.0, levels=3)
-    tread = g.lerp(g.color("#A2735A"), g.color("#86573F"), g.mul(g.smooth(0.3, 0.8, blotch), 0.7))
+    tread = g.lerp(g.color("#B89E8C"), g.color("#A2826F"), g.mul(g.smooth(0.3, 0.8, blotch), 0.7))
     worn = g.noise(wpos, 2500.0, levels=2)
-    tread = g.lerp(tread, g.color("#B58C70"), g.mul(g.smooth(0.55, 0.85, worn), 0.35))
+    tread = g.lerp(tread, g.color("#CAB5A5"), g.mul(g.smooth(0.55, 0.85, worn), 0.35))
     grit = g.noise(wpos, 3.0, levels=1, func="VALUE_ALU")
     tread = g.mul(tread, g.lerp(1.0, g.lerp(0.88, 1.1, grit), g.near_fade(300.0, 1500.0)))
 
