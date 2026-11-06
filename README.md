@@ -522,6 +522,34 @@ once after pulling (the editor also offers to when it opens):
 | `ARRSpot` | a teleport spot; drops onto the ground (or a summit) and can walk to a rock face |
 | `ARRHUD`, `ARRGameMode` | status, hints, toasts, controls; the game mode that ties it together |
 
+## The sasquatch
+
+The player is a sasquatch: 2.55 m, about 300 kg, long arms that hang to the
+knee, a conical crested head with a heavy brow and deep-set eyes, dark
+brown-auburn hair tipping to grey-brown, leathery bare skin on the face, palms
+and soles. The design is in
+`docs/superpowers/specs/2026-11-06-sasquatch-player-design.md`.
+
+He is built from the project's own UE5 mannequin, so everything is free,
+rebuildable and in git (the mannequin export itself is Epic content and stays
+in `out/`):
+
+| Step | Does |
+|---|---|
+| `unreal/export_mannequin.py` | exports `SKM_Manny_Simple` to `out/sasquatch/manny.glb` (headless) |
+| `redrocks sasquatch` | `src/redrocks/sasquatch/`: re-proportions the mannequin's bones (`rig.py`: the skin follows by linear blend skinning, so the weights stay valid), adds an ape's mass, refines and sculpts the head onto a signed-distance face (`sdf.py`, every feature with its reason), flat soles and eyes, then grows about 250,000 fur strands combed, drooped, clumped and coloured root to tip (`groom.py`). Writes `sasquatch.glb`, `fur_body.rrgroom`, `fur_head.rrgroom` and `manifest.json` |
+| `unreal/setup_sasquatch.py` | imports him to `/Game/Sasquatch`: `SKM_Sasquatch` with his own skeleton, subsurface skin and hair materials, the fur as grooms bound to the mesh (`.rrgroom` is read by the project's `RedRocksEditor` module), IK Rigs and an IK Retargeter (knees bent, trunk pitched forward), and the template's unarmed animations batch-retargeted into `/Game/Sasquatch/Anims/ABP_Sasquatch` |
+| `unreal/render_sasquatch.py` | Play In Editor: front, three-quarter, side and face photos (`RRPhoto`, the orbit camera), first person looking down at his arms, walk and run frames. `tools/make_sasquatch_sheet.py` composes them into `docs/media/sasquatch/` |
+
+In game `ARRExplorer` loads him by path (mesh, two grooms, `ABP_Sasquatch`) and
+keeps the old blocky figure when they are missing. The capsule is his size
+(eyes 2.28 m up; step height unchanged, so the rows still work), the climb
+probes scale with it. **V** switches first and third person: in first person
+his head fur is hidden from your own view and you look down at his chest, arms
+and hands; in third person the camera sits 4.2 m behind his shoulder. The
+locomotion cycles play slower by his scale (a big animal's cadence) and speed
+up past the blend space's top speed instead of sliding.
+
 ## Play it
 
 ![Play In Editor: spawn on the stage, walk up the bowl, then look east, north, west and south](docs/media/redrocks_play_tour.gif)
