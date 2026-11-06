@@ -475,6 +475,23 @@ def vegetation(args: argparse.Namespace) -> int:
     return 0
 
 
+def sasquatch(args: argparse.Namespace) -> int:
+    from .sasquatch.build import build as build_sasquatch
+
+    out_dir = Path(args.out) / "sasquatch"
+    manny = Path(args.manny) if args.manny else out_dir / "manny.glb"
+    if not manny.exists():
+        print(f"{manny} missing: export it with unreal/export_mannequin.py first")
+        return 1
+    info = build_sasquatch(manny, out_dir, seed=args.seed, fur_density=args.fur_density)
+    print(f"sasquatch  {info['height_cm']:.0f} cm tall, shoulders {info['shoulder_width_cm']:.0f} cm, "
+          f"fingertips {info['hanging_fingertip_cm']:.0f} cm (knee {info['knee_height_cm']:.0f} cm)")
+    print(f"  {info['vertices']:,} vertices, {info['triangles']:,} triangles, "
+          f"{info['strands']['body'] + info['strands']['head']:,} strands")
+    print(f"wrote {out_dir}")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="redrocks", description=__doc__)
     sub = parser.add_subparsers(dest="command", required=True)
@@ -522,6 +539,13 @@ def main(argv: list[str] | None = None) -> int:
     veg_cmd.add_argument("--out", default="out", help="directory holding RedRocks_Terrain.obj")
     veg_cmd.add_argument("--seed", type=int, default=1941, help="placement seed")
     veg_cmd.set_defaults(func=vegetation)
+
+    sq_cmd = sub.add_parser("sasquatch", help="build the sasquatch player from the exported UE5 mannequin")
+    sq_cmd.add_argument("--out", default="out", help="output directory (writes OUT/sasquatch/)")
+    sq_cmd.add_argument("--manny", default="", help="mannequin glTF (default OUT/sasquatch/manny.glb)")
+    sq_cmd.add_argument("--seed", type=int, default=7, help="fur seed")
+    sq_cmd.add_argument("--fur-density", type=float, default=1.0, help="scale the strand count")
+    sq_cmd.set_defaults(func=sasquatch)
 
     args = parser.parse_args(argv)
     return args.func(args)
