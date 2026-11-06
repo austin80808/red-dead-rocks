@@ -176,15 +176,29 @@ class Graph:
     def mask(self, a, channel):
         return self.unary("MaterialExpressionComponentMask", a, **{c: c == channel for c in "rgba"})
 
-    def unary(self, cls, a, **props):
+    def unary(self, cls, src, **props):
+        # `src` not `a`: ComponentMask's channel flags are r/g/b/a keywords.
         n = self.node(cls, **props)
         for pin in ("", "Input"):
             try:
-                if lib.connect_material_expressions(self.val(a), "", n, pin):
+                if lib.connect_material_expressions(self.val(src), "", n, pin):
                     return n
             except Exception:
                 pass
         raise RuntimeError("could not connect into %s" % cls)
+
+    def pre_skinned_position(self):
+        """Local position before skinning, so noise rides with the skin; the
+        world position when the engine has no such node."""
+        try:
+            lp = self.node("MaterialExpressionLocalPosition",
+                           local_origin=unreal.LocalPositionOrigin.INSTANCE_PRE_SKINNING)
+            interp = self.node("MaterialExpressionVertexInterpolator")
+            self.link(lp, interp, "Input")
+            return interp
+        except Exception as exc:
+            log.append("note  pre-skinned position unavailable, using world position: %r" % (exc,))
+            return self.node("MaterialExpressionWorldPosition")
 
     def color(self, hex_color):
         return self.node("MaterialExpressionConstant3Vector", constant=srgb(hex_color))
@@ -219,7 +233,7 @@ def build_skin():
     mat.set_editor_property("shading_model", unreal.MaterialShadingModel.MSM_SUBSURFACE_PROFILE)
     mat.set_editor_property("used_with_skeletal_mesh", True)
     g = Graph(mat)
-    pos = g.node("MaterialExpressionPreSkinnedLocalPosition")
+    pos = g.pre_skinned_position()
     bare = g.mask(g.node("MaterialExpressionVertexColor"), "r")
     blotch = g.noise(pos, 6.0, 3)
     skin = g.lerp(g.color("#2E2622"), g.color("#4A3D36"), blotch)
@@ -231,8 +245,10 @@ def build_skin():
     g.out("MP_BASE_COLOR", base)
     g.out("MP_ROUGHNESS", g.lerp(0.9, g.lerp(0.48, 0.66, pores), bare))
     g.out("MP_SPECULAR", g.val(0.35))
-    # Wrinkles as a bumped normal; best effort, the skin still reads without it.
+    # Wrinkles as a bumped normal (PerturbNormalLQ gives a world-space normal);
+    # best effort, the skin still reads without it.
     try:
+        mat.set_editor_property("tangent_space_normal", False)
         perturb = g.node("MaterialExpressionMaterialFunctionCall")
         perturb.set_editor_property("material_function", unreal.load_asset(
             "/Engine/Functions/Engine_MaterialFunctions03/Procedurals/PerturbNormalLQ"))
@@ -269,7 +285,7 @@ def build_fur():
     g.out("MP_BASE_COLOR", attrs, colour_pin)
     g.out("MP_ROUGHNESS", g.val(0.42))
     g.out("MP_SPECULAR", g.val(0.35))
-    g.out("MP_SUBSURFACE_COLOR", g.val(0.6))  # hair: Scatter
+    g.out("MP_METALLIC", g.val(0.6))  # the Hair shading model's Scatter pin
     lib.recompile_material(mat)
     _save(mat)
     return mat
@@ -332,7 +348,8 @@ def bind_groom(groom_name, binding_name):
     _delete(path)
     groom = eal.load_asset("%s/%s" % (GAME, groom_name))
     mesh = eal.load_asset(GAME + "/SKM_Sasquatch")
-    binding = unreal.GroomBlueprintLibrary.create_new_groom_binding_asset_with_path(path, groom, mesh, 100, None, 0)
+    # UGroomBlueprintLibrary is ScriptName "GroomLibrary" in Python.
+    binding = unreal.GroomLibrary.create_new_groom_binding_asset_with_path(path, groom, mesh, 100, None, 0)
     if binding is None:
         raise RuntimeError("binding failed")
     _save(binding)

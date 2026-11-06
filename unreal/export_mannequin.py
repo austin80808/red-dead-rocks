@@ -26,7 +26,7 @@ NEEDED_APIS = (
     "IKRigController",
     "IKRetargeterController",
     "IKRetargetBatchOperation",
-    "GroomBlueprintLibrary",
+    "GroomLibrary",  # UGroomBlueprintLibrary's Python name
     "InterchangeGenericAssetsPipeline",
     "AssetImportTask",
     "SkeletalMeshEditorSubsystem",
