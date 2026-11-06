@@ -111,14 +111,24 @@ def _booth(out_dir: Path, toward: Point) -> tuple[Point, Point]:
 
 
 def _stage_part(out_dir: Path, stage: dict, part: str) -> np.ndarray:
-    """Vertices (terrain metres) of one named part of Stage.obj, by the manifest's triangle range."""
+    """Vertices (terrain metres) of one named stage part, by the manifest's triangle range.
+
+    The concrete is in ``Stage.obj`` (``stage.parts``); the steel, roof, fascia
+    and towers are their own OBJs (``stage.objs[<name>].parts``), so the part is
+    looked up in whichever mesh lists it.
+    """
+    obj, rng = out_dir / "Stage.obj", stage.get("parts", {}).get(part)
+    for mesh in (stage.get("objs") or {}).values():
+        if rng is None and part in mesh.get("parts", {}):
+            obj, rng = out_dir / mesh["obj"], mesh["parts"][part]
+    if rng is None:
+        raise KeyError(f"stage part {part!r} is in no stage mesh of the manifest")
     verts, faces = [], []
-    for line in (out_dir / "Stage.obj").read_text().splitlines():
+    for line in obj.read_text().splitlines():
         if line.startswith("v "):
             verts.append(line.split()[1:4])
         elif line.startswith("f "):
             faces.append([int(p.split("/")[0]) - 1 for p in line.split()[1:]])
-    rng = stage["parts"][part]
     idx = sorted({i for f in faces[rng["first_triangle"]:rng["end_triangle"]] for i in f})
     v = np.array(verts, dtype=float)[idx] / 100.0
     v[:, 2] += LEVEL_Z_ZERO_M
