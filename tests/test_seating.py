@@ -358,6 +358,16 @@ def test_build_writes_the_seating_meshes_and_their_manifest(monkeypatch, tmp_pat
     assert manifest["booth"]["osm_way"] == 229359709 and (out / "Booth.obj").exists()
     assert manifest["booth"]["deck_elevation_m"] > b["tread_levels_m"][0]
     assert abs(manifest["booth"]["east_m"]) < 5.0 and abs(manifest["booth"]["north_m"]) < 5.0
+    # Squared to the stage: its front faces the stage front centre (a heading,
+    # counter-clockwise from east), and it keeps the footprint's size.
+    from redrocks import cli
+    from redrocks.geo import metres_per_degree
+
+    bo, st = manifest["booth"], manifest["stage"]
+    to_stage = np.degrees(np.arctan2(st["front_edge_north_m"] - bo["north_m"], st["front_edge_east_m"] - bo["east_m"]))
+    assert abs((bo["facing_deg"] - to_stage + 180.0) % 360.0 - 180.0) < 1.0
+    mx, my = metres_per_degree(cli.RED_ROCKS_LAT)
+    assert sorted((bo["width_m"], bo["depth_m"])) == pytest.approx(sorted((0.00007 * mx, 0.00004 * my)), abs=0.02)
     # The stage's walkway sits just under the top tread.
     assert manifest["stage"]["walkway_elevation_m"] == pytest.approx(b["tread_levels_m"][-1] - 0.02, abs=1e-3)
 

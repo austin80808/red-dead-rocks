@@ -632,3 +632,206 @@ def test_ground_slope_is_right_at_the_grid_edge():
     g = veg.Ground(_slope_grid(n=41, size=160000.0, fn=lambda x, y: 0.5 * x))
     nx, ny, nz = g.normal(np.array([-79900.0, 0.0, 79900.0]), np.array([0.0, 0.0, 0.0]))
     assert np.allclose(-nx / nz, 0.5, atol=1e-6)
+
+
+# ------------------------------------------------------------- beside the aisle stairs
+
+def test_columnar_junipers_are_narrow_and_upright(models):
+    """The planted form beside the aisles: 3.7-5.8 m tall, 1.1-1.8 m across, widest low, tapering to a point."""
+    columnar = [m for m in models if m.form == "columnar"]
+    assert {m.name for m in columnar} == {"JuniperRM_3", "JuniperRM_4"}
+    lo, hi = veg.AISLE_SCALE["columnar"]
+    for m in columnar:
+        top = max(mesh.positions()[:, 2].max() for mesh in m.parts.values())
+        across = 2 * vm.footprint_radius_m(m)
+        assert across / top < 0.35, m.name  # the broad Rocky Mountain junipers are about 0.55
+        assert 3.5 <= lo * top and hi * top <= 6.2, m.name
+        assert 1.0 <= lo * across and hi * across <= 2.0, m.name
+        # Widest in its lower half, tapering to the top.
+        assert _crown_width_at(m, 0.85) < 0.7 * max(_crown_width_at(m, f) for f in (0.2, 0.3, 0.4))
+        assert m.species == "juniper_rocky_mountain" and m.atlas == "Juniper"
+
+
+def test_hillsides_never_get_the_planted_form(models):
+    """The columnar junipers are only for the aisles, and adding them leaves the hillsides as they were."""
+    by_name = {mm.name: mm for mm in models}
+    g = veg.Ground(_slope_grid(n=81, size=320000.0, fn=lambda x, y: 90000.0 - 0.25 * y))
+    out = veg.place(g, set(), by_name)
+    assert not out["JuniperRM_3"] and not out["JuniperRM_4"]
+    without = veg.place(g, set(), {n: mm for n, mm in by_name.items() if mm.form != "columnar"})
+    assert without == {n: rows for n, rows in out.items() if by_name[n].form != "columnar"}
+
+
+AISLE_BASE = 1750.0
+AISLE_ROWS = 40
+WEST_PATH_E = -47.5  # a footway along the west strip, 5.3 m outside its cheek walls
+EAST_ROCK_E = 48.5  # a rock face along the east strip, 6.3 m outside them
+
+
+def _aisle_ground(e, n):
+    """The scan's ground: the bowl's rake, then rock faces past the strips."""
+    z = 1800.0 + 0.45 * (n - 100.0)
+    return z + 1.6 * np.clip(np.asarray(e) - EAST_ROCK_E, 0, None) + 1.6 * np.clip(-58.0 - np.asarray(e), 0, None)
+
+
+@pytest.fixture(scope="module")
+def aisle_build(tmp_path_factory, models):
+    """A small build: 40 terraced rows 80 m long rising north, row-end stairs, a
+    booth, treads, a path along the west strip, and a scan with a rock face
+    along the east strip and a tall scanned bush in the west one."""
+    from redrocks import stage
+    from redrocks.scan_blend import ScanHeights
+    from redrocks.venue import Row
+
+    out = tmp_path_factory.mktemp("aisles")
+    rows, lines = [], []
+    for i in range(AISLE_ROWS):
+        rows.append(Row(index=i + 1, seats=100, length_m=80.0, elevation_m=1800.0 + 0.45 * i,
+                        centre_east=0.0, centre_north=100.0 + i))
+        lines.append(np.array([[-40.0, 100.0 + i], [40.0, 100.0 + i]]))
+    levels = [1800.45 + 0.45 * i for i in range(AISLE_ROWS)]
+    booth = np.array([[-3.0, 112.0], [3.0, 112.0], [3.0, 116.5], [-3.0, 116.5]])
+    mesh = stage.export_stage_obj(rows, lines, out / "Stage.obj", AISLE_BASE, levels=levels, booth=booth)
+    # The treads, as Benches.obj's upward faces.
+    v, f = [], []
+    for i, z in enumerate(levels):
+        zc = (z - AISLE_BASE) * 100.0
+        k = len(v)
+        v += [(-4000.0, (100.0 + i) * 100, zc), (4000.0, (100.0 + i) * 100, zc),
+              (4000.0, (101.0 + i) * 100, zc), (-4000.0, (101.0 + i) * 100, zc)]
+        f += [(k + 1, k + 2, k + 3), (k + 1, k + 3, k + 4)]
+    (out / "Benches.obj").write_text("o Benches\n" + "".join("v %.1f %.1f %.1f\n" % p for p in v)
+                                     + "".join("f %d %d %d\n" % t for t in f))
+    # A 1.5 m footway running up beside the west aisle.
+    x0, x1 = (WEST_PATH_E - 0.75) * 100, (WEST_PATH_E + 0.75) * 100
+    (out / "Paths.obj").write_text(f"v {x0} 9000 0\nv {x1} 9000 0\nv {x1} 15000 0\nv {x0} 15000 0\nf 1 2 3\nf 1 3 4\n")
+    (out / "manifest.json").write_text(json.dumps({
+        "benches": {"base_elevation_m": AISLE_BASE},
+        "stage": {"aisles": {side: [list(p) for p in path] for side, path in mesh.aisles.items()}},
+    }))
+    xs = np.arange(-80.0, 80.0) + 0.5
+    ys = np.arange(80.0, 160.0) + 0.5
+    e, n = np.meshgrid(xs, ys)
+    ground = _aisle_ground(e, n)
+    top = ground + 0.1
+    bush = (np.abs(e - (-44.5)) < 1.0) & (np.abs(n - 115.0) < 1.0)  # a 2 m scanned bush, 4 m tall
+    top[bush] += 4.0
+    ScanHeights(ground, -80.0, 80.0, 1.0).save(out / "ground.npz")
+    ScanHeights(top, -80.0, 80.0, 1.0).save(out / "top.npz")
+    by_name = {mm.name: mm for mm in models}
+    site = veg.load_aisle_site(out, out / "ground.npz", out / "top.npz")
+    inst, summary = veg.place_aisles(site, by_name)
+    return {"out": out, "site": site, "instances": inst, "summary": summary, "models": by_name,
+            "ground": ScanHeights.load(out / "ground.npz"), "bush": (e[bush], n[bush]), "mesh": mesh}
+
+
+def _aisle_plants(build):
+    for name, rows in build["instances"].items():
+        for row in rows:
+            yield name, build["models"][name], row
+
+
+def _plan_reach(model):
+    """How far any part of the plant reaches out from its trunk, metres at scale 1."""
+    pts = np.concatenate([model.parts[p].positions() for p in veg.PARTS])
+    return float(np.hypot(pts[:, 0], pts[:, 1]).max())
+
+
+def test_aisle_strips_are_planted_up_both_sides_in_clumps(aisle_build):
+    s = aisle_build["summary"]
+    assert set(s["sides"]) == {"start", "end"}
+    for side, info in s["sides"].items():
+        clumps = info["clumps"]
+        # At least one clump in every ten rows of the climb.
+        for first in range(1, AISLE_ROWS + 1, 10):
+            assert any(c["rows"][0] <= first + 9 and c["rows"][1] >= first for c in clumps), (side, first)
+        sizes = [c["plants"] for c in clumps]
+        assert max(sizes) <= 5 and np.mean([2 <= k for k in sizes]) >= 0.7, sizes  # groups, not a picket line
+        assert sum(sizes) == info["plants"]
+    names = [n for n, _, _ in _aisle_plants(aisle_build)]
+    assert sum(n.rsplit("_", 1)[0] in ("JuniperRM", "Oak", "Mahogany") for n in names) >= 0.9 * len(names)
+    assert sum(aisle_build["models"][n].form == "columnar" for n in names) >= 0.4 * len(names)
+    assert s["plants"] == len(names) and s["species"] == {
+        sp: sum(1 for n in names if n.startswith(sp + "_")) for sp in s["species"]}
+
+
+def test_aisle_plants_keep_clear_of_stairs_aisles_rows_and_booth(aisle_build):
+    """No crown reaches within 0.3 m of a stair step, the aisle path, a tread or the booth (in plan)."""
+    import shapely
+
+    out = aisle_build["out"]
+    stairs = [shapely.MultiPoint(v[:, :2]).convex_hull for v in veg.obj_parts(out / "Stairs.obj").values()]
+    booth = [shapely.MultiPoint(v[:, :2]).convex_hull for name, v in veg.obj_parts(out / "Stage.obj").items()
+             if name.startswith("part foh_")]
+    booth += [shapely.MultiPoint(v[:, :2]).convex_hull for v in veg.obj_parts(out / "Booth.obj").values()]
+    aisle = [shapely.Point(p[:2]) for path in aisle_build["mesh"].aisles.values() for p in path]
+    treads = shapely.union_all([shapely.box(-40.0, 100.0 + i, 40.0, 101.0 + i) for i in range(AISLE_ROWS)])
+    n = 0
+    for name, model, (x, y, z, yaw, pitch, roll, sxy, sz) in _aisle_plants(aisle_build):
+        p = shapely.Point(x / 100.0, y / 100.0)
+        r = _plan_reach(model) * sxy
+        assert min(g.distance(p) for g in stairs) >= r + 0.3 - 1e-6, name
+        assert min(g.distance(p) for g in aisle) >= r + 0.3 - 1e-6, name
+        assert min(g.distance(p) for g in booth) >= r + 0.3 - 1e-6, name
+        assert treads.distance(p) >= max(r + 0.3, 1.0) - 1e-6, name
+        assert pitch == 0.0 and roll == 0.0  # planted upright
+        n += 1
+    assert n >= 20
+
+
+def test_aisle_strips_stop_at_paths_and_rock_faces(aisle_build):
+    """The west strip ends at the footway beside it, the east one at the foot of the rock;
+    no trunk stands in a tall scanned bush."""
+    bx, by = aisle_build["bush"]
+    for name, model, (x, y, *_rest) in _aisle_plants(aisle_build):
+        e, n, sxy = x / 100.0, y / 100.0, _rest[4]
+        if e < 0:
+            assert e >= WEST_PATH_E + 0.75 + _plan_reach(model) * sxy + 0.3 - 1e-6, name  # crown clear of the path
+        else:
+            assert e <= EAST_ROCK_E + 0.5, name  # not up the rock face
+        assert np.min(np.hypot(bx - e, by - n)) > veg.AISLE_TALL_REACH_M, name
+    assert all(42.19 < abs(x / 100.0) < 42.2 + veg.AISLE_BAND_M[1] + 0.01 for _, _, (x, *_) in _aisle_plants(aisle_build))
+
+
+def test_aisle_plants_stand_on_the_scan_and_never_float(aisle_build):
+    """Every trunk base is 10-15 cm under the scan's ground at its spot, and no root of any
+    plant stands over that ground anywhere around it, whatever its yaw."""
+    from redrocks.scan_blend import ScanGround
+
+    scan = ScanGround(aisle_build["ground"], fallback=lambda e, n: float("nan"))
+    ring = np.linspace(0, 2 * math.pi, 16, endpoint=False)
+    for name, model, (x, y, z, yaw, pitch, roll, sxy, sz) in _aisle_plants(aisle_build):
+        e, n, base = x / 100.0, y / 100.0, AISLE_BASE + z / 100.0
+        surface = scan(e, n)
+        assert 0.0 <= surface - base <= 0.15 + 1e-3, (name, surface - base)
+        for rx, ry, rz, rr in model.roots:
+            rho = (math.hypot(rx, ry) + rr) * sxy
+            for a in ring:
+                assert base + rz * sz <= scan(e + math.cos(a) * rho, n + math.sin(a) * rho) + 1e-6, name
+
+
+def test_aisle_planting_is_seeded(aisle_build):
+    site, models = aisle_build["site"], aisle_build["models"]
+    assert veg.place_aisles(site, models)[0] == aisle_build["instances"]
+    assert veg.place_aisles(site, models, seed=7)[0] != aisle_build["instances"]
+
+
+def test_export_plants_the_aisles_when_given_the_scan(tmp_path, aisle_build):
+    """vegetation.json carries the aisle plants with the rest, and sums them up."""
+    out = aisle_build["out"]
+    verts = _slope_grid(n=21, size=240000.0, fn=lambda x, y: 0.05 * x + 20000.0)
+    (out / "RedRocks_Terrain.obj").write_text("\n".join("v %.1f %.1f %.1f" % tuple(v) for v in verts) + "\n")
+    info = veg.export(tmp_path / "veg", terrain_obj=out / "RedRocks_Terrain.obj", avoid_dir=out, textures=False,
+                      scan_ground=out / "ground.npz", scan_top=out / "top.npz")
+    a = info["aisle_planting"]
+    assert a["plants"] == aisle_build["summary"]["plants"] and set(a["sides"]) == {"start", "end"}
+    for name, rows in aisle_build["instances"].items():
+        for row in rows:
+            assert row in info["instances"][name]
+    assert info["counts"]["JuniperRM"] >= a["species"]["JuniperRM"]
+    assert {m["name"]: m.get("form") for m in info["models"]}["JuniperRM_3"] == "columnar"
+    written = json.loads((tmp_path / "veg" / "vegetation.json").read_text())
+    assert written["aisle_planting"]["clumps"] == a["clumps"]
+    # Without the scan the strips stay as they were.
+    bare = veg.export(tmp_path / "veg2", terrain_obj=out / "RedRocks_Terrain.obj", avoid_dir=out, textures=False)
+    assert "aisle_planting" not in bare

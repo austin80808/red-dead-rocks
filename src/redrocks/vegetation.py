@@ -10,7 +10,9 @@ Species (heights are the generated model; instances scale them):
 
 =====================  ======================  =================================
 Rocky Mountain juniper  ``JuniperRM``  5.0 m    one gnarly trunk, dense irregular
-                                                 conical crown, blue-green
+                                                 conical crown, blue-green; variants
+                                                 3-4 are the narrow upright form
+                                                 planted beside the aisle stairs
 One-seed juniper        ``JuniperOS``  3.6 m    2-4 stems from the base, broad
                                                  rounded crown to the ground
 Ponderosa pine          ``Ponderosa`` 18.0 m    tall orange trunk clear for half
@@ -38,7 +40,8 @@ Placement reuses the masks the old scrub used (``setup_environment.py``): the
 terrain grid's slope, the scanned bowl, roads, paths and parking, plus the
 benches and stage. Ponderosa takes the upper and north-facing slopes, junipers
 the open rocky slopes, oak and mahogany the lower, gentler ground, in thickets
-by noise.
+by noise. Inside the scanned bowl only the strips beside the two aisle stairs
+are planted (``place_aisles``), on the scan's own ground.
 """
 
 from __future__ import annotations
@@ -324,6 +327,8 @@ class Model:
     tips: list = field(default_factory=list)  # branch tips, metres (ponderosa)
     roots: list = field(default_factory=list)  # (x, y, z, radius) where stems meet the ground, metres
     limbs: list = field(default_factory=list)  # (z, limb base radius, trunk radius there), metres (ponderosa)
+    # "columnar": a planted form, only placed beside the aisle stairs (place_aisles), never on the hillsides.
+    form: str = ""
 
 
 def _seed(name: str, index: int) -> int:
@@ -394,24 +399,42 @@ def _wobbly_path(rng, start, direction, length, points, wobble, curve_up=0.0, dr
     return np.asarray(pts)
 
 
+JUNIPER_RM_FORMS = ("broad", "broad", "broad", "columnar", "columnar")  # Rocky Mountain juniper, by variant index
+COLUMNAR_RADIUS, COLUMNAR_CLUMPS, COLUMNAR_CORE = 0.16, 180, 0.22
+
+
 def _juniper(name, index, one_seed: bool) -> Model:
+    """A juniper. Rocky Mountain variants 3 and 4 are the narrow, upright
+    (columnar to conical) form planted beside the aisle stairs at the
+    amphitheatre: 5 m tall and about 1.5 m across, dense to the ground with a
+    blunt point. The hillsides only get the broad forms (``place``)."""
     rng = np.random.default_rng(_seed(name, index))
     meshes = {p: Mesh() for p in PARTS}
+    columnar = not one_seed and JUNIPER_RM_FORMS[index] == "columnar"
     if one_seed:
         height, n_stems, base_r, zb = 3.6, int(rng.integers(2, 5)), 0.10, 0.04
         radius, shape_pow, n_clumps, core, card = 0.55 * 3.6, 0.6, 170, 0.3, 0.5
+    elif columnar:
+        height, n_stems, base_r, zb = 5.0, 1, 0.13, 0.06
+        radius, shape_pow, n_clumps, core, card = COLUMNAR_RADIUS * 5.0, 0.85, COLUMNAR_CLUMPS, COLUMNAR_CORE, 0.52
     else:
         height, n_stems, base_r, zb = 5.0, int(rng.integers(1, 3)), 0.17, 0.05
         radius, shape_pow, n_clumps, core, card = 0.34 * 5.0, 0.85, 190, 0.32, 0.52
-    lean = rng.normal(scale=0.12 * height, size=2)
+    lean = rng.normal(scale=(0.025 if columnar else 0.12) * height, size=2)
     sin_w = rng.normal(size=(3, 3))
     sin_p = rng.uniform(0, 2 * math.pi, 3)
+    lump = 0.06 if columnar else 0.12
 
     def envelope(t, theta):
-        shape = math.sin(math.pi * min(max(t, 0.0), 1.0) ** shape_pow) ** 0.7
-        if not one_seed:
-            shape *= 1.0 - 0.45 * t  # Rocky Mountain: broad base, narrow top
-        lumps = sum(0.12 * math.sin(sin_w[i, 0] * 3 * math.cos(theta) + sin_w[i, 1] * 3 * math.sin(theta)
+        if columnar:
+            # Full from a fifth of the way up, then a long taper to a blunt point.
+            tc = min(max(t, 0.0), 1.0)
+            shape = min(1.0, 0.55 + 2.5 * tc) * max(0.0, 1.0 - tc ** 1.6) ** 0.9
+        else:
+            shape = math.sin(math.pi * min(max(t, 0.0), 1.0) ** shape_pow) ** 0.7
+            if not one_seed:
+                shape *= 1.0 - 0.45 * t  # Rocky Mountain: broad base, narrow top
+        lumps = sum(lump * math.sin(sin_w[i, 0] * 3 * math.cos(theta) + sin_w[i, 1] * 3 * math.sin(theta)
                                     + sin_w[i, 2] * 4 * t + sin_p[i]) for i in range(3))
         return radius * shape * (1.0 + lumps)
 
@@ -422,11 +445,14 @@ def _juniper(name, index, one_seed: bool) -> Model:
     roots = []
     for s in range(n_stems):
         az = rng.uniform(0, 2 * math.pi)
-        tilt = rng.uniform(0.05, 0.25) if n_stems == 1 else rng.uniform(0.25, 0.55)
+        if columnar:
+            tilt = rng.uniform(0.0, 0.05)  # one straight leader
+        else:
+            tilt = rng.uniform(0.05, 0.25) if n_stems == 1 else rng.uniform(0.25, 0.55)
         direction = np.array([math.cos(az) * tilt + lean[0] / height, math.sin(az) * tilt + lean[1] / height, 1.0])
         start = np.array([math.cos(az), math.sin(az), 0.0]) * rng.uniform(0.0, 0.15) + [0, 0, -0.45]
-        length = height * rng.uniform(0.6, 0.85)
-        path = _wobbly_path(rng, start, direction, length, 9, 0.18)
+        length = height * rng.uniform(0.75, 0.9) if columnar else height * rng.uniform(0.6, 0.85)
+        path = _wobbly_path(rng, start, direction, length, 9, 0.08 if columnar else 0.18)
         r0 = base_r * rng.uniform(0.8, 1.15)
         radii = [r0 * (1.0 - 0.8 * (i / 8)) ** 1.1 + 0.02 for i in range(9)]
         radii[0] *= 1.35  # root flare
@@ -434,7 +460,7 @@ def _juniper(name, index, one_seed: bool) -> Model:
         stems.append(path)
         roots.append((float(start[0]), float(start[1]), float(start[2]), float(radii[0])))
 
-    crown_c = axis(0.5)
+    crown_c = axis(0.4 if columnar else 0.5)
     crown_r = np.array([radius, radius, height * 0.5])
     card_w = CARD_M["Juniper"]
     # The crown is almost solid: opaque cores fill the envelope to 85 % of its
@@ -466,7 +492,7 @@ def _juniper(name, index, one_seed: bool) -> Model:
             path = _wobbly_path(rng, start, p - start, float(np.linalg.norm(p - start)) * 0.9, 4, 0.12)
             add_tube(meshes["Trunk"], path, [0.05, 0.035, 0.022, 0.012], 5, gnarl=0.1, rng=rng)
     return Model("%s_%d" % (name, index), "juniper_one_seed" if one_seed else "juniper_rocky_mountain",
-                 "Juniper", height, base_r, meshes, roots=roots)
+                 "Juniper", height, base_r, meshes, roots=roots, form="columnar" if columnar else "")
 
 
 PONDEROSA_FORMS = ("young", "mature", "mature", "mature", "old")  # by variant index
@@ -673,7 +699,7 @@ def _oak_patch(name, index) -> Model:
 
 # name -> (builder, variant count)
 SPECIES = {
-    "JuniperRM": (lambda i: _juniper("JuniperRM", i, one_seed=False), 3),
+    "JuniperRM": (lambda i: _juniper("JuniperRM", i, one_seed=False), len(JUNIPER_RM_FORMS)),
     "JuniperOS": (lambda i: _juniper("JuniperOS", i, one_seed=True), 3),
     "Ponderosa": (lambda i: _ponderosa("Ponderosa", i), 5),
     "Oak": (lambda i: _shrub("Oak", i, mahogany=False), 3),
@@ -795,8 +821,11 @@ def value_noise(x, y, cell, seed):
     return a * (1 - ty) + b * ty
 
 
-def mesh_cells(path, cell: float = FINE_CELL_CM) -> set:
-    """Grid cells covered by an OBJ's triangles (sampled at half a cell), not just its vertices."""
+def mesh_cells(path, cell: float = FINE_CELL_CM, bounds=None) -> set:
+    """Grid cells covered by an OBJ's triangles (sampled at half a cell), not just its vertices.
+
+    ``bounds`` = (x0, y0, x1, y1), cm, skips the triangles wholly outside it.
+    """
     verts, faces = [], []
     with open(path) as fh:
         for line in fh:
@@ -811,6 +840,9 @@ def mesh_cells(path, cell: float = FINE_CELL_CM) -> set:
     out = set()
     for a, b, c in faces:
         pa, pb, pc = v[a], v[b], v[c]
+        if bounds is not None and (max(pa[0], pb[0], pc[0]) < bounds[0] or min(pa[0], pb[0], pc[0]) > bounds[2]
+                                   or max(pa[1], pb[1], pc[1]) < bounds[1] or min(pa[1], pb[1], pc[1]) > bounds[3]):
+            continue
         n = int(math.ceil(max(np.linalg.norm(pb - pa), np.linalg.norm(pc - pa), np.linalg.norm(pc - pb)) / (cell / 2)))
         n = max(n, 1)
         i, j = np.meshgrid(np.arange(n + 1), np.arange(n + 1))
@@ -979,6 +1011,8 @@ def place(ground: Ground, blocked: set, models: dict, seed: int = SEED, shrub_ma
     x0, y0, x1, y1 = ground.extent
     by_species = {}
     for name in sorted(models):
+        if getattr(models[name], "form", "") == "columnar":
+            continue  # planted forms grow beside the aisle stairs only (place_aisles)
         by_species.setdefault(name.rsplit("_", 1)[0], []).append(name)
     out = {name: [] for name in models}
     reach = max([footprint_radius_m(models[n]) * 100.0 * SCALE[n.rsplit("_", 1)[0]][1] * 1.08
@@ -1111,14 +1145,454 @@ def place(ground: Ground, blocked: set, models: dict, seed: int = SEED, shrub_ma
     return out
 
 
+# ---------------------------------------------------------- beside the aisle stairs
+#
+# At the real Red Rocks the two side aisles (the row-end stairs) climb beside
+# planted strips: narrow upright junipers, scrub oak and mountain mahogany at
+# their feet and the odd ponderosa, in the soil pockets between the stairs'
+# outer cheek walls and the rock walls, all the way up the bowl. ``place``
+# keeps out of the scanned bowl (the scan has its own plants, baked into
+# blobs), so ``place_aisles`` plants those strips, on the scan's own ground.
+
+AISLE_BAND_M = (0.6, 8.6)       # the strip: from this far outside each stair's outer cheek wall, out to this far
+AISLE_STEP_M = 0.5              # candidate spacing across the strip (and two candidates per row along it)
+AISLE_CLEAR_M = 0.3             # crowns keep this far off the stairs, aisle path, rows, booth, stage, paths, roads...
+AISLE_SEAT_CLEAR_M = 1.0        # ...and trunks at least this far off the treads (tools/check_seating_clear.py)
+AISLE_MAX_SLOPE_DEG = 35.0      # the strip stops where the scan's ground is steeper: rock face
+AISLE_TALL_M = 1.5              # no trunk where the scan stands taller than this over its ground within
+AISLE_TALL_REACH_M = 0.5        # this of it (a scanned tree or rock): it would hide the plant or stand in rock
+AISLE_BURY_M = 0.10             # trunk bases sit this far under the scan's ground...
+AISLE_MAX_BURY_M = 0.15         # ...or up to this far where a root would otherwise show; else no plant there
+AISLE_PINE_BAND_M = 5.0         # a ponderosa only where the strip is at least this wide
+AISLE_PINE_EVERY_M = (15.0, 25.0)  # and about one this far apart up the aisle
+AISLE_SEED = 7                  # added to the placement seed, so the hillsides' draws stay as they were
+# The strip runs out from the stairs and stops where it meets these: the stage
+# blockout, the booth and the handrail part by part at their exact plans, and
+# the OSM meshes at their AISLE_CELL_CM cells (mesh_cells, as the scrub uses at 2 m).
+AISLE_STOP_OBJS = ("Stage", "Booth", "Handrail")
+AISLE_CELL_OBJS = FINE_BLOCK_OBJS + ("Rocks",)
+AISLE_CELL_CM = 50.0
+# Instance scale (of the model's height) by kind: columnar junipers 3.7-5.8 m
+# tall and 1.1-1.7 m across; broad junipers smaller than on the hillsides;
+# low round shrubs at their feet; young-to-mature ponderosa, 12-15 m.
+AISLE_SCALE = {"columnar": (0.75, 1.15), "JuniperRM": (0.62, 0.9), "Oak": (0.5, 0.85),
+               "Mahogany": (0.55, 0.95), "Ponderosa": (0.7, 0.8)}
+AISLE_SIDES = ("start", "end")
+
+
+@dataclass
+class AisleSite:
+    """What the aisle planting reads from a build (metres, the terrain frame)."""
+
+    rows: dict  # side -> [(row, wall centre, outward unit, uphill unit, wall's outer face offset, band depth)]
+    stops: list  # shapely geometries the strip stops at: stage, booth, handrail, OSM roads, paths, buildings...
+    clear: list  # ...and ones it runs beside: the stairs, the aisle path, the seating cut. Crowns keep
+    seats: list  # AISLE_CLEAR_M off both lists; trunks keep AISLE_SEAT_CLEAR_M off the treads (these)
+    ground: object  # scan_blend.ScanHeights: the scan's ground, absolute elevation
+    top: object  # scan_blend.ScanHeights: the scan's highest point per cell
+    base_m: float  # the elevation of Z = 0 in the OBJs
+
+
+def obj_parts(path) -> dict:
+    """Part name -> its vertices (metres) for an OBJ whose parts are marked by a
+    comment line before their faces (``# stair wall start r12``, ``# part deck``)."""
+    verts, parts, cur = [], {}, None
+    with open(path) as fh:
+        for line in fh:
+            if line.startswith("v "):
+                verts.append(line.split()[1:4])
+            elif line.startswith("# "):
+                cur = line[2:].strip()
+            elif line.startswith("f ") and cur is not None:
+                parts.setdefault(cur, set()).update(int(t.split("/")[0]) - 1 for t in line.split()[1:])
+    v = np.asarray(verts, float).reshape(-1, 3) / 100.0
+    return {name: v[sorted(ix)] for name, ix in parts.items()}
+
+
+def _up_faces(path) -> list:
+    """Plan polygons (metres) of an OBJ's upward-facing faces: the treads of Benches.obj."""
+    import shapely
+
+    verts, out = [], []
+    with open(path) as fh:
+        for line in fh:
+            if line.startswith("v "):
+                verts.append(line.split()[1:4])
+    v = np.asarray(verts, float).reshape(-1, 3) / 100.0
+    with open(path) as fh:
+        for line in fh:
+            if not line.startswith("f "):
+                continue
+            idx = [int(t.split("/")[0]) - 1 for t in line.split()[1:]]
+            a, b, c = v[idx[0]], v[idx[1]], v[idx[2]]
+            n = np.cross(b - a, c - a)
+            if n[2] > 0.999 * np.linalg.norm(n) > 0:
+                out.append(shapely.Polygon(v[idx][:, :2]))
+    return out
+
+
+def stair_frames(parts: dict) -> dict:
+    """side -> [(row, wall centre, outward unit, uphill unit, outer face offset, band depth)], bottom row first,
+    from Stairs.obj's parts: each row's two steps and the stone cheek wall on their outer side."""
+    import re
+
+    out = {}
+    for name, v in parts.items():
+        m = re.fullmatch(r"stair wall (start|end) r(\d+)", name)
+        if not m:
+            continue
+        side, row = m.group(1), int(m.group(2))
+        s1, s2 = parts.get(f"stair {side} r{row} s1"), parts.get(f"stair {side} r{row} s2")
+        if s1 is None or s2 is None:
+            continue
+        wall = v[:, :2].mean(axis=0)
+        u_out = wall - np.vstack([s1, s2])[:, :2].mean(axis=0)
+        u_out /= np.linalg.norm(u_out)
+        n_up = s2[:, :2].mean(axis=0) - s1[:, :2].mean(axis=0)  # the upper step is uphill of the lower
+        n_up -= u_out * float(n_up @ u_out)
+        n_up /= np.linalg.norm(n_up)
+        rel = v[:, :2] - wall
+        out.setdefault(side, []).append((row, wall, u_out, n_up, float((rel @ u_out).max()),
+                                         float(np.ptp(rel @ n_up))))
+    return {side: sorted(rows, key=lambda r: r[0]) for side, rows in out.items()}
+
+
+def scan_at(h, x, y) -> np.ndarray:
+    """``ScanHeights`` bilinear between cell centres (as ``scan_blend.ScanGround``), metres;
+    NaN off the raster or beside a hole."""
+    x, y = np.asarray(x, float), np.asarray(y, float)
+    ny, nx = h.shape
+    fx = (x - h.x0) / h.cell - 0.5
+    fy = (y - h.y0) / h.cell - 0.5
+    inside = (fx >= 0) & (fx <= nx - 1) & (fy >= 0) & (fy <= ny - 1)
+    j = np.clip(np.floor(fx).astype(int), 0, nx - 2)
+    i = np.clip(np.floor(fy).astype(int), 0, ny - 2)
+    tx, ty = fx - j, fy - i
+    z = h.heights
+    v = (z[i, j] * (1 - tx) * (1 - ty) + z[i, j + 1] * tx * (1 - ty)
+         + z[i + 1, j] * (1 - tx) * ty + z[i + 1, j + 1] * tx * ty)
+    return np.where(inside, v, np.nan)
+
+
+def _scan_tall(site: AisleSite, x, y) -> np.ndarray:
+    """How far the scan's top stands over its ground at the cell under each point (0 where unknown)."""
+    t, g = site.top, site.ground
+    i = np.floor((np.asarray(y, float) - g.y0) / g.cell).astype(int)
+    j = np.floor((np.asarray(x, float) - g.x0) / g.cell).astype(int)
+    ok = (i >= 0) & (i < g.shape[0]) & (j >= 0) & (j < g.shape[1])
+    i, j = np.clip(i, 0, g.shape[0] - 1), np.clip(j, 0, g.shape[1] - 1)
+    if t.shape == g.shape and (t.x0, t.y0, t.cell) == (g.x0, g.y0, g.cell):
+        d = t.heights[i, j] - g.heights[i, j]
+    else:
+        d = scan_at(t, x, y) - scan_at(g, x, y)
+    return np.where(ok & np.isfinite(d), d, 0.0)
+
+
+def load_aisle_site(out_dir: Path, scan_ground: Path, scan_top: Path):
+    """The aisle planting's inputs from a ``redrocks build`` output, or None when
+    the build has no stairs or the scan rasters are missing."""
+    import shapely
+
+    from .scan_blend import ScanHeights
+
+    out_dir = Path(out_dir)
+    stairs_obj, manifest_path = out_dir / "Stairs.obj", out_dir / "manifest.json"
+    if not (stairs_obj.is_file() and manifest_path.is_file() and Path(scan_ground).is_file()
+            and Path(scan_top).is_file()):
+        return None
+    manifest = json.loads(manifest_path.read_text())
+    base = manifest.get("benches", {}).get("base_elevation_m")
+    stairs = obj_parts(stairs_obj)
+    rows = stair_frames(stairs)
+    if not rows or base is None:
+        return None
+    clear = [shapely.MultiPoint(v[:, :2]).convex_hull for v in stairs.values()]
+    for path in manifest.get("stage", {}).get("aisles", {}).values():
+        if len(path) > 1:
+            clear.append(shapely.LineString([p[:2] for p in path]))
+    cut_path = out_dir / "seating_cut.json"
+    if cut_path.is_file():
+        cut = json.loads(cut_path.read_text())
+        t, x0, y1 = cut["texel_cm"] / 100.0, cut["x0_cm"] / 100.0, cut["y1_cm"] / 100.0
+        clear += [shapely.box(x0 + a * t, y1 - (r + 1) * t, x0 + b * t, y1 - r * t) for r, a, b in cut["runs"]]
+    stops = []
+    for name in AISLE_STOP_OBJS:
+        path = out_dir / (name + ".obj")
+        if path.is_file():
+            stops += [shapely.MultiPoint(v[:, :2]).convex_hull for v in obj_parts(path).values()]
+    # The OSM meshes, as cells, near the strips only.
+    pts = np.vstack([np.array([c for _, c, *_ in side]) for side in rows.values()])
+    lo, hi = pts.min(axis=0) - (AISLE_BAND_M[1] + 15.0), pts.max(axis=0) + (AISLE_BAND_M[1] + 15.0)
+    cm = AISLE_CELL_CM / 100.0
+    for name in AISLE_CELL_OBJS:
+        path = out_dir / (name + ".obj")
+        if path.is_file():
+            cells = mesh_cells(path, AISLE_CELL_CM, bounds=(*(lo * 100.0), *(hi * 100.0)))
+            stops += [shapely.box(i * cm, j * cm, (i + 1) * cm, (j + 1) * cm) for i, j in sorted(cells)]
+    seats = _up_faces(out_dir / "Benches.obj") if (out_dir / "Benches.obj").is_file() else []
+    return AisleSite(rows, stops, clear, seats, ScanHeights.load(Path(scan_ground)), ScanHeights.load(Path(scan_top)),
+                     float(base))
+
+
+def reach_m(model) -> float:
+    """How far the plant reaches out from its trunk in plan (every part), metres at scale 1."""
+    pts = np.concatenate([model.parts[p].positions() for p in PARTS if model.parts[p].v])
+    return float(np.hypot(pts[:, 0], pts[:, 1]).max())
+
+
+def _nearest(geoms: list, x, y, limit: float) -> np.ndarray:
+    """Distance from each point to the nearest of ``geoms`` (``limit`` when none is closer)."""
+    import shapely
+
+    if not geoms:
+        return np.full(len(x), limit)
+    tree = shapely.STRtree(geoms)
+    pts = shapely.points(np.asarray(x, float), np.asarray(y, float))
+    (ip, _), d = tree.query_nearest(pts, max_distance=limit, return_distance=True)
+    out = np.full(len(pts), limit)
+    np.minimum.at(out, ip, d)
+    return out
+
+
+def _aisle_candidates(site: AisleSite, side: str) -> dict:
+    """Candidate trunk spots in one side's strip, with what each can take.
+
+    The strip runs out from each row's cheek wall in lines of ``AISLE_STEP_M``
+    samples and stops at the first that is rock face (ground steeper than
+    ``AISLE_MAX_SLOPE_DEG``, or no scan) or meets something built (``stops``);
+    ``width`` is how far it got. A trunk spot is in the strip and clear of tall
+    scanned things (``AISLE_TALL_M``).
+    """
+    frames = site.rows[side]
+    walls = np.array([f[1] for f in frames])
+    station = np.concatenate([[0.0], np.cumsum(np.linalg.norm(np.diff(walls, axis=0), axis=1))])
+    across = np.arange(AISLE_BAND_M[0], AISLE_BAND_M[1] + 1e-9, AISLE_STEP_M)
+    xs, ys, st, ss, rw = [], [], [], [], []
+    for (row, wall, u_out, n_up, outer, band), s0 in zip(frames, station):
+        for t in (-band / 4.0, band / 4.0):
+            p = wall + np.outer(outer + across, u_out) + n_up * t
+            xs.append(p[:, 0]), ys.append(p[:, 1])
+            st.append(np.full(len(across), s0 + t)), ss.append(across), rw.append(np.full(len(across), row))
+    x, y, st, s, rw = (np.concatenate(a) for a in (xs, ys, st, ss, rw))
+    g = scan_at(site.ground, x, y)
+    h = 0.5
+    gx = (scan_at(site.ground, x + h, y) - scan_at(site.ground, x - h, y)) / (2 * h)
+    gy = (scan_at(site.ground, x, y + h) - scan_at(site.ground, x, y - h)) / (2 * h)
+    slope = np.degrees(np.arctan(np.hypot(gx, gy)))
+    tall = _scan_tall(site, x, y)
+    for a in np.linspace(0, 2 * math.pi, 8, endpoint=False):
+        tall = np.maximum(tall, _scan_tall(site, x + AISLE_TALL_REACH_M * math.cos(a),
+                                           y + AISLE_TALL_REACH_M * math.sin(a)))
+    d_stop = _nearest(site.stops, x, y, 30.0)
+    d_clear = _nearest(site.clear, x, y, 30.0)
+    d_seat = _nearest(site.seats, x, y, 30.0)
+    open_ = np.isfinite(g) & np.isfinite(slope) & (slope <= AISLE_MAX_SLOPE_DEG) & (d_stop > AISLE_CLEAR_M)
+    lines = open_.reshape(-1, len(across))
+    run = np.cumprod(lines, axis=1).astype(bool)  # the strip, out to where it stops
+    width = np.repeat(run.sum(axis=1) * AISLE_STEP_M, len(across))
+    ok = run.ravel() & (tall <= AISLE_TALL_M)
+    return {"x": x, "y": y, "station": st, "s": s, "row": rw, "g": g, "slope": slope, "tall": tall, "ok": ok,
+            "in_strip": run.ravel(), "d_keep": np.minimum(d_stop, d_clear), "d_seat": d_seat, "width": width,
+            "length": float(station[-1])}
+
+
+def _aisle_base(site: AisleSite, model, x: float, y: float, sxy: float, sz: float) -> float | None:
+    """Absolute elevation of the trunk base: ``AISLE_BURY_M`` under the scan's
+    ground, or deeper (to ``AISLE_MAX_BURY_M``) if a root would otherwise stand
+    over the ground anywhere around the plant, whatever its yaw; None if even
+    that leaves a root showing."""
+    g = float(scan_at(site.ground, np.array([x]), np.array([y]))[0])
+    if not np.isfinite(g):
+        return None
+    ring = np.linspace(0, 2 * math.pi, 16, endpoint=False)
+    lowest = []
+    for rx, ry, rz, rr in model.roots:
+        rho = (math.hypot(rx, ry) + rr) * sxy
+        gr = scan_at(site.ground, x + np.cos(ring) * rho, y + np.sin(ring) * rho)
+        if not np.isfinite(gr).all():
+            return None
+        lowest.append((rz * sz, float(gr.min())))
+    for bury in (AISLE_BURY_M, AISLE_MAX_BURY_M):
+        if all(g - bury + dz <= low for dz, low in lowest):
+            return g - bury
+    return None
+
+
+def place_aisles(site: AisleSite, models: dict, seed: int = SEED) -> tuple[dict, dict]:
+    """Plants in the strips beside both aisle stairs: (instances by model name, as
+    ``place``'s rows, and a summary with every clump).
+
+    Clumps of 2-5 (a lone plant only where nothing fits beside it), with gaps
+    between them: short lines of 2-4 columnar junipers close to the stairs with
+    a low oak or mahogany or two at their feet, or a juniper with a few shrubs;
+    and about every ``AISLE_PINE_EVERY_M`` a young ponderosa where the strip is
+    ``AISLE_PINE_BAND_M`` wide and its crown clears everything. Gaps are
+    shortest by the stage-end towers and in the lower half of the bowl. Every
+    crown (the plant's whole reach in plan) keeps ``AISLE_CLEAR_M`` off the
+    stairs, the aisle path, the seating cut, the booth, the stage and the
+    walkway, and off roads, paths, buildings, walls and rocks; every trunk keeps
+    ``AISLE_SEAT_CLEAR_M`` off the treads and stands in the strip, on scan
+    ground no steeper than ``AISLE_MAX_SLOPE_DEG`` with nothing scanned standing
+    over ``AISLE_TALL_M`` beside it, ``AISLE_BURY_M`` under its surface.
+    Deterministic for a seed.
+    """
+    rng = np.random.default_rng(seed + AISLE_SEED)
+    names = sorted(models)
+    columnar = [n for n in names if getattr(models[n], "form", "") == "columnar"]
+    broad = [n for n in names if n.startswith("JuniperRM_") and n not in columnar]
+    oak = [n for n in names if n.startswith("Oak_")]
+    mahogany = [n for n in names if n.startswith("Mahogany_")]
+    pines = [n for n in names if n.startswith("Ponderosa_")]
+    reach = {n: reach_m(models[n]) for n in columnar + broad + oak + mahogany + pines}
+    out = {n: [] for n in models}
+    placed = []  # (x, y, kind, reach m at its scale)
+    summary = {"about": "plants in the strips beside the two aisle stairs (redrocks.vegetation.place_aisles); "
+                        "clump rows are the stair rows it stands beside",
+               "plants": 0, "clumps": 0, "species": {}, "sides": {}}
+
+    def kind_of(n):
+        return "columnar" if n in columnar else n.rsplit("_", 1)[0]
+
+    def scale(n, smallest=False):
+        lo, hi = AISLE_SCALE[kind_of(n)]
+        s = lo if smallest else lo + (hi - lo) * float(rng.beta(2.0, 2.0))
+        return s * (1.0 if smallest else float(rng.uniform(0.94, 1.06))), s  # (scale_xy, scale_z)
+
+    def min_gap(kind, r, other_kind, other_r):
+        if "Ponderosa" in (kind, other_kind):
+            return 2.5
+        if kind in ("Oak", "Mahogany") or other_kind in ("Oak", "Mahogany"):
+            return max(1.0, 0.55 * (r + other_r))
+        return max(1.4, 0.7 * (r + other_r))
+
+    def try_plant(c, n, sigma, s_pref, window=0.8, smallest=False):
+        """Plant model ``n`` near station ``sigma``, about ``s_pref`` out from the wall; its row or None."""
+        sxy, sz = scale(n, smallest)
+        r = reach[n] * sxy
+        k = kind_of(n)
+        clear = r + AISLE_CLEAR_M + 0.002  # rows round positions to the millimetre
+        fit = (c["ok"] & (np.abs(c["station"] - sigma) <= window) & (c["d_keep"] >= clear)
+               & (c["d_seat"] >= max(clear, AISLE_SEAT_CLEAR_M + 0.002)))
+        if k == "Ponderosa":
+            fit &= c["width"] >= AISLE_PINE_BAND_M
+        idx = np.flatnonzero(fit)
+        if len(idx) == 0:
+            return None
+        # Near where it was asked for, and on open ground rather than in a low scanned bush.
+        cost = (np.abs(c["s"][idx] - s_pref) + 0.5 * np.abs(c["station"][idx] - sigma) + 0.4 * c["tall"][idx]
+                + rng.uniform(0, 0.3, len(idx)))
+        for i in idx[np.argsort(cost)]:
+            x, y = float(c["x"][i]), float(c["y"][i])
+            if any(math.hypot(x - px, y - py) < min_gap(k, reach[n] * sxy, pk, pr) for px, py, pk, pr in placed):
+                continue
+            z = _aisle_base(site, models[n], x, y, sxy, sz)
+            if z is None:
+                continue
+            placed.append((x, y, k, reach[n] * sxy))
+            row = [round(x * 100.0, 1), round(y * 100.0, 1), round((z - site.base_m) * 100.0, 1),
+                   round(float(rng.uniform(0, 360)), 2), 0.0, 0.0, round(sxy, 3), round(sz, 3)]
+            out[n].append(row)
+            return {"name": n, "row": int(c["row"][i]), "s": float(c["s"][i]), "station": float(c["station"][i]),
+                    "slope": float(c["slope"][i])}
+        return None
+
+    def shrub():
+        return mahogany if (mahogany and rng.uniform() < 0.35) else oak
+
+    for side in AISLE_SIDES:
+        if side not in site.rows or not columnar or not oak:
+            continue
+        c = _aisle_candidates(site, side)
+        length = c["length"]
+        clumps = []
+        # Where even the smallest ponderosa's crown would clear everything, in a wide enough strip.
+        pine_r = min(reach[n] for n in pines) * AISLE_SCALE["Ponderosa"][0] if pines else np.inf
+        pine_spots = (c["ok"] & (c["width"] >= AISLE_PINE_BAND_M) & (c["d_keep"] >= pine_r + AISLE_CLEAR_M)
+                      & (c["d_seat"] >= pine_r + AISLE_CLEAR_M))
+        sigma = float(rng.uniform(0.0, 1.5))
+        next_pine = float(rng.uniform(4.0, 12.0))
+        while sigma <= length + 1.0:
+            frac = sigma / max(length, 1.0)
+            dense = frac < 0.5  # the lower half of the bowl
+            members = []
+
+            def add(pool, at, s_pref, **kw):
+                m = try_plant(c, pool[int(rng.integers(len(pool)))], at, s_pref, **kw)
+                if m:
+                    members.append(m)
+                return m
+
+            ahead = np.flatnonzero(pine_spots & (c["station"] >= sigma - 1.0) & (c["station"] <= sigma + 6.0))
+            if sigma >= next_pine and len(ahead):
+                # A ponderosa where the strip is wide, out from the stairs (its crown clear of them),
+                # with a juniper or shrubs between it and the stairs.
+                at = float(c["station"][ahead].min())
+                if not add(pines if rng.uniform() < 0.4 else pines[:1], at, 0.0, window=1.0):
+                    add(pines[:1], at, 0.0, window=1.5, smallest=True)
+                if members:
+                    next_pine = members[0]["station"] + float(rng.uniform(*AISLE_PINE_EVERY_M))
+                    for _ in range(int(rng.integers(1, 3))):
+                        add(columnar if rng.uniform() < 0.5 else shrub(), at + float(rng.uniform(-2.5, 2.5)),
+                            float(rng.uniform(1.0, 2.5)))
+            if not members and rng.uniform() < (0.75 if dense else 0.6):
+                # A short line of columnar junipers by the stairs, shrubs at their feet.
+                n_j = int(rng.choice([2, 3, 4], p=[0.3, 0.45, 0.25] if dense else [0.45, 0.4, 0.15]))
+                at = sigma
+                for _ in range(n_j):
+                    add(columnar, at, float(rng.uniform(1.4, 2.4)))
+                    at += float(rng.uniform(1.6, 2.4))  # crowns all but touching
+                n_s = min(5 - len(members), int(rng.choice([0, 1, 2], p=[0.3, 0.45, 0.25])))
+                for _ in range(n_s if members else 0):
+                    host = members[int(rng.integers(len(members)))]
+                    add(shrub(), host["station"] + float(rng.uniform(-1.2, 1.2)), host["s"] + float(rng.uniform(0.9, 1.8)))
+            elif not members:
+                # A juniper (now and then a broad one) with a few scrub oak and mahogany.
+                add(broad if (broad and rng.uniform() < 0.25) else columnar, sigma, float(rng.uniform(1.6, 3.0)))
+                for _ in range(int(rng.integers(1, 4))):
+                    add(shrub(), sigma + float(rng.uniform(-1.5, 2.5)), float(rng.uniform(1.2, 3.5)))
+            if len(members) == 1:
+                # Groups, not lone plants: a shrub at its foot where one fits.
+                host = members[0]
+                for _ in range(4):
+                    if add(shrub(), host["station"] + float(rng.uniform(-1.6, 1.6)), host["s"] + float(rng.uniform(0.3, 1.8)),
+                           window=1.2):
+                        break
+            if members:
+                stations = [m["station"] for m in members]
+                rows = [m["row"] for m in members]
+                clumps.append({"rows": [min(rows), max(rows)], "plants": len(members),
+                               "station_m": [round(min(stations), 2), round(max(stations), 2)],
+                               "models": [m["name"] for m in members]})
+                # Gaps between clumps (trunk to trunk, so 2-4 m between crowns low
+                # down): shortest by the stage-end towers and in the lower half of
+                # the bowl, longer toward the top.
+                lo, hi = (3.2, 4.5) if frac < 0.15 else (3.5, 5.5) if dense else (5.0, 9.0)
+                sigma = max(stations) + float(rng.uniform(lo, hi))
+            else:
+                sigma += 1.0
+        n_side = sum(cl["plants"] for cl in clumps)
+        summary["sides"][side] = {"plants": n_side, "length_m": round(length, 1), "clumps": clumps}
+        summary["plants"] += n_side
+        summary["clumps"] += len(clumps)
+    for n, rows in out.items():
+        if rows:
+            sp = n.rsplit("_", 1)[0]
+            summary["species"][sp] = summary["species"].get(sp, 0) + len(rows)
+    return out, summary
+
+
 # ---------------------------------------------------------------------- build
 
 def export(out_dir: Path, terrain_obj: Path | None = None, avoid_dir: Path | None = None,
-           seed: int = SEED, textures: bool = True) -> dict:
+           seed: int = SEED, textures: bool = True, scan_ground: Path | None = None,
+           scan_top: Path | None = None) -> dict:
     """Write every model part, the atlases and vegetation.json to ``out_dir``.
 
     With ``terrain_obj``, instances are placed on it, avoiding the OBJs named in
-    ``BLOCK_OBJS`` found in ``avoid_dir``. Returns the JSON written.
+    ``BLOCK_OBJS`` found in ``avoid_dir``. With the scan's ground and top
+    rasters too (``assets/scan``), and a build with stairs in ``avoid_dir``, the
+    strips beside the aisle stairs are planted as well (``place_aisles``,
+    summed up under ``aisle_planting``). Returns the JSON written.
     """
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -1133,6 +1607,8 @@ def export(out_dir: Path, terrain_obj: Path | None = None, avoid_dir: Path | Non
             parts[part] = {"obj": stem + ".obj", "triangles": mesh.triangles}
         info["models"].append({"name": m.name, "species": m.species, "atlas": m.atlas,
                                "height_m": round(m.height_m, 3), "parts": parts})
+        if m.form:
+            info["models"][-1]["form"] = m.form
     if textures:
         from PIL import Image
         for atlas in ATLASES:
@@ -1141,9 +1617,10 @@ def export(out_dir: Path, terrain_obj: Path | None = None, avoid_dir: Path | Non
             info["atlases"][atlas] = name + ".png"
     if terrain_obj is not None:
         ground = Ground(read_obj_vertices(terrain_obj))
+        avoid = Path(avoid_dir or Path(terrain_obj).parent)
         blocked, hard, fine = set(), set(), set()
         for name, dilate in BLOCK_OBJS.items():
-            path = Path(avoid_dir or Path(terrain_obj).parent) / (name + ".obj")
+            path = avoid / (name + ".obj")
             if path.exists():
                 cells = _dilate(mesh_cells(path, BLOCK_CELL_CM), dilate)  # triangles, not just vertices
                 blocked |= cells
@@ -1151,10 +1628,16 @@ def export(out_dir: Path, terrain_obj: Path | None = None, avoid_dir: Path | Non
                     fine |= mesh_cells(path)
                 else:
                     hard |= cells
-        sled = sled_run_cells(Path(avoid_dir or Path(terrain_obj).parent) / "manifest.json")
+        sled = sled_run_cells(avoid / "manifest.json")
         blocked |= sled
         hard |= sled
         info["instances"] = place(ground, blocked, models, seed=seed, shrub_masks=(hard, fine))
+        site = (load_aisle_site(avoid, scan_ground, scan_top)
+                if scan_ground is not None and scan_top is not None else None)
+        if site is not None:
+            aisle, info["aisle_planting"] = place_aisles(site, models, seed=seed)
+            for name, rows in aisle.items():
+                info["instances"][name] += rows
         counts = {}
         for name, rows in info["instances"].items():
             sp = name.rsplit("_", 1)[0]

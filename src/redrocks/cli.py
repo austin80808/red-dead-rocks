@@ -162,8 +162,8 @@ def build(args: argparse.Namespace) -> int:
             (out_dir / "seating_cut.json").write_text(json.dumps(cut) + "\n")
             print(f"  {len(cut['runs'])} runs -> seating_cut.json (for the scan's collision cut in Unreal)")
         if stage.booth_path is not None:
-            print(f"  sound booth on OSM way {booth_way.id}, deck {stage.booth_deck_elevation_m:.2f} m "
-                  f"-> {stage.booth_path.name}")
+            print(f"  sound booth on OSM way {booth_way.id}, deck {stage.booth_deck_elevation_m:.2f} m, "
+                  f"facing {stage.booth_facing_deg:.1f} deg (the stage front) -> {stage.booth_path.name}")
 
         spawn = player_spawn(
             stage.front_edge_east, stage.front_edge_north, stage.axis,
@@ -288,6 +288,11 @@ def build(args: argparse.Namespace) -> int:
                 "deck_elevation_m": round(stage.booth_deck_elevation_m, 3),
                 "east_m": round(float(np.mean(booth_plan[:, 0])), 3),
                 "north_m": round(float(np.mean(booth_plan[:, 1])), 3),
+                # Its front (the parapet) faces the stage front centre: degrees
+                # counter-clockwise from east, like the other headings here.
+                "facing_deg": round(stage.booth_facing_deg, 3),
+                "width_m": round(stage.booth_size_m[0], 3),
+                "depth_m": round(stage.booth_size_m[1], 3),
             }
         manifest["stage"] = {
             "obj": stage.path.name,
@@ -466,11 +471,23 @@ def vegetation(args: argparse.Namespace) -> int:
     if not terrain.is_file():
         print(f"no {terrain}; run `redrocks build --out {out_dir}` first")
         return 1
-    info = veg.export(out_dir / "vegetation", terrain_obj=terrain, avoid_dir=out_dir, seed=args.seed)
+    scan_ground, scan_top = Path(args.scan_ground or ""), Path(args.scan_top or "")
+    have_scan = scan_ground.name and scan_ground.is_file() and scan_top.name and scan_top.is_file()
+    info = veg.export(out_dir / "vegetation", terrain_obj=terrain, avoid_dir=out_dir, seed=args.seed,
+                      scan_ground=scan_ground if have_scan else None, scan_top=scan_top if have_scan else None)
     tris = sum(p["triangles"] for m in info["models"] for p in m["parts"].values())
     print(f"{len(info['models'])} models, {tris:,} triangles, {len(info['atlases'])} leaf atlases")
     for species, count in info["counts"].items():
         print(f"  {species:10s} {count:6d}")
+    aisle = info.get("aisle_planting")
+    if aisle:
+        print(f"beside the aisle stairs: {aisle['plants']} plants in {aisle['clumps']} clumps ("
+              + ", ".join(f"{side} {s['plants']} in {len(s['clumps'])}" for side, s in aisle["sides"].items())
+              + "): " + ", ".join(f"{sp} {n}" for sp, n in sorted(aisle["species"].items())))
+    elif not have_scan:
+        print(f"no scan rasters at {scan_ground} / {scan_top}; the strips beside the aisle stairs are not planted")
+    else:
+        print(f"no stairs in {out_dir}; the strips beside the aisle stairs are not planted")
     print(f"wrote {out_dir / 'vegetation'}")
     return 0
 
@@ -521,6 +538,17 @@ def main(argv: list[str] | None = None) -> int:
     )
     veg_cmd.add_argument("--out", default="out", help="directory holding RedRocks_Terrain.obj")
     veg_cmd.add_argument("--seed", type=int, default=1941, help="placement seed")
+    veg_cmd.add_argument(
+        "--scan-ground",
+        default=str(DEFAULT_SCAN_GROUND),
+        help="ml0w scan ground raster: the plants beside the aisle stairs stand on it. "
+        "Pass '' to leave those strips unplanted.",
+    )
+    veg_cmd.add_argument(
+        "--scan-top",
+        default=str(DEFAULT_SCAN_TOP),
+        help="ml0w scan top raster: no aisle plant's trunk goes where the scan stands tall (rocks, scanned bushes).",
+    )
     veg_cmd.set_defaults(func=vegetation)
 
     args = parser.parse_args(argv)

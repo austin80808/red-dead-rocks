@@ -84,7 +84,7 @@ out/
   Bench_Brackets.obj       1,807 steel brackets lined up about the stage (21,684 triangles)
   Handrail.obj             steel rail on the top walkway's parapet
   Stairs.obj               row-end aisle stairs and cheek walls, two steps per row (5,040 triangles)
-  Booth.obj                the sound booth's posts and maroon roof, on its OSM footprint (way 229359709)
+  Booth.obj                the sound booth's posts and maroon roof, on its OSM footprint (way 229359709), squared to the stage
   scan_fade.png, .json     the scan's fade mask with the seating cut out (see Seating)
   Stage.obj                stage, Y-columns, trusses, FOH booth & bowl end stairs (462 parts, 5,536 triangles)
   Roads.obj, Paths.obj     OSM highways as draped ribbons (57,146 / 34,472 triangles)
@@ -195,12 +195,16 @@ tread to the next across the row's band, two steps per row, and the stage's
 walkway sits 2 cm under the top tread.
 
 **The sound booth** stands where OSM has its roof (way 229359709,
-`building=roof`, about 6 x 4.5 m, around row 13 just off the centre line), not on
-row 8 where the blockout had it. Its deck covers that footprint 0.3 m over the
-highest tread under it, so you step in from the row behind; a parapet faces the
-stage, and four posts carry a flat maroon roof 2.6 m up (`Booth.obj`, `M_Roof`),
-like the one in the top-row photo. The scan shows no booth (it was flown without
-one), so nothing there is kept visible over it.
+`building=roof`, 5.3 x 5.1 m, around row 13 just off the centre line), not on
+row 8 where the blockout had it. It keeps that footprint's centre and size but
+is squared to the stage: OSM's outline runs about 21 degrees off the line to the
+stage, so the booth is turned until its front looks straight at the stage front
+centre (`facing_deg` in the manifest's `booth` entry, 31.7 degrees counter-clockwise
+from east on the real data). Its deck sits 0.3 m over the highest tread under
+it, so you step in from the row behind; a parapet faces the stage, and four
+posts carry a flat maroon roof 2.6 m up (`Booth.obj`, `M_Roof`), like the one in
+the top-row photo. The scan is cut out under the turned deck. The scan shows no
+booth (it was flown without one), so nothing there is kept visible over it.
 
 Current output for a 3.6 km box centred on the amphitheatre (it reaches
 downtown Morrison; the box was 2.4 km until the explorable realm):
@@ -421,6 +425,7 @@ with Pillow at real size, and `redrocks vegetation --out out` writes them to
 | Species | Models | Instances | Looks like |
 |---|---|---|---|
 | Rocky Mountain juniper | `JuniperRM_0..2`, 5.0 m | 3-6 m | a dense, almost solid oval-to-conical mass, dark grey-green, shaggy edge |
+| Rocky Mountain juniper, columnar | `JuniperRM_3..4`, 5.0 m | 3.7-5.8 m, beside the aisle stairs only | the narrow upright form planted along the aisles: one straight leader, dense to the ground, about 1.5 m across, tapering to a blunt point |
 | One-seed juniper | `JuniperOS_0..2`, 3.6 m | 2-4 m | several stems, a broad rounded crown down to the ground |
 | Ponderosa pine | `Ponderosa_0..4`, 18 m | 12-25 m | a straight trunk clear for about a third of its height; crooked limbs that dip and turn up; needles only in foxtail tufts at the branch and twig tips, sky between the tiers. 0 young and conical, 1-3 mature, 4 old and flat-topped |
 | Gambel oak | `Oak_0..2`, 2.6 m | 1.5-4 m | many stems, leafy almost to the ground |
@@ -455,7 +460,8 @@ the same):
   south-facing ground. **Ponderosa** grows in groves of 3-8 on the upper
   and north-facing slopes.
 - Nothing grows on cliffs (steeper than 33 degrees for shrubs, 37 for pines,
-  40 for junipers), in the scanned bowl, or in buildings and walls. Trees keep
+  40 for junipers), in the scanned bowl (but for the strips beside the aisle
+  stairs, below), or in buildings and walls. Trees keep
   8 m off roads, paths, parking, buildings, walls, benches, the stage and the
   sled run, and 2.5 m (pines) or 1 m (junipers) from each other; scrub grows
   right up to the edge of roads, paths and buildings (2 m cells from their
@@ -464,6 +470,37 @@ the same):
   however it is turned: oak patches on a slope root deeper downhill.
 - Shrub crowns are never culled, so the hillsides read as covered from the
   air; shrub leaves and stems fade out from 320 to 400 m.
+
+**Beside the aisle stairs** (`redrocks.vegetation.place_aisles`). At the real
+venue the two side aisles climb beside planted strips: narrow upright junipers
+with scrub oak and mountain mahogany at their feet, between the stairs' outer
+cheek walls and the rock. The hillside pass keeps out of the scanned bowl, so
+these strips are planted on their own, on the scan's surface:
+
+- The strip runs out from each row's cheek wall, from 0.6 m to 8.6 m, and stops
+  where the scan's ground gets steeper than 35 degrees (rock face) or where it
+  meets the stage, the booth, the handrail or an OSM road, path, lot, building,
+  wall or rock (their triangles, at 0.5 m cells).
+- Plants come in clumps of 2-5: a short line of columnar junipers close to the
+  stairs with an oak or mahogany at their feet, or a juniper with a few shrubs,
+  2-4 m apart between clumps low in the bowl and by the stage-end towers and
+  further apart toward the top, plus a young ponderosa about every 15-25 m where
+  the strip is at least 5 m wide and the pine's crown clears everything.
+- No crown (the plant's whole reach in plan) comes within 0.3 m of a stair step
+  or cheek wall, the aisle path, the seating cut, the booth, the stage or those
+  OSM meshes, and no trunk within 1 m of a tread.
+- Trunks stand on the scan's ground (`assets/scan/scan_ground.npz`, not the
+  3DEP terrain), 10 cm under it (15 cm where a root would otherwise show on a
+  slope; no plant where even that is not enough), and not where the scan stands
+  more than 1.5 m over its ground within 0.5 m (`scan_top.npz`: the scan's own
+  trees and rocks, which fill much of the strips low on the south side).
+- `redrocks vegetation` reads the rasters from `--scan-ground` and `--scan-top`
+  (defaults in `assets/scan`) and sums the strips up under `aisle_planting` in
+  `vegetation.json`, every clump with the stair rows it stands beside. On the
+  real build: 54 plants in 22 clumps, 31 in 12 up the north aisle and 23 in 10
+  up the south one (26 columnar and 2 broad junipers, 16 scrub oak, 7 mountain
+  mahogany, 3 ponderosa), at least one clump in every ten rows on both sides.
+  The hillsides' placement is unchanged.
 
 **Side by side with Red Rocks Park** (before | after | photo; colour error
 ΔE of the sampled foliage and bark in [`delta_e.json`](docs/media/vegetation-real/delta_e.json)):
