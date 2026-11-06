@@ -63,13 +63,24 @@ def test_sun_points_away_from_the_sun(lighting, azimuth, east, north):
     assert math.isclose(-y / h, north, abs_tol=1e-9)  # level Y is south
 
 
-def test_configured_sun_is_low_and_behind_the_spawn(lighting):
-    """Morning sun in the east: the player spawns facing WSW up the bowl, so the
-    light must travel west (x < 0) to fall on what they see, not backlight it."""
+def test_configured_sun_is_a_summer_late_morning_behind_the_spawn(lighting):
+    """The photo board's default light: a clear summer late morning, the sun high
+    in the south-east (short shadows, white light, as in most Commons photos).
+    The player spawns facing WSW up the bowl, so the light must still travel
+    west (x < 0) to fall on what they see, not backlight it."""
     pitch, yaw = lighting.sun_rotation(lighting.SUN_AZIMUTH_DEG, lighting.SUN_ELEVATION_DEG)
     x, _, _ = _direction(pitch, yaw)
-    assert 5.0 <= lighting.SUN_ELEVATION_DEG <= 30.0
+    assert 45.0 <= lighting.SUN_ELEVATION_DEG <= 70.0
+    assert 100.0 <= lighting.SUN_AZIMUTH_DEG <= 160.0  # morning: east of south
     assert x < 0  # light travels west: the sun is in the east, behind the player
+
+
+def test_air_is_clear_enough_to_see_denver(lighting):
+    """The postcard view shows downtown Denver crisp at ~25 km: the haze must be
+    near Earth's default and the height fog thin, not the old golden-hour murk."""
+    assert lighting.MIE_SCATTERING_SCALE <= 0.004
+    assert lighting.AERIAL_PERSPECTIVE_SCALE <= 1.0
+    assert lighting.FOG_DENSITY <= 0.01
 
 
 INI = """[/Script/Engine.RendererSettings]
