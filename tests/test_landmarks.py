@@ -73,7 +73,9 @@ def test_stage_roof_and_deck_corners(cat, manifest):
         d = np.array(cat[f"stage_deck_front_{side}"])
         r = np.array(cat[f"stage_roof_front_{side}"])
         assert d[2] == pytest.approx(deck, abs=0.01)
-        assert np.linalg.norm(d[:2] - r[:2]) < 0.05  # the roof's front edge is over the deck's lip
+        # The roof's front edge is over the deck's lip; its corner landmark is the
+        # chamfer's inner point, roof_chamfer in from the deck's corner.
+        assert np.linalg.norm(d[:2] - r[:2]) == pytest.approx(dims["roof_chamfer"], abs=0.05)
     mid = (np.array(cat["stage_deck_front_north"][:2]) + np.array(cat["stage_deck_front_south"][:2])) / 2
     assert np.linalg.norm(mid - front) < 0.05
 
