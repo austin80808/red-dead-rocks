@@ -74,13 +74,22 @@ class Dem:
         return float(top * (1 - ty) + bottom * ty)
 
 
-def fetch_dem(bbox: BBox, size: int = 2017, timeout: float = 180.0) -> Dem:
-    """Download a bare-earth DEM for `bbox` resampled to `size` x `size`."""
+def fetch_dem(bbox: BBox, size: int = 2017, timeout: float = 180.0, rows: int | None = None,
+              keep_extent: bool = False) -> Dem:
+    """Download a bare-earth DEM for `bbox` resampled to `size` columns x `rows` rows.
+
+    `rows` defaults to `size`. The service keeps its pixels square in degrees: when
+    the raster's aspect differs from the bbox's, it widens the extent it returns
+    (a 3.6 km square at 39.7 N comes back 30 % taller than asked). With
+    `keep_extent` the Dem carries the extent the service reports; without it, the
+    bbox asked for (the park build's behaviour; see `aspect_rows`).
+    """
+    rows = rows or size
     params = {
         "bbox": bbox.as_query(),
         "bboxSR": "4326",
         "imageSR": "4326",
-        "size": f"{size},{size}",
+        "size": f"{size},{rows}",
         "format": "tiff",
         "pixelType": "F32",
         "f": "json",
@@ -96,15 +105,54 @@ def fetch_dem(bbox: BBox, size: int = 2017, timeout: float = 180.0) -> Dem:
     image = Image.open(io.BytesIO(raster.content))
     data = np.array(image, dtype=np.float32)
 
-    if data.shape != (size, size):
-        raise RuntimeError(f"expected {size}x{size} raster, got {data.shape}")
+    if data.shape != (rows, size):
+        raise RuntimeError(f"expected {size}x{rows} raster, got {data.shape}")
 
     # 3DEP voids come back as a large negative sentinel or as NaN.
     data[data <= NODATA + 1.0] = np.nan
     if np.isnan(data).any():
         data = _fill_nan(data)
 
+    extent = payload.get("extent") or {}
+    if keep_extent and all(k in extent for k in ("xmin", "ymin", "xmax", "ymax")):
+        bbox = BBox(west=float(extent["xmin"]), south=float(extent["ymin"]),
+                    east=float(extent["xmax"]), north=float(extent["ymax"]))
     return Dem(data=data, bbox=bbox)
+
+
+def aspect_rows(bbox: BBox, size: int) -> int:
+    """Rows for a `size`-column raster of `bbox` with square pixels in degrees,
+    which the service returns for exactly the bbox asked for."""
+    return max(2, int(round(size * bbox.height_deg / bbox.width_deg)))
+
+
+def dem_cache_path(bbox: BBox, size: int, cache_dir):
+    """Where ``cached_dem`` keeps the raster for this bbox and size."""
+    from pathlib import Path
+
+    return Path(cache_dir) / (
+        f"dem_{bbox.south:.4f}_{bbox.west:.4f}_{bbox.north:.4f}_{bbox.east:.4f}"
+        f"_{size}x{aspect_rows(bbox, size)}.npz"
+    )
+
+
+def cached_dem(bbox: BBox, size: int, cache_dir, timeout: float = 180.0) -> Dem:
+    """A DEM of `bbox`, `size` columns wide, fetched once into ``cache_dir``.
+
+    Rows follow the bbox's aspect (``aspect_rows``) and the Dem keeps the extent
+    the service reports, so every pixel is where the Dem says it is. The file
+    name carries the bbox and raster size, so asking for another area or
+    resolution fetches again instead of returning the wrong raster.
+    """
+    path = dem_cache_path(bbox, size, cache_dir)
+    if path.is_file():
+        with np.load(path) as f:
+            return Dem(data=f["data"], bbox=BBox(*(float(v) for v in f["bbox"])))
+    dem = fetch_dem(bbox, size=size, timeout=timeout, rows=aspect_rows(bbox, size), keep_extent=True)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    b = dem.bbox
+    np.savez_compressed(path, data=dem.data, bbox=np.array([b.west, b.south, b.east, b.north]))
+    return dem
 
 
 ATTEMPTS = 8

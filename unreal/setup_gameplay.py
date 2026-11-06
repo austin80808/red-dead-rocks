@@ -11,6 +11,8 @@ What it does, each step logged to /tmp/redrocks_gameplay.log as "ok" or "FAIL":
   1. Imports Stage, Roads, Paths and Parking from out/ (skips any that are
      missing) and places them at the origin: they are already in the terrain's
      frame, in centimetres. Re-running replaces the actors, it never duplicates.
+     Denver (downtown's skyline, 20 km out) gets M_DistantCity, no collision,
+     no shadow, and is never culled by distance (FAR_AWAY_SETTINGS).
   2. Gives every OBJ actor scale (1, 1, 1): the OBJ importer negates Y, which
      is already the terrain -> level map (level Y = -north, level_frame.py).
      A Y scale of -1 here once built a mirror image of Red Rocks.
@@ -56,11 +58,14 @@ LOG_PATH = os.path.join(os.environ.get("REDROCKS_LOG_DIR", "/tmp"), "redrocks_ga
 
 # Meshes placed by this script (all in the terrain frame, origin, no rotation).
 NEW_MESHES = ["Stage", "Roads", "Paths", "Parking", "Buildings", "Walls", "Rocks", "Water",
-              "Bench_Planks", "Bench_Brackets", "Handrail", "Booth", "Stairs"]
+              "Bench_Planks", "Bench_Brackets", "Handrail", "Booth", "Stairs", "Denver"]
 # Seen but not stood on: the planks and brackets sit on the terraces' riser
 # edges, a few cm over the treads; colliding with them would make every row a
-# step too tall to walk up (redrocks.seating).
-NO_COLLIDE = ["Bench_Planks", "Bench_Brackets"]
+# step too tall to walk up (redrocks.seating). Denver is 20 km away.
+NO_COLLIDE = ["Bench_Planks", "Bench_Brackets", "Denver"]
+# Seen only from far off: downtown Denver's skyline, ~20.5 km east-north-east
+# of the stage (redrocks.denver). See FAR_AWAY_SETTINGS.
+FAR_AWAY = ["Denver"]
 # Every mesh the player should be able to stand on or bump into.
 COLLIDE = ["RedRocks_Terrain", "Creation_Rock", "Ship_Rock", "Stage_Rock", "Benches"] + [
     m for m in NEW_MESHES if m not in NO_COLLIDE]
@@ -81,6 +86,9 @@ PLAIN = {
     "M_Steel": ("2e2d2b", 0.6),
     "M_Roof": ("7a2a22", 0.55),
     "M_Benches": ("94482c", 0.9),
+    # Downtown Denver at 20 km: pale grey-beige concrete and glass, sRGB
+    # (170, 170, 165); the sky atmosphere's haze does the rest.
+    "M_DistantCity": ("aaaaa5", 0.6),
 }
 MESH_MATERIAL = {
     "Roads": "M_Asphalt",
@@ -96,6 +104,7 @@ MESH_MATERIAL = {
     "Handrail": "M_Steel",
     "Booth": "M_Roof",
     "Stairs": "M_Benches",  # the seating's flagstone risers and sandstone treads
+    "Denver": "M_DistantCity",
 }
 
 SPAWN_BACK_M = 5.0  # how far behind the downstage edge the player starts
@@ -270,6 +279,32 @@ def _no_collision(name):
     return name
 
 
+# A mesh seen only from tens of km: no shadow (nothing near it to shade, and a
+# 3 km-wide caster bloats the virtual shadow maps), never culled by distance
+# (MaxDrawDistance 0, no cull-distance volume), and out of the mesh distance
+# fields Lumen traces within a few hundred metres. The level has no far clip:
+# the project keeps Unreal's infinite far plane (its DefaultEngine.ini sets
+# only NearClipPlane), and the terrain skirt already draws out to 120 km.
+FAR_AWAY_SETTINGS = {
+    "cast_shadow": False,
+    "ld_max_draw_distance": 0.0,
+    "never_distance_cull": True,
+    "allow_cull_distance_volume": False,
+    "affect_distance_field_lighting": False,
+}
+
+
+def _far_away(name):
+    actors = _by_label(name)
+    if not actors:
+        raise RuntimeError("no actor labelled %s" % name)
+    for actor in actors:
+        comp = actor.static_mesh_component
+        for prop, value in FAR_AWAY_SETTINGS.items():
+            comp.set_editor_property(prop, value)
+    return len(actors)
+
+
 def _srgb_to_linear(hex_color):
     out = []
     for i in (0, 2, 4):
@@ -435,6 +470,9 @@ def main():
         if _by_label(name):
             _step("scale %s" % name, _obj_scale, name)
             _step("no collision %s" % name, _no_collision, name)
+    for name in FAR_AWAY:
+        if _by_label(name):
+            _step("no shadow, never culled: %s" % name, _far_away, name)
     for name in COLLIDE:
         if unreal.EditorAssetLibrary.does_asset_exist("%s/%s" % (ASSET_DIR, name)):
             _step("collision %s" % name, _complex_collision, name)

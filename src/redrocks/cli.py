@@ -7,6 +7,7 @@ import json
 from pathlib import Path
 
 import numpy as np
+import requests
 
 from .dem import BBox, fetch_dem, square_bbox
 from .explore import Route, carve_creek, creek_route, export_water_obj, plan as explore_plan
@@ -46,6 +47,9 @@ DEFAULT_SCAN_GROUND = Path("assets") / "scan" / "scan_ground.npz"
 # the seating is cut out of a copy of the mask, out/scan_fade.png.
 DEFAULT_SCAN_TOP = Path("assets") / "scan" / "scan_top.npz"
 DEFAULT_SCAN_FADE = Path("assets") / "scan" / "scan_fade.png"
+# Downtown Denver's skyline (redrocks.denver): on unless --no-denver. Its
+# Overpass answer and ground DEM are fetched once into <out>/cache.
+DEFAULT_DENVER = True
 
 
 def build(args: argparse.Namespace) -> int:
@@ -186,6 +190,8 @@ def build(args: argparse.Namespace) -> int:
     for mesh in park.values():
         print(f"  {mesh.features} {mesh.name.lower()}, {mesh.triangles:,} triangles -> {mesh.path.name}")
 
+    denver = _denver(args, out_dir, projection, base, stage)
+
     manifest = {
         "venue": "Red Rocks Amphitheatre",
         "origin": {"lat": RED_ROCKS_LAT, "lon": RED_ROCKS_LON},
@@ -322,6 +328,8 @@ def build(args: argparse.Namespace) -> int:
             }
             for key, m in park.items()
         }
+    if denver is not None:
+        manifest["denver"] = denver
     print("\nplanning carts, sleds and teleport spots ...")
     park_frame = ParkSurface(ground_dem, grid)
     explore = explore_plan(
@@ -346,6 +354,33 @@ def build(args: argparse.Namespace) -> int:
     (out_dir / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n")
     print(f"\nwrote {out_dir}/manifest.json")
     return 0
+
+
+def _denver(args, out_dir: Path, projection, base: float, stage) -> dict | None:
+    """Denver.obj, downtown's skyline at its true place; the manifest block, or None.
+
+    The buildings (Overpass) and ground (3DEP) are fetched once into the cache
+    (``--denver-cache``, default <out>/cache) and read from it after that. When
+    they cannot be fetched the build goes on without Denver.
+    """
+    from . import denver
+
+    obj = out_dir / "Denver.obj"
+    obj.unlink(missing_ok=True)
+    if not getattr(args, "denver", False):
+        print("\nskipping downtown Denver (--no-denver)")
+        return None
+    cache = Path(getattr(args, "denver_cache", "") or out_dir / "cache")
+    print(f"\nbuilding downtown Denver's skyline (OSM and 3DEP cached in {cache}) ...")
+    try:
+        osm, ground = denver.fetch_downtown(cache)
+    except (RuntimeError, OSError, requests.RequestException) as exc:
+        print(f"  skipping Denver: could not fetch downtown ({exc}); re-run the build to retry")
+        return None
+    origin = (stage.front_edge_east, stage.front_edge_north) if stage is not None else (0.0, 0.0)
+    mesh = denver.export_denver(obj, osm, ground, projection, base, origin)
+    print(denver.summary(mesh))
+    return denver.manifest_block(mesh)
 
 
 def _trim_rows(args, osm, venue_way, projection, lines, seat_ground):
@@ -530,6 +565,17 @@ def main(argv: list[str] | None = None) -> int:
         default=str(DEFAULT_SCAN_FADE),
         help="ml0w scan fade mask (with its .json) from tools/scan_heights.py; out/ gets a "
         "copy with the seating cut out. Pass '' for no cut.",
+    )
+    build_cmd.add_argument(
+        "--denver",
+        action=argparse.BooleanOptionalAction,
+        default=DEFAULT_DENVER,
+        help="write Denver.obj, downtown Denver's skyline from OSM at its true place (default on)",
+    )
+    build_cmd.add_argument(
+        "--denver-cache",
+        default="",
+        help="where Denver's Overpass answer and ground DEM are cached (default <out>/cache)",
     )
     build_cmd.set_defaults(func=build)
 

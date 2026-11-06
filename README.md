@@ -92,7 +92,9 @@ out/
   Buildings.obj            314 OSM park & Morrison buildings with buried foundations & parapets (5,852 triangles)
   Walls.obj                100 OSM retaining walls, stone walls, fences & rails (36,432 triangles)
   Rocks.obj                242 surveyed OSM rock & cliff outcrops across the park (30,480 triangles)
-  manifest.json            Z scale, bbox, origin, venue, monoliths, stage, park, explore (spots, cart route, sled hill), attribution
+  Denver.obj               downtown Denver's skyline, 946 OSM buildings 12 m+, 20.4 km ENE at its true place (51,304 triangles)
+  cache/                   Denver's Overpass answer and 3DEP ground, fetched once (see Denver on the horizon)
+  manifest.json            Z scale, bbox, origin, venue, monoliths, stage, park, denver, explore (spots, cart route, sled hill), attribution
 ```
 
 Clone with Git LFS installed: the scan, rock models and textures in `assets/`
@@ -112,7 +114,9 @@ python3 -m venv .venv && .venv/bin/pip install -e .
 ```
 
 `redrocks build` writes everything above. `--terrain-grid` sets the terrain
-mesh resolution (default 377; `0` skips it).
+mesh resolution (default 377; `0` skips it); `--no-denver` skips Denver.obj.
+`tools/check_denver.py --out out` checks the view from the top row to Denver
+(see Denver on the horizon).
 
 ### Seating
 
@@ -556,6 +560,63 @@ REDROCKS_OUT_DIR=$PWD/out REDROCKS_BOARD_PREFIX=after_ REDROCKS_BOARD_SUN=both R
 Photos download into `out/refs/` and are never committed; the composites are
 (CC BY-SA, see LICENSE). Results land in `docs/media/photo-board/<pass>/`.
 
+## Denver on the horizon
+
+From the top rows you look over the stage, the hogback and the plains to
+downtown Denver ([the postcard](https://commons.wikimedia.org/wiki/File:Red_Rocks_Amphitheater.JPG)).
+`redrocks.denver` builds that skyline into `Denver.obj`, at its true place:
+**20.4 km from the stage front at a bearing of 63.8 degrees** (Republic Plaza
+20.5 km at 65.0). In a straight line downtown is 20.6 km from the venue, not
+the 15 miles usually quoted: that is the drive.
+
+| | |
+|---|---|
+| Buildings | every `building=*` and `building:part=*` way and multipolygon in 39.728-39.765 N, 105.016-104.962 W (Union Station and LoDo to Capitol Hill), from the Overpass API |
+| Heights | `height`, else `building:levels` x 3.5 m, else 10 m; parts start at `min_height` (or `building:min_level` x 3.5 m). Downtown is mapped in 3D, so an outline with parts inside it gives way to them (Republic Plaza is 29 parts) unless they stop short of its height. Tops under 12 m are left out. |
+| Triangles | 7,000 parts are mostly columns and crown pieces a few m² in plan: pieces whose bottom and top round to the same 3 m merge, footprints simplify to 1.5 m, those under 10 m² go unless they are spires on a roof, and prisms inside others go. 946 buildings make 1,894 closed prisms, 51,304 triangles |
+| Ground | each building stands on the lowest point under its outline on a 257 x 176 USGS 3DEP DEM of downtown (1,574-1,640 m); parts share their outline's ground |
+| Frame | the terrain frame, cm, Z = 0 at the terrain minimum; east and north from the venue's `LocalProjection`, a tangent plane at the origin, so bearings and distances from the bowl are true |
+| Earth curvature | every vertex drops by d²/2R x (1 - k), R = 6,371 km, k = 0.13 (refraction), d from the origin: 29 m at downtown, 43 m at 25 km |
+| In Unreal | `setup_gameplay.py` imports it with `M_DistantCity` (flat sRGB 170, 170, 165), no collision, no shadow, `MaxDrawDistance` 0, never distance-culled, out of the distance fields. The level has no far clip plane (the project keeps Unreal's infinite far plane). |
+
+The Overpass answer (28 MB) and the DEM are fetched once into `out/cache/`
+(`--denver-cache` moves it) and read from there on every later build, so
+rebuilds are offline; delete the files to refetch. When they cannot be
+fetched the build goes on without Denver. Overpass's public servers are
+slow and throttle: the first fetch took 9 minutes.
+
+**The terrain skirt meets it** (`unreal/setup_environment.py`). East of the
+3.6 km terrain the skirt used to settle on a flat plain at 1.70 km with
+undulations of up to ±63 m, 100 m over downtown's ground, and none of it
+curved. Now, by distance east, it follows the real plains, 1,580 m + 247 m x
+exp(-east / 9.53 km): 1.78 km at Morrison, 1.65 km at 12 km, 1.61 km at
+downtown, 1.58 km beyond; undulations over the plains are at most 13 m; the
+west and the far north and south are unchanged. Every ring past the
+terrain's edge drops by the same d²/2R x (1 - k) as Denver.obj (983 m at the
+skirt's 120 km edge), so the city and the plains agree. The 3.6 km terrain
+mesh stays flat: its edge would drop 0.2 m. The skirt reads the terrain's
+base elevation from `manifest.json`.
+
+**Can you see it?** `tools/check_denver.py --out out` rebuilds the skirt with
+setup_environment.py's own functions, marches sight lines from the top
+walkway's eye (1.7 m up, 1,965.8 m) to the tallest towers over the game's
+ground and over the real ground (3DEP, curved the same way), and renders the
+view down the stage axis, 60 degrees wide, to `out/check_denver.png`:
+
+| Tower | Height | Clear of the ground in front: game / real | Top vs the horizon behind: game / real |
+|---|---|---|---|
+| Republic Plaza | 220 m | 197 m / 220 m | -7 m / +14 m |
+| 1801 California | 216 m | 190 m / 215 m | -14 m / +15 m |
+| Wells Fargo Center | 213 m | 195 m / 209 m | -8 m / +15 m |
+
+In the game the skirt runs ~25 m over the real Platte valley in front of
+downtown, so the lowest ~20 m of the towers hide (about one pixel), and the
+towers' tops reach the limb of the SkyAtmosphere's own planet (its top is the
+level's Z = 0, 1.74 km; seen from the top row its limb is 0.48 degrees below
+level) rather than standing against blue sky. Neither the hogback (Dinosaur
+Ridge, ~1.83 km at 3.5 km) nor Green Mountain (2.09 km, left of downtown in
+the postcard) is in the skirt; neither hides Denver in reality.
+
 ## Explore it
 
 Red Rocks is a place to roam, not just a bowl to walk up. The level's game mode
@@ -705,11 +766,11 @@ a time, in this order; each writes a log to `/tmp/redrocks_*.log`:
 | `configure_level.py` | writes Lumen / distance fields / VSM / eye adaptation / TSR into `Config/DefaultEngine.ini` `[SystemSettings]`; post-process volume with Lumen, auto exposure (EV100 11-14.2) and a light grade; framing camera |
 | `fix_camera.py` | lifts the camera above the 645 m ridge, removes test actors |
 | `setup_materials.py` | procedural materials: `M_Sandstone` (30° strata that fade with distance, soil, grass, slope rock) with rock and ground instances; `M_Benches` (dusty sandstone treads, stacked red flagstone risers), `M_BenchWood` (plank boards), `M_Steel` (brackets, handrail); `M_Concrete`, `M_Asphalt`, `M_Lot`, `M_Gravel` |
-| `setup_environment.py` | terrain skirt from the DEM edge out to 120 km so the world has a horizon |
+| `setup_environment.py` | terrain skirt from the DEM edge out to 120 km so the world has a horizon: the plains to Denver in the east, foothills in the west, curved with the Earth (see Denver on the horizon) |
 | `setup_vegetation.py` | imports `out/vegetation/` (from `redrocks vegetation`): leaf atlases, bark/leaf/crown materials, 16 Nanite tree and shrub models, and every instance into one `Vegetation` actor; tree trunks block, canopies and shrubs don't |
 | `import_scan.py` | imports the ml0w scan with Nanite and credits it, at `FIT_DATUM_M` above the level's datum; its material fades the scan out at its edge and over the seating (`out/scan_fade.png`, see Seating); run after `import_redrocks.py` |
 | `cut_scan_collision.py` | cuts the seating out of the scan's collision: collision-only copies of the chunks that reach it, without the triangles over it, as their `ComplexCollisionMesh` (from `out/seating_cut.json`). Run after `import_scan.py` |
-| `setup_gameplay.py` | imports Stage, Roads, Paths, Parking; complex collision on every walkable mesh and on the scan (the hidden extruded rocks get none); PlayerStart on the stage deck facing up the bowl; FirstPerson game mode; in-world credits. Runs last |
+| `setup_gameplay.py` | imports Stage, Roads, Paths, Parking and Denver; complex collision on every walkable mesh and on the scan (the hidden extruded rocks get none); Denver never culled, no shadow, no collision; PlayerStart on the stage deck facing up the bowl; FirstPerson game mode; in-world credits. Runs last |
 | `setup_snow.py` | `MPC_Weather` (one scalar, `Snow`) and a snow layer in every `/Game/RedRocks` material: up-facing surfaces lerp to packed snow as `Snow` rises, in patches. Re-running skips materials that already have it |
 | `setup_explore.py` | the explorable realm: teleport spots, three shopping carts bound for Morrison, three sleds, the weather actor, `road`/`parking` tags, and the `RRGameMode` game mode. Needs the C++ module built. Runs last |
 | `setup_credits.py` | the press-**C** credits screen: input action `IA_Credits` (C, in `IMC_Default`), Widget Blueprint `WBP_Credits`, Actor Blueprint `BP_CreditsMenu` placed in the level. Text from `assets/*/ATTRIBUTION.md` and the manifest. Runs after `setup_gameplay.py` |
@@ -839,8 +900,22 @@ any build that ships.
   `3DEPElevation` ImageServer. 1 m source resolution in this area.
 - **Features** — OpenStreetMap via the main OSM API (not Overpass, which was
   rate-limited to the point of being unusable). ODbL 1.0, attribution required.
+- **Downtown Denver** — OpenStreetMap buildings via the Overpass API (the main
+  API's `map` call stops at 50,000 nodes; downtown's buildings alone are
+  226,000), and a coarse 3DEP DEM under them. Both are cached in `out/cache/`.
 
-Both are fetched live; nothing is vendored.
+The park's DEM and features are fetched live on every build; nothing is vendored.
+
+The 3DEP service keeps its pixels square in degrees: asked for a square
+raster of a bbox that is not square in degrees, it returns a wider extent
+than asked (its JSON says which). `dem.cached_dem` asks for a raster with the
+bbox's own aspect and keeps the extent returned. The park build still asks
+for a square raster of a square-in-metres bbox, which at 39.7 N comes back
+covering 30 % more latitude than the build assumes, so `RedRocks_Terrain.obj`
+and everything draped on it are squeezed north-south to 0.77 of the real
+ground (checked against a registered DEM: median difference 20.6 m as built,
+0.8 m once north is stretched by 1.295). Fixing it moves every terrain
+height outside the bowl's centre line.
 
 ## What the data actually gives you
 
@@ -919,8 +994,12 @@ against real photos from the same spots:
 2. **Monoliths**: Creation and Ship Rock outside the scan are still OSM
    extrusions; their real shapes could come from USGS 3DEP lidar.
 3. **Parking lots**: stall lines, curbs, lights and cars on the 53 OSM lots.
-4. **The postcard view**: the real stage roof and its two stone towers, and the
-   view east to Denver over Stage Rock.
+4. **The postcard view**: the real stage roof and its two stone towers. The
+   view to Denver is in (Denver on the horizon); the hogback and Green
+   Mountain in front of it are not, and the build's stage axis (65.9 degrees,
+   from the row centres) is 12 degrees left of the OSM stage roof's (77.6), so
+   from the top row Denver shows straight over the stage, where the postcard
+   has it 13 degrees left.
 5. A packaged Mac build (#25), and controller and phone play.
 
 For a *fantasy replication* rather than a survey-accurate twin, the monoliths,
@@ -938,8 +1017,10 @@ sampling and interpolation, the Unreal Z scale formula, heightmap encoding, OSM
 parsing and feature classification, the seating bowl (arc rows, stage centre), the terraced
 seating (tread levels, terraces, planks, brackets lined up about the stage, front steps, the
 scan cut), monolith geometry, roads/paths/parking, the OBJ
-exports (terrain grid, seating, stage blockout, handrail, winding, and a valid UV on every face), and the
-CLI build. No network in tests.
+exports (terrain grid, seating, stage blockout, handrail, winding, and a valid UV on every face), the
+CLI build, and Denver (bearing and distance against a Vincenty geodesic, curvature, closed prisms that
+keep their tagged heights, the build from a fixture Overpass answer, the skirt's plains and curvature).
+No network in tests.
 
 The `unreal/` scripts are only checked offline: they must parse, and none may
 pass `unreal.Rotator` angles positionally. `rebuild_level.py`'s step order and
