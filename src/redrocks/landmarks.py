@@ -15,12 +15,27 @@ import numpy as np
 
 from .scan_blend import ScanHeights
 
-ROWS = (8, 20, 35, 50, 70)
+# Every row of the bowl (Red Rocks has 70), so a photo can use whichever row ends it shows.
+ROWS = tuple(range(1, 71))
 MONOLITHS = {
     "creation_rock_summit": "Creation_Rock.obj",
     "ship_rock_summit": "Ship_Rock.obj",
     "stage_rock_summit": "Stage_Rock.obj",
 }
+# Corners of the stage blockout's roof (top face) and deck (front edge, top face):
+# "front" is the audience side, "north"/"south" the two sides of the stage.
+STAGE_CORNERS = (
+    "stage_roof_front_north", "stage_roof_front_south",
+    "stage_roof_back_north", "stage_roof_back_south",
+    "stage_deck_front_north", "stage_deck_front_south",
+)
+# Every name catalog() returns, known without a build (for checking a views file).
+NAMES = tuple(
+    list(MONOLITHS)
+    + [f"aisle_{side}_row{n}" for n in ROWS for side in ("start", "end")]
+    + ["stage_front_centre", "booth_roof", "booth_front_centre", "walkway_centre"]
+    + list(STAGE_CORNERS)
+)
 # Level Z origin: the build's base elevation (m), Unreal z = (elevation - this) * 100.
 LEVEL_Z_ZERO_M = 1742.098
 
@@ -95,17 +110,62 @@ def _booth(out_dir: Path, toward: Point) -> tuple[Point, Point]:
     )
 
 
+def _stage_part(out_dir: Path, stage: dict, part: str) -> np.ndarray:
+    """Vertices (terrain metres) of one named part of Stage.obj, by the manifest's triangle range."""
+    verts, faces = [], []
+    for line in (out_dir / "Stage.obj").read_text().splitlines():
+        if line.startswith("v "):
+            verts.append(line.split()[1:4])
+        elif line.startswith("f "):
+            faces.append([int(p.split("/")[0]) - 1 for p in line.split()[1:]])
+    rng = stage["parts"][part]
+    idx = sorted({i for f in faces[rng["first_triangle"]:rng["end_triangle"]] for i in f})
+    v = np.array(verts, dtype=float)[idx] / 100.0
+    v[:, 2] += LEVEL_Z_ZERO_M
+    return v
+
+
+def _stage_corners(out_dir: Path, stage: dict) -> dict[str, Point]:
+    """Top corners of the roof slab and the deck's two front top corners.
+
+    The stage's axis (``axis_east_north``) points from the stage to the audience,
+    so "front" corners are the ones furthest along it; "north" is the side with
+    the larger north coordinate.
+    """
+    axis = np.array(stage["axis_east_north"], dtype=float)
+    origin = np.array([stage["front_edge_east_m"], stage["front_edge_north_m"]])
+    out: dict[str, Point] = {}
+    for part, ends in (("roof", ("front", "back")), ("deck", ("front",))):
+        v = _stage_part(out_dir, stage, part)
+        top = v[np.isclose(v[:, 2], v[:, 2].max())]
+        along = (top[:, :2] - origin) @ axis
+        order = np.argsort(-along)  # front (audience side) first
+        for end, pair in zip(("front", "back"), (top[order[:2]], top[order[2:4]])):
+            if end not in ends:
+                continue
+            north, south = sorted(pair, key=lambda p: -p[1])
+            for side, p in (("north", north), ("south", south)):
+                out[f"stage_{part}_{end}_{side}"] = (float(p[0]), float(p[1]), float(p[2]))
+    return out
+
+
 def catalog(out_dir: Path, scan_top: Path) -> dict[str, Point]:
     """Name -> terrain-frame (east m, north m, elevation m) for the photo views.
 
-    Names: ``creation_rock_summit``, ``ship_rock_summit``, ``stage_rock_summit``;
-    ``aisle_start_row{N}`` and ``aisle_end_row{N}`` for N in 8, 20, 35, 50, 70;
-    ``booth_roof`` (top centre of Booth.obj), ``booth_front_centre`` (middle of the
-    roof's stage-side edge, at roof top), ``walkway_centre``, ``stage_front_centre``.
+    Names (``NAMES``): ``creation_rock_summit``, ``ship_rock_summit``,
+    ``stage_rock_summit``; ``aisle_start_row{N}`` and ``aisle_end_row{N}`` for every
+    row N from 1 to 70; ``booth_roof`` (top centre of Booth.obj), ``booth_front_centre``
+    (middle of the roof's stage-side edge, at roof top), ``walkway_centre``,
+    ``stage_front_centre``; the stage blockout's roof top corners
+    ``stage_roof_{front,back}_{north,south}`` and deck front corners
+    ``stage_deck_front_{north,south}`` (Stage.obj, by the manifest's part ranges).
 
     The aisle points are the two ends of one row's aisle step. ``start`` is the NORTH
     side and ``end`` the SOUTH side: at every row the start has the larger north
     coordinate (row 1: start north 16.3 m, end 5.5 m; row 70: start -6.5 m, end -42.4 m).
+    Each is the stair step at that row's tread level, about half a metre out from the
+    row's end. Rows 1-3, where the aisle path turns corners, take the first point at
+    the row's level.
     """
     out_dir = Path(out_dir)
     manifest = json.loads((out_dir / "manifest.json").read_text())
@@ -130,6 +190,7 @@ def catalog(out_dir: Path, scan_top: Path) -> dict[str, Point]:
     points["walkway_centre"] = (
         stage["walkway_east_m"], stage["walkway_north_m"], stage["walkway_elevation_m"]
     )
+    points.update(_stage_corners(out_dir, stage))
     return points
 
 

@@ -1,0 +1,986 @@
+{
+ "about": "Wikimedia Commons photos of Red Rocks Amphitheatre and the game camera that matches each. Pixel coordinates (landmarks, samples, skyline_ignore) are in the photo's Commons thumb (photo.size), which the game shot is cover-fitted to before scoring. Landmark names are redrocks.landmarks.catalog names; tools/fit_photo_camera.py fits camera (level cm, Unreal degrees, horizontal fov) and fit_error (mean landmark error / photo width) from them, starting at camera_guess. sun.azimuth_deg is a compass bearing. A view with a fit_note could not be fitted from its landmarks; its note says where its camera came from. Photos are fetched into out/refs/<id>.jpg, never committed.",
+ "views": [
+  {
+   "name": "postcard",
+   "photo": {
+    "id": "postcard",
+    "title": "Red Rocks Amphitheater",
+    "page": "https://commons.wikimedia.org/wiki/File:Red_Rocks_Amphitheater.JPG",
+    "file_url": "https://commons.wikimedia.org/w/index.php?title=Special:Redirect/file/Red_Rocks_Amphitheater.JPG&width=1280",
+    "author": "Scapler",
+    "licence": "CC BY-SA 3.0",
+    "size": [
+     1280,
+     960
+    ]
+   },
+   "aspect": [
+    4,
+    3
+   ],
+   "camera_guess": {
+    "x": -6124.0,
+    "y": 2512.0,
+    "z": 22366.2,
+    "yaw": -24.2,
+    "pitch": -18.0,
+    "roll": 0.0,
+    "fov": 55.0
+   },
+   "camera": {
+    "x": -7347.0,
+    "y": 3254.1,
+    "z": 22582.5,
+    "yaw": -25.621,
+    "pitch": -15.91,
+    "roll": 1.708,
+    "fov": 47.796
+   },
+   "fit_error": 0.0048,
+   "sun": {
+    "azimuth_deg": 200.0,
+    "elevation_deg": 65.0
+   },
+   "sun_note": "Late spring, high sun: people and trees cast short shadows down and to the left of the rows (toward the north-east), the stage deck is in its roof's shade and the towers' west faces are lit; early afternoon, sun a little west of south.",
+   "landmarks": [
+    {
+     "name": "stage_roof_front_north",
+     "photo_xy": [
+      480,
+      354
+     ]
+    },
+    {
+     "name": "stage_roof_front_south",
+     "photo_xy": [
+      821,
+      344
+     ]
+    },
+    {
+     "name": "stage_roof_back_north",
+     "photo_xy": [
+      507,
+      310
+     ]
+    },
+    {
+     "name": "stage_roof_back_south",
+     "photo_xy": [
+      797,
+      301
+     ]
+    },
+    {
+     "name": "stage_front_centre",
+     "photo_xy": [
+      655,
+      548
+     ]
+    },
+    {
+     "name": "stage_deck_front_north",
+     "photo_xy": [
+      481,
+      546
+     ]
+    },
+    {
+     "name": "stage_deck_front_south",
+     "photo_xy": [
+      826,
+      539
+     ]
+    }
+   ],
+   "samples": [
+    {
+     "label": "sky",
+     "kind": "sky",
+     "photo_box": [
+      100,
+      5,
+      1200,
+      50
+     ],
+     "game_box": [
+      100,
+      5,
+      1200,
+      50
+     ]
+    },
+    {
+     "label": "plains to Denver",
+     "kind": "plains",
+     "photo_box": [
+      560,
+      72,
+      1180,
+      98
+     ],
+     "game_box": [
+      560,
+      72,
+      1180,
+      98
+     ]
+    },
+    {
+     "label": "sunlit rocks behind the stage",
+     "kind": "rock_lit",
+     "photo_box": [
+      140,
+      215,
+      320,
+      250
+     ],
+     "game_box": [
+      140,
+      215,
+      320,
+      250
+     ]
+    },
+    {
+     "label": "shaded rock band",
+     "kind": "rock_shade",
+     "photo_box": [
+      10,
+      265,
+      250,
+      295
+     ],
+     "game_box": [
+      10,
+      265,
+      250,
+      295
+     ]
+    },
+    {
+     "label": "top-row treads",
+     "kind": "tread",
+     "photo_box": [
+      300,
+      820,
+      1000,
+      860
+     ],
+     "game_box": [
+      300,
+      820,
+      1000,
+      860
+     ]
+    },
+    {
+     "label": "hillside scrub",
+     "kind": "plants",
+     "photo_box": [
+      700,
+      150,
+      1200,
+      210
+     ],
+     "game_box": [
+      700,
+      150,
+      1200,
+      210
+     ]
+    }
+   ],
+   "skyline_ignore": []
+  },
+  {
+   "name": "up_the_rows",
+   "photo": {
+    "id": "up_the_rows",
+    "title": "Red Rocks Amphitheatre, Colorado 28",
+    "page": "https://commons.wikimedia.org/wiki/File:Red_Rocks_Amphitheatre,_Colorado_28.jpg",
+    "file_url": "https://commons.wikimedia.org/w/index.php?title=Special:Redirect/file/Red_Rocks_Amphitheatre,_Colorado_28.jpg&width=1280",
+    "author": "Sarbjit Bahga",
+    "licence": "CC BY-SA 4.0",
+    "size": [
+     1280,
+     853
+    ]
+   },
+   "aspect": [
+    3,
+    2
+   ],
+   "camera_guess": {
+    "x": -5572.0,
+    "y": -581.0,
+    "z": 21886.2,
+    "yaw": 95.0,
+    "pitch": 10.0,
+    "roll": 0.0,
+    "fov": 65.0
+   },
+   "camera": {
+    "x": -5168.8,
+    "y": -804.7,
+    "z": 21583.3,
+    "yaw": 96.05,
+    "pitch": 10.06,
+    "roll": 0.3,
+    "fov": 66.97
+   },
+   "fit_error": 0.0167,
+   "sun": {
+    "azimuth_deg": 240.0,
+    "elevation_deg": 55.0
+   },
+   "sun_note": "Summer afternoon: Ship Rock's north-west face is lit with short shadows under its ledges, and the walker's shadow falls forward and to his left; sun high in the west-south-west.",
+   "landmarks": [
+    {
+     "name": "ship_rock_summit",
+     "photo_xy": [
+      624,
+      4
+     ]
+    }
+   ],
+   "samples": [
+    {
+     "label": "sky",
+     "kind": "sky",
+     "photo_box": [
+      720,
+      10,
+      1150,
+      150
+     ],
+     "game_box": [
+      720,
+      10,
+      1150,
+      150
+     ]
+    },
+    {
+     "label": "Ship Rock face in sun",
+     "kind": "rock_lit",
+     "photo_box": [
+      350,
+      200,
+      650,
+      400
+     ],
+     "game_box": [
+      350,
+      200,
+      650,
+      400
+     ]
+    },
+    {
+     "label": "Ship Rock foot in shade",
+     "kind": "rock_shade",
+     "photo_box": [
+      80,
+      450,
+      300,
+      540
+     ],
+     "game_box": [
+      80,
+      450,
+      300,
+      540
+     ]
+    },
+    {
+     "label": "walkway tread",
+     "kind": "tread",
+     "photo_box": [
+      480,
+      650,
+      700,
+      800
+     ],
+     "game_box": [
+      480,
+      650,
+      700,
+      800
+     ]
+    },
+    {
+     "label": "flagstone risers",
+     "kind": "riser",
+     "photo_box": [
+      900,
+      590,
+      1150,
+      650
+     ],
+     "game_box": [
+      900,
+      590,
+      1150,
+      650
+     ]
+    },
+    {
+     "label": "junipers",
+     "kind": "plants",
+     "photo_box": [
+      400,
+      430,
+      520,
+      510
+     ],
+     "game_box": [
+      400,
+      430,
+      520,
+      510
+     ]
+    }
+   ],
+   "skyline_ignore": [
+    [
+     800,
+     230,
+     1280,
+     460
+    ],
+    [
+     1180,
+     40,
+     1280,
+     380
+    ]
+   ],
+   "fit_note": "Only Ship Rock's summit is a catalog landmark visible here: the camera stands at the north end of row 61 (the bench's end is labelled), the row ends on the far side are hidden by trees and the near ones are too close to pick to the build's 0.5 m. The camera is the scan's silhouette fitted to the photo's sky (rock outline and top railing), not a landmark fit; its height is the least certain part."
+  },
+  {
+   "name": "across_the_rows",
+   "photo": {
+    "id": "across_the_rows",
+    "title": "Red Rock Amphitheatre Seatings",
+    "page": "https://commons.wikimedia.org/wiki/File:Red_Rock_Amphitheatre_Seatings.jpg",
+    "file_url": "https://commons.wikimedia.org/w/index.php?title=Special:Redirect/file/Red_Rock_Amphitheatre_Seatings.jpg&width=1280",
+    "author": "Mitul0520",
+    "licence": "CC BY-SA 3.0",
+    "size": [
+     1280,
+     803
+    ]
+   },
+   "aspect": [
+    1280,
+    803
+   ],
+   "camera_guess": {
+    "x": 800.0,
+    "y": -2500.0,
+    "z": 19670.2,
+    "yaw": 130.0,
+    "pitch": 12.0,
+    "roll": 0.0,
+    "fov": 50.0
+   },
+   "camera": {
+    "x": 715.4,
+    "y": -995.4,
+    "z": 19892.8,
+    "yaw": 132.81,
+    "pitch": 12.11,
+    "roll": 0.63,
+    "fov": 42.46
+   },
+   "fit_error": 0.0168,
+   "sun": {
+    "azimuth_deg": 255.0,
+    "elevation_deg": 50.0
+   },
+   "sun_note": "Afternoon: the planks' shadows fall down and to the left across the risers and Ship Rock's north face is lit from the right; sun in the west-south-west, about half way up.",
+   "landmarks": [
+    {
+     "name": "aisle_end_row70",
+     "photo_xy": [
+      790,
+      288
+     ]
+    }
+   ],
+   "samples": [
+    {
+     "label": "sky",
+     "kind": "sky",
+     "photo_box": [
+      900,
+      20,
+      1250,
+      150
+     ],
+     "game_box": [
+      900,
+      20,
+      1250,
+      150
+     ]
+    },
+    {
+     "label": "Ship Rock in sun",
+     "kind": "rock_lit",
+     "photo_box": [
+      550,
+      30,
+      760,
+      140
+     ],
+     "game_box": [
+      550,
+      30,
+      760,
+      140
+     ]
+    },
+    {
+     "label": "Ship Rock lower face",
+     "kind": "rock_shade",
+     "photo_box": [
+      430,
+      280,
+      700,
+      330
+     ],
+     "game_box": [
+      430,
+      280,
+      700,
+      330
+     ]
+    },
+    {
+     "label": "planks and treads",
+     "kind": "tread",
+     "photo_box": [
+      300,
+      600,
+      900,
+      640
+     ],
+     "game_box": [
+      300,
+      600,
+      900,
+      640
+     ]
+    },
+    {
+     "label": "flagstone risers",
+     "kind": "riser",
+     "photo_box": [
+      100,
+      700,
+      600,
+      740
+     ],
+     "game_box": [
+      100,
+      700,
+      600,
+      740
+     ]
+    },
+    {
+     "label": "juniper",
+     "kind": "plants",
+     "photo_box": [
+      250,
+      270,
+      330,
+      390
+     ],
+     "game_box": [
+      250,
+      270,
+      330,
+      390
+     ]
+    }
+   ],
+   "skyline_ignore": [
+    [
+     400,
+     145,
+     545,
+     295
+    ],
+    [
+     1130,
+     160,
+     1280,
+     240
+    ]
+   ],
+   "fit_note": "No catalog landmark but the top row's south end (beside the brick platform) is clear in the photo: the rows' south ends run behind planters and people and cannot be counted, and Ship Rock's top is above the frame. The camera is the scan's silhouette fitted to the photo's sky (Ship Rock's west cliff and the top railing); the photo's pale sky is barely blue, so board_metrics.sky_mask finds little of it, and the near rows show the camera stood by the north aisle, closer than this fit puts it."
+  },
+  {
+   "name": "stage_front",
+   "photo": {
+    "id": "stage_front",
+    "title": "Red Rock Amphitheatre",
+    "page": "https://commons.wikimedia.org/wiki/File:Red_Rock_Amphitheatre.jpg",
+    "file_url": "https://commons.wikimedia.org/w/index.php?title=Special:Redirect/file/Red_Rock_Amphitheatre.jpg&width=1280",
+    "author": "Mitul0520",
+    "licence": "CC BY-SA 3.0",
+    "size": [
+     1280,
+     802
+    ]
+   },
+   "aspect": [
+    640,
+    401
+   ],
+   "camera_guess": {
+    "x": 1280.0,
+    "y": -800.0,
+    "z": 19440.2,
+    "yaw": -24.0,
+    "pitch": 6.0,
+    "roll": 0.0,
+    "fov": 64.0
+   },
+   "camera": {
+    "x": -1456.1,
+    "y": 427.2,
+    "z": 20328.0,
+    "yaw": -23.533,
+    "pitch": -5.561,
+    "roll": 1.231,
+    "fov": 61.209
+   },
+   "fit_error": 0.0346,
+   "sun": {
+    "azimuth_deg": 170.0,
+    "elevation_deg": 60.0
+   },
+   "sun_note": "Midday: the stage columns and road cases throw short shadows toward the left (north) and back of the deck, and the rock behind the stage is lit on its south-facing ledges; sun high, just east of south.",
+   "landmarks": [
+    {
+     "name": "stage_roof_front_north",
+     "photo_xy": [
+      275,
+      125
+     ]
+    },
+    {
+     "name": "stage_roof_front_south",
+     "photo_xy": [
+      995,
+      150
+     ]
+    },
+    {
+     "name": "stage_front_centre",
+     "photo_xy": [
+      622,
+      622
+     ]
+    },
+    {
+     "name": "stage_deck_front_north",
+     "photo_xy": [
+      288,
+      628
+     ]
+    },
+    {
+     "name": "stage_deck_front_south",
+     "photo_xy": [
+      982,
+      610
+     ]
+    }
+   ],
+   "samples": [
+    {
+     "label": "sky",
+     "kind": "sky",
+     "photo_box": [
+      400,
+      10,
+      1200,
+      100
+     ],
+     "game_box": [
+      400,
+      10,
+      1200,
+      100
+     ]
+    },
+    {
+     "label": "rock behind the stage in sun",
+     "kind": "rock_lit",
+     "photo_box": [
+      340,
+      260,
+      560,
+      340
+     ],
+     "game_box": [
+      340,
+      260,
+      560,
+      340
+     ]
+    },
+    {
+     "label": "rock behind the stage in shade",
+     "kind": "rock_shade",
+     "photo_box": [
+      200,
+      330,
+      330,
+      440
+     ],
+     "game_box": [
+      200,
+      330,
+      330,
+      440
+     ]
+    },
+    {
+     "label": "front-row treads",
+     "kind": "tread",
+     "photo_box": [
+      100,
+      720,
+      1100,
+      790
+     ],
+     "game_box": [
+      100,
+      720,
+      1100,
+      790
+     ]
+    }
+   ],
+   "skyline_ignore": [
+    [
+     110,
+     120,
+     1090,
+     240
+    ],
+    [
+     1220,
+     130,
+     1280,
+     165
+    ]
+   ],
+   "fit_note": "Refused by the landmark fit (3.2 % at best, and that best fit is degenerate: fov 170). The deck's front edge fits, but the roof slab in this photo stands much higher over the deck than the build's blockout roof (14.3 m, from the scan), so its two front corners land 80-120 px below the photo's. The camera is the deck's three points fitted with the camera on the stage axis at row 28 (the deck's width puts it about 40 m back, not in the front rows); its fit_error counts all five landmarks."
+  },
+  {
+   "name": "monolith_plaza",
+   "photo": {
+    "id": "monolith_plaza",
+    "title": "Red Rocks Amphitheatre, Colorado 13",
+    "page": "https://commons.wikimedia.org/wiki/File:Red_Rocks_Amphitheatre,_Colorado_13.jpg",
+    "file_url": "https://commons.wikimedia.org/w/index.php?title=Special:Redirect/file/Red_Rocks_Amphitheatre,_Colorado_13.jpg&width=1280",
+    "author": "Sarbjit Bahga",
+    "licence": "CC BY-SA 4.0",
+    "size": [
+     1280,
+     853
+    ]
+   },
+   "aspect": [
+    3,
+    2
+   ],
+   "camera_guess": {
+    "x": -9500.0,
+    "y": 3000.0,
+    "z": 22150.2,
+    "yaw": -68.0,
+    "pitch": 18.0,
+    "roll": 0.0,
+    "fov": 65.0
+   },
+   "camera": {
+    "x": -10252.6,
+    "y": 3265.4,
+    "z": 22150.0,
+    "yaw": -67.51,
+    "pitch": 18.94,
+    "roll": 5.33,
+    "fov": 64.73
+   },
+   "fit_error": 0.008,
+   "sun": {
+    "azimuth_deg": 200.0,
+    "elevation_deg": 60.0
+   },
+   "sun_note": "Summer midday: Creation Rock's south-west face is fully lit with dark shadows only in its crack and under the strata, and the stands' shadows fall straight back toward the rock; sun high, a little west of south.",
+   "landmarks": [
+    {
+     "name": "creation_rock_summit",
+     "photo_xy": [
+      393,
+      27
+     ]
+    }
+   ],
+   "samples": [
+    {
+     "label": "sky",
+     "kind": "sky",
+     "photo_box": [
+      900,
+      300,
+      1250,
+      500
+     ],
+     "game_box": [
+      900,
+      300,
+      1250,
+      500
+     ]
+    },
+    {
+     "label": "Creation Rock face in sun",
+     "kind": "rock_lit",
+     "photo_box": [
+      400,
+      300,
+      650,
+      500
+     ],
+     "game_box": [
+      400,
+      300,
+      650,
+      500
+     ]
+    },
+    {
+     "label": "crack in shade",
+     "kind": "rock_shade",
+     "photo_box": [
+      680,
+      250,
+      740,
+      420
+     ],
+     "game_box": [
+      680,
+      250,
+      740,
+      420
+     ]
+    },
+    {
+     "label": "scrub below the rock",
+     "kind": "plants",
+     "photo_box": [
+      200,
+      690,
+      300,
+      760
+     ],
+     "game_box": [
+      200,
+      690,
+      300,
+      760
+     ]
+    }
+   ],
+   "skyline_ignore": [
+    [
+     1030,
+     680,
+     1280,
+     800
+    ]
+   ],
+   "fit_note": "Only Creation Rock's summit is a catalog landmark visible here: the rest of the view is the rock's face and the plaza's temporary stands, which the build does not have. The camera is the scan's silhouette fitted to the photo's sky (it traces the rock's outline to a few pixels), with its height fixed 1.6 m over the plaza."
+  },
+  {
+   "name": "aerial",
+   "photo": {
+    "id": "aerial",
+    "title": "Aerial view of Red Rocks Amphitheatre, January 2013",
+    "page": "https://commons.wikimedia.org/wiki/File:Aerial_view_of_Red_Rocks_Amphitheatre,_January_2013.jpg",
+    "file_url": "https://commons.wikimedia.org/w/index.php?title=Special:Redirect/file/Aerial_view_of_Red_Rocks_Amphitheatre,_January_2013.jpg&width=1280",
+    "author": "Stoermerjp",
+    "licence": "CC BY-SA 3.0",
+    "size": [
+     896,
+     1138
+    ]
+   },
+   "aspect": [
+    896,
+    1138
+   ],
+   "camera_guess": {
+    "x": 26000.0,
+    "y": -25000.0,
+    "z": 50790.2,
+    "yaw": 135.0,
+    "pitch": -27.0,
+    "roll": 0.0,
+    "fov": 28.0
+   },
+   "camera": {
+    "x": 29110.8,
+    "y": -31715.6,
+    "z": 54921.5,
+    "yaw": 134.826,
+    "pitch": -28.002,
+    "roll": 5.719,
+    "fov": 26.457
+   },
+   "fit_error": 0.0097,
+   "sun": {
+    "azimuth_deg": 160.0,
+    "elevation_deg": 25.0
+   },
+   "sun_note": "Winter late morning: Ship Rock throws a long shadow across the south half of the rows and the top rows, trees cast long shadows toward the north-west; sun low in the south-south-east.",
+   "landmarks": [
+    {
+     "name": "stage_roof_front_south",
+     "photo_xy": [
+      366,
+      977
+     ]
+    },
+    {
+     "name": "stage_roof_front_north",
+     "photo_xy": [
+      443,
+      1004
+     ]
+    },
+    {
+     "name": "stage_roof_back_north",
+     "photo_xy": [
+      411,
+      1058
+     ]
+    },
+    {
+     "name": "stage_roof_back_south",
+     "photo_xy": [
+      334,
+      1028
+     ]
+    },
+    {
+     "name": "creation_rock_summit",
+     "photo_xy": [
+      742,
+      584
+     ]
+    },
+    {
+     "name": "ship_rock_summit",
+     "photo_xy": [
+      378,
+      612
+     ]
+    }
+   ],
+   "samples": [
+    {
+     "label": "sky",
+     "kind": "sky",
+     "photo_box": [
+      100,
+      20,
+      800,
+      140
+     ],
+     "game_box": [
+      100,
+      20,
+      800,
+      140
+     ]
+    },
+    {
+     "label": "Ship Rock in sun",
+     "kind": "rock_lit",
+     "photo_box": [
+      100,
+      700,
+      300,
+      850
+     ],
+     "game_box": [
+      100,
+      700,
+      300,
+      850
+     ]
+    },
+    {
+     "label": "Creation Rock in shade",
+     "kind": "rock_shade",
+     "photo_box": [
+      650,
+      800,
+      760,
+      950
+     ],
+     "game_box": [
+      650,
+      800,
+      760,
+      950
+     ]
+    },
+    {
+     "label": "sunlit rows",
+     "kind": "tread",
+     "photo_box": [
+      430,
+      820,
+      560,
+      900
+     ],
+     "game_box": [
+      430,
+      820,
+      560,
+      900
+     ]
+    },
+    {
+     "label": "trees by the south aisle",
+     "kind": "plants",
+     "photo_box": [
+      180,
+      960,
+      260,
+      1040
+     ],
+     "game_box": [
+      180,
+      960,
+      260,
+      1040
+     ]
+    }
+   ],
+   "skyline_ignore": []
+  }
+ ]
+}
