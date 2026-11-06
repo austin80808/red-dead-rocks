@@ -28,8 +28,16 @@
     "roll": 0.0,
     "fov": 55.0
    },
-   "camera": null,
-   "fit_error": null,
+   "camera": {
+    "x": -7347.0,
+    "y": 3254.1,
+    "z": 22582.5,
+    "yaw": -25.621,
+    "pitch": -15.91,
+    "roll": 1.708,
+    "fov": 47.796
+   },
+   "fit_error": 0.0048,
    "sun": {
     "azimuth_deg": 200.0,
     "elevation_deg": 65.0
@@ -213,8 +221,16 @@
     "roll": 0.0,
     "fov": 65.0
    },
-   "camera": null,
-   "fit_error": null,
+   "camera": {
+    "x": -5168.8,
+    "y": -804.7,
+    "z": 21583.3,
+    "yaw": 96.05,
+    "pitch": 10.06,
+    "roll": 0.3,
+    "fov": 66.97
+   },
+   "fit_error": 0.0167,
    "sun": {
     "azimuth_deg": 240.0,
     "elevation_deg": 55.0
@@ -370,8 +386,16 @@
     "roll": 0.0,
     "fov": 50.0
    },
-   "camera": null,
-   "fit_error": null,
+   "camera": {
+    "x": 715.4,
+    "y": -995.4,
+    "z": 19892.8,
+    "yaw": 132.81,
+    "pitch": 12.11,
+    "roll": 0.63,
+    "fov": 42.46
+   },
+   "fit_error": 0.0168,
    "sun": {
     "azimuth_deg": 255.0,
     "elevation_deg": 50.0
@@ -527,8 +551,16 @@
     "roll": 0.0,
     "fov": 64.0
    },
-   "camera": null,
-   "fit_error": null,
+   "camera": {
+    "x": -1456.1,
+    "y": 427.2,
+    "z": 20328.0,
+    "yaw": -23.533,
+    "pitch": -5.561,
+    "roll": 1.231,
+    "fov": 61.209
+   },
+   "fit_error": 0.0346,
    "sun": {
     "azimuth_deg": 170.0,
     "elevation_deg": 60.0
@@ -651,7 +683,7 @@
      165
     ]
    ],
-   "fit_note": "Five landmarks only: the roof slab's two front corners and the deck's front edge show, but the roof's back corners are hidden above it and the rows' ends are out of frame. The photo has a touring rig hung under the roof, so the deck edge is picked along its front railing."
+   "fit_note": "Refused by the landmark fit (3.2 % at best, and that best fit is degenerate: fov 170). The deck's front edge fits, but the roof slab in this photo stands much higher over the deck than the build's blockout roof (14.3 m, from the scan), so its two front corners land 80-120 px below the photo's. The camera is the deck's three points fitted with the camera on the stage axis at row 28 (the deck's width puts it about 40 m back, not in the front rows); its fit_error counts all five landmarks."
   },
   {
    "name": "monolith_plaza",
@@ -680,8 +712,16 @@
     "roll": 0.0,
     "fov": 65.0
    },
-   "camera": null,
-   "fit_error": null,
+   "camera": {
+    "x": -10252.6,
+    "y": 3265.4,
+    "z": 22150.0,
+    "yaw": -67.51,
+    "pitch": 18.94,
+    "roll": 5.33,
+    "fov": 64.73
+   },
+   "fit_error": 0.008,
    "sun": {
     "azimuth_deg": 200.0,
     "elevation_deg": 60.0
@@ -799,8 +839,16 @@
     "roll": 0.0,
     "fov": 28.0
    },
-   "camera": null,
-   "fit_error": null,
+   "camera": {
+    "x": 29110.8,
+    "y": -31715.6,
+    "z": 54921.5,
+    "yaw": 134.826,
+    "pitch": -28.002,
+    "roll": 5.719,
+    "fov": 26.457
+   },
+   "fit_error": 0.0097,
    "sun": {
     "azimuth_deg": 160.0,
     "elevation_deg": 25.0
