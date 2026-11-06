@@ -29,7 +29,7 @@ ROOT = Path(__file__).resolve().parent.parent
 
 # OBJ -> (side colour, top colour) in sRGB; top is for faces whose normal is mostly up.
 COLOURS = {
-    "RedRocks_Terrain": ("#8F5A40", "#9C6E52"),
+    "RedRocks_Terrain": ("#9A5038", "#8A8458"),  # red rock where steep, olive scrub where not
     "Rocks": ("#A2482A", "#B07050"),
     "Walls": ("#B9A79B", "#C4B4A8"),
     "Buildings": ("#B67856", "#5A534D"),
