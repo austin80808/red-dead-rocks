@@ -242,6 +242,10 @@ class StageMesh:
     handrail_path: Path | None = None
     booth_path: Path | None = None
     booth_deck_elevation_m: float | None = None
+    # Heading the booth's front (its parapet) faces, degrees counter-clockwise
+    # from east: straight at the stage front centre. And its (width, depth), m.
+    booth_facing_deg: float | None = None
+    booth_size_m: tuple[float, float] | None = None
     walkway_centre: tuple[float, float] | None = None
     # Every row-end stair step's centre (east, north, top elevation in absolute
     # metres) up each side of the bowl, bottom first: the aisles people walk up.
@@ -359,9 +363,10 @@ def stage_parts(
 
     ``booth`` is the sound booth's roof footprint (4 corners, local metres; the
     CLI takes OSM's ``building=roof`` in the bowl). With it and ``levels`` the
-    booth deck covers that footprint, ``BOOTH_RAISE_M`` over the highest tread
-    under it, with its parapet on the stage side; ``booth_roof_parts`` adds the
-    roof. Without, it is the old blockout at row 8.
+    booth deck keeps that footprint's centre and size, ``BOOTH_RAISE_M`` over
+    the highest tread under it, squared to the stage: its parapet faces the
+    stage front centre (``_booth_frame``). ``booth_roof_parts`` adds the roof.
+    Without, it is the old blockout at row 8.
     """
     if len(rows) != len(polylines):
         raise ValueError(f"{len(rows)} rows but {len(polylines)} polylines")
@@ -489,9 +494,10 @@ def stage_parts(
                 sz0, sz1))
 
     # Front-of-House (FOH) sound booth: on its OSM roof footprint (way 229359709, row ~13) when the
-    # CLI found it; otherwise the old blockout at row 8.
+    # CLI found it, turned to face the stage front centre; otherwise the old blockout at row 8.
     if booth is not None and levels is not None:
-        parts += _booth_parts(np.asarray(booth, dtype=float), a, polylines, levels, base_elevation_m, ground)
+        parts += _booth_parts(np.asarray(booth, dtype=float), a, polylines, levels, base_elevation_m, ground,
+                              toward=origin)
     elif len(rows) >= 8:
         foh_row = rows[min(7, len(rows) - 1)]
         foh_c = np.array([foh_row.centre_east, foh_row.centre_north])
@@ -737,20 +743,23 @@ def export_stage_obj(
 
     handrail_path = out_path.parent / "Handrail.obj"
     handrail_tris = _write_handrail(parts, handrail_path, base_elevation_m)
-    booth_path, booth_deck = None, None
+    a = stage_axis(rows)
+    origin = np.array([rows[0].centre_east, rows[0].centre_north]) - a * STAGE_FRONT_SETBACK_M
+    booth_path, booth_deck, booth_facing, booth_size = None, None, None, None
     if booth is not None and levels is not None:
         booth_path = out_path.parent / "Booth.obj"
-        roof = booth_roof_parts(parts, booth, stage_axis(rows))
+        roof = booth_roof_parts(parts, booth, a, toward=origin)
         _write_parts_obj(roof, booth_path, "Booth", [
             "Red Rocks sound booth: posts and roof over the FOH deck (deck and parapet are in Stage.obj)",
             f"centimetres, base {base_elevation_m:.3f} m",
         ])
         booth_deck = next(p.z1 for p in parts if p.name == "foh_platform") + base_elevation_m
+        _, _, up, hw, depth = _booth_frame(booth, a, toward=origin)
+        booth_facing = float(np.degrees(np.arctan2(-up[1], -up[0])) % 360.0)
+        booth_size = (2.0 * hw, depth)
     else:
         (out_path.parent / "Booth.obj").unlink(missing_ok=True)
 
-    a = stage_axis(rows)
-    origin = np.array([rows[0].centre_east, rows[0].centre_north]) - a * STAGE_FRONT_SETBACK_M
     return StageMesh(
         path=out_path,
         parts=ranges,
@@ -766,6 +775,8 @@ def export_stage_obj(
         handrail_triangles=handrail_tris,
         booth_path=booth_path,
         booth_deck_elevation_m=booth_deck,
+        booth_facing_deg=booth_facing,
+        booth_size_m=booth_size,
         walkway_centre=tuple(float(v) for v in next(p.plan for p in parts if p.name == "walkway").mean(axis=0)),
         aisles=_aisles(stairs, base_elevation_m),
         stairs_path=stairs_path if stairs else None,
@@ -784,24 +795,43 @@ def _row_at(point: np.ndarray, shapes: Sequence[LineString]) -> int:
     return int(i) if j == i + 1 and d[i] + d[j] <= float(shapes[i].distance(shapes[j])) + 1e-6 else int(np.argmin(d))
 
 
-def _booth_frame(plan: np.ndarray, a: np.ndarray) -> tuple[np.ndarray, np.ndarray, np.ndarray, float, float]:
-    """(centre, along-the-rows unit, uphill unit, half width, depth) of a 4-corner footprint."""
+def _booth_frame(plan: np.ndarray, a: np.ndarray, toward: np.ndarray | None = None
+                 ) -> tuple[np.ndarray, np.ndarray, np.ndarray, float, float]:
+    """(centre, along-the-rows unit, uphill unit, half width, depth) of a 4-corner footprint.
+
+    The booth keeps the footprint's centre and its two side lengths. With
+    ``toward`` (the stage front centre) it is squared to the stage: ``up`` runs
+    from ``toward`` through the centre, so the front (the parapet, on the
+    ``-up`` side) looks straight at it. OSM's roof outline is turned about 21
+    degrees off that line at the real venue. The depth is the footprint side
+    most nearly along ``up``, the width the other. Without ``toward``, ``up`` is
+    the footprint side most nearly along the stage axis ``a``.
+    """
     plan = np.asarray(plan, dtype=float)[:4]
     centre = plan.mean(axis=0)
     edges = [plan[(k + 1) % 4] - plan[k] for k in range(4)]
-    # The uphill direction is whichever edge pair is most nearly along the stage axis.
-    depth_edge = max(edges, key=lambda e: abs(float(e @ a)) / float(np.hypot(*e)))
-    up = depth_edge / float(np.hypot(*depth_edge))
-    if up @ a < 0:
-        up = -up
+    ref = np.asarray(a, dtype=float)
+    if toward is not None:
+        d = centre - np.asarray(toward, dtype=float)[:2]
+        if float(np.hypot(*d)) > 1e-6:
+            ref = d / float(np.hypot(*d))
+    # The depth is whichever side pair is most nearly along the uphill direction.
+    depth_edge = max(edges, key=lambda e: abs(float(e @ ref)) / float(np.hypot(*e)))
+    if toward is not None:
+        up = ref
+    else:
+        up = depth_edge / float(np.hypot(*depth_edge))
+        if up @ a < 0:
+            up = -up
     along = np.array([up[1], -up[0]])
     depth = float(np.hypot(*depth_edge))
-    width = float(np.hypot(*next(e for e in edges if abs(float(e @ up)) < 0.5 * np.hypot(*e))))
+    k = next(i for i, e in enumerate(edges) if e is depth_edge)
+    width = float(np.hypot(*edges[(k + 1) % 4]))
     return centre, along, up, width / 2.0, depth
 
 
-def _booth_parts(plan, a, polylines, levels, base, ground) -> list[Part]:
-    centre, along, up, hw, depth = _booth_frame(plan, a)
+def _booth_parts(plan, a, polylines, levels, base, ground, toward=None) -> list[Part]:
+    centre, along, up, hw, depth = _booth_frame(plan, a, toward)
     shapes = [LineString(np.asarray(p, dtype=float)[:, :2]) for p in polylines]
     samples = [centre + along * x + up * y
                for x in np.linspace(-hw, hw, 5) for y in np.linspace(-depth / 2, depth / 2, 5)]
@@ -824,9 +854,14 @@ def _booth_parts(plan, a, polylines, levels, base, ground) -> list[Part]:
     return parts
 
 
-def booth_roof_parts(parts: Sequence[Part], booth: np.ndarray, a: np.ndarray) -> list[Part]:
-    """Four corner posts on the booth deck and the flat roof over them."""
-    centre, along, up, hw, depth = _booth_frame(booth, a)
+def booth_roof_parts(parts: Sequence[Part], booth: np.ndarray, a: np.ndarray,
+                     toward: np.ndarray | None = None) -> list[Part]:
+    """Four corner posts on the booth deck and the flat roof over them.
+
+    Pass the same ``toward`` (stage front centre) the deck was built with, so
+    the roof is squared to the stage like the deck under it.
+    """
+    centre, along, up, hw, depth = _booth_frame(booth, a, toward)
     deck = next(p for p in parts if p.name == "foh_platform")
     z0, z1 = deck.z1, deck.z1 + BOOTH_ROOF_M
     out = []

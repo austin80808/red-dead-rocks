@@ -82,7 +82,7 @@ out/
   Bench_Brackets.obj       1,807 steel brackets lined up about the stage (21,684 triangles)
   Handrail.obj             steel rail on the top walkway's parapet
   Stairs.obj               row-end aisle stairs and cheek walls, two steps per row (5,040 triangles)
-  Booth.obj                the sound booth's posts and maroon roof, on its OSM footprint (way 229359709)
+  Booth.obj                the sound booth's posts and maroon roof, on its OSM footprint (way 229359709), squared to the stage
   scan_fade.png, .json     the scan's fade mask with the seating cut out (see Seating)
   Stage.obj                stage, Y-columns, trusses, FOH booth & bowl end stairs (462 parts, 5,536 triangles)
   Roads.obj, Paths.obj     OSM highways as draped ribbons (57,146 / 34,472 triangles)
@@ -193,12 +193,16 @@ tread to the next across the row's band, two steps per row, and the stage's
 walkway sits 2 cm under the top tread.
 
 **The sound booth** stands where OSM has its roof (way 229359709,
-`building=roof`, about 6 x 4.5 m, around row 13 just off the centre line), not on
-row 8 where the blockout had it. Its deck covers that footprint 0.3 m over the
-highest tread under it, so you step in from the row behind; a parapet faces the
-stage, and four posts carry a flat maroon roof 2.6 m up (`Booth.obj`, `M_Roof`),
-like the one in the top-row photo. The scan shows no booth (it was flown without
-one), so nothing there is kept visible over it.
+`building=roof`, 5.3 x 5.1 m, around row 13 just off the centre line), not on
+row 8 where the blockout had it. It keeps that footprint's centre and size but
+is squared to the stage: OSM's outline runs about 21 degrees off the line to the
+stage, so the booth is turned until its front looks straight at the stage front
+centre (`facing_deg` in the manifest's `booth` entry, 31.7 degrees counter-clockwise
+from east on the real data). Its deck sits 0.3 m over the highest tread under
+it, so you step in from the row behind; a parapet faces the stage, and four
+posts carry a flat maroon roof 2.6 m up (`Booth.obj`, `M_Roof`), like the one in
+the top-row photo. The scan is cut out under the turned deck. The scan shows no
+booth (it was flown without one), so nothing there is kept visible over it.
 
 Current output for a 3.6 km box centred on the amphitheatre (it reaches
 downtown Morrison; the box was 2.4 km until the explorable realm):

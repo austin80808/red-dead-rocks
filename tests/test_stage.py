@@ -21,6 +21,7 @@ from redrocks.stage import (
     stage_parts,
 )
 from redrocks.venue import Row
+from shapely.geometry import Point, Polygon
 
 BASE = 1750.0
 
@@ -558,6 +559,109 @@ def test_booth_roof_is_its_own_mesh_on_four_posts(tmp_path):
     assert v[:, 2].max() == pytest.approx(deck_top + (stage.BOOTH_ROOF_M + stage.BOOTH_ROOF_THICK_M) * 100, abs=0.01)
     # The roof overhangs the deck all round.
     assert v[:, 0].min() / 100 == pytest.approx(-3.0 - stage.BOOTH_ROOF_OVERHANG_M, abs=1e-3)
+
+
+def _turned_rect(centre, heading_deg, w, d):
+    """A w x d footprint about ``centre`` whose depth sides run along ``heading_deg``."""
+    up = np.array([np.cos(np.radians(heading_deg)), np.sin(np.radians(heading_deg))])
+    along = np.array([up[1], -up[0]])
+    c = np.asarray(centre, dtype=float)
+    return np.array([c + sx * w / 2 * along + sy * d / 2 * up for sx, sy in ((-1, -1), (1, -1), (1, 1), (-1, 1))])
+
+
+def _corners(verts_cm):
+    """The plan corners of a prism's vertices, metres, in order around it."""
+    corners = np.unique(np.round(verts_cm[:, :2] / 100.0, 4), axis=0)
+    c = corners.mean(axis=0)
+    return corners[np.argsort(np.arctan2(corners[:, 1] - c[1], corners[:, 0] - c[0]))]
+
+
+def _heading(v):
+    return float(np.degrees(np.arctan2(v[1], v[0])))
+
+
+def _off(a_deg, b_deg):
+    """Angle between two headings, 0..180 degrees."""
+    return abs((a_deg - b_deg + 180.0) % 360.0 - 180.0)
+
+
+def _line_off(a_deg, b_deg):
+    """Angle between two lines (no direction), 0..90 degrees."""
+    d = _off(a_deg, b_deg)
+    return min(d, 180.0 - d)
+
+
+def _plan_frame(ring):
+    """(centre, sorted side lengths, headings of two adjacent sides) of a rectangle's corners."""
+    sides = [ring[(k + 1) % 4] - ring[k] for k in range(4)]
+    return ring.mean(axis=0), sorted(float(np.hypot(*s)) for s in sides[:2]), [_heading(s) for s in sides[:2]]
+
+
+def test_booth_is_squared_to_the_stage_front_centre(tmp_path):
+    """OSM's roof outline is turned about 21 degrees off the line to the stage at
+    the real venue. The booth keeps its surveyed centre and size, but its front
+    (the parapet) faces the stage front centre squarely, roof and all."""
+    rows, lines = make_rows(20)
+    levels = [1800.5 + 0.45 * i for i in range(20)]
+    centre = np.array([6.0, 110.0])  # off the centre line, over rows 11-15
+    stage_front = np.array([rows[0].centre_east, rows[0].centre_north]) - stage_axis(rows) * STAGE_FRONT_SETBACK_M
+    to_stage = _heading(stage_front - centre)
+    plan = _turned_rect(centre, to_stage + 180.0 - 21.0, w=6.1, d=4.5)
+    mesh = export_stage_obj(rows, lines, tmp_path / "Stage.obj", BASE, levels=levels, booth=plan)
+    verts, _, faces, _ = load(tmp_path / "Stage.obj")
+
+    deck = _corners(part_verts(mesh, verts, faces, "foh_platform"))
+    c, sides, headings = _plan_frame(deck)
+    # Same centre and size as the footprint, within a centimetre.
+    assert np.hypot(*(c - centre)) < 0.01
+    assert sides == pytest.approx([4.5, 6.1], abs=0.01)
+    # Squared: one pair of sides runs along the line to the stage, the other across it.
+    assert sorted(_line_off(h, to_stage) for h in headings) == pytest.approx([0.0, 90.0], abs=1.0)
+    # The front wall is on the stage side, and the stage is straight ahead of it.
+    front = _corners(part_verts(mesh, verts, faces, "foh_wall_front")).mean(axis=0)
+    assert _off(_heading(front - c), to_stage) < 1.0
+    assert _off(mesh.booth_facing_deg, to_stage) < 1.0
+    assert mesh.booth_size_m == pytest.approx((6.1, 4.5), abs=0.01)
+    # The side walls run straight back from it, one either side of the centre line.
+    across = []
+    for side in ("foh_wall_e", "foh_wall_w"):
+        ring = _corners(part_verts(mesh, verts, faces, side))
+        sides_k = [ring[(k + 1) % 4] - ring[k] for k in range(4)]
+        longest = max(sides_k, key=lambda s: float(np.hypot(*s)))
+        assert _line_off(_heading(longest), to_stage) < 1.0
+        u, v = stage_front - c, ring.mean(axis=0) - c
+        across.append(float(u[0] * v[1] - u[1] * v[0]))
+    assert np.sign(across[0]) == -np.sign(across[1])
+
+    # The roof and its posts in Booth.obj are squared the same way, over the deck.
+    bv, _, bfaces, _ = load(tmp_path / "Booth.obj")
+    text = (tmp_path / "Booth.obj").read_text().splitlines()
+    roof_start = sum(1 for line in text[:text.index("# roof")] if line.startswith("f "))
+    roof = _corners(bv[sorted({i - 1 for f in bfaces[roof_start:] for i, _ in f})])
+    rc, rsides, rheadings = _plan_frame(roof)
+    o = stage.BOOTH_ROOF_OVERHANG_M
+    assert np.hypot(*(rc - centre)) < 0.01 and rsides == pytest.approx([4.5 + 2 * o, 6.1 + 2 * o], abs=0.01)
+    assert sorted(_line_off(h, to_stage) for h in rheadings) == pytest.approx([0.0, 90.0], abs=1.0)
+    for k in range(4):  # the posts stand on the deck
+        post = _corners(bv[sorted({i - 1 for f in bfaces[12 * k:12 * (k + 1)] for i, _ in f})])
+        assert Polygon(deck).buffer(1e-3).contains(Polygon(post))
+
+    # The scan is cut out under the turned deck, not under OSM's outline.
+    under = [p for p in mesh.cut_plans if p.contains(Point(*centre))]
+    assert any(p.symmetric_difference(Polygon(deck)).area < 1e-3 for p in under)
+    assert not any(p.symmetric_difference(Polygon(plan)).area < 0.1 for p in under)
+
+
+def test_booth_already_facing_the_stage_is_unchanged(tmp_path):
+    """A footprint square to the line to the stage keeps its exact corners."""
+    rows, lines = make_rows(10)
+    levels = [1800.5 + 0.45 * i for i in range(10)]
+    plan = booth_rect()
+    mesh = export_stage_obj(rows, lines, tmp_path / "Stage.obj", BASE, levels=levels, booth=plan)
+    verts, _, faces, _ = load(tmp_path / "Stage.obj")
+    deck = _corners(part_verts(mesh, verts, faces, "foh_platform"))
+    assert np.allclose(np.unique(np.round(plan, 4), axis=0), np.unique(deck, axis=0), atol=1e-3)
+    assert mesh.booth_facing_deg == pytest.approx(270.0, abs=1e-6)  # the stage is due south here
 
 
 def test_without_a_footprint_the_booth_stays_a_blockout_and_has_no_roof(tmp_path):

@@ -162,8 +162,8 @@ def build(args: argparse.Namespace) -> int:
             (out_dir / "seating_cut.json").write_text(json.dumps(cut) + "\n")
             print(f"  {len(cut['runs'])} runs -> seating_cut.json (for the scan's collision cut in Unreal)")
         if stage.booth_path is not None:
-            print(f"  sound booth on OSM way {booth_way.id}, deck {stage.booth_deck_elevation_m:.2f} m "
-                  f"-> {stage.booth_path.name}")
+            print(f"  sound booth on OSM way {booth_way.id}, deck {stage.booth_deck_elevation_m:.2f} m, "
+                  f"facing {stage.booth_facing_deg:.1f} deg (the stage front) -> {stage.booth_path.name}")
 
         spawn = player_spawn(
             stage.front_edge_east, stage.front_edge_north, stage.axis,
@@ -288,6 +288,11 @@ def build(args: argparse.Namespace) -> int:
                 "deck_elevation_m": round(stage.booth_deck_elevation_m, 3),
                 "east_m": round(float(np.mean(booth_plan[:, 0])), 3),
                 "north_m": round(float(np.mean(booth_plan[:, 1])), 3),
+                # Its front (the parapet) faces the stage front centre: degrees
+                # counter-clockwise from east, like the other headings here.
+                "facing_deg": round(stage.booth_facing_deg, 3),
+                "width_m": round(stage.booth_size_m[0], 3),
+                "depth_m": round(stage.booth_size_m[1], 3),
             }
         manifest["stage"] = {
             "obj": stage.path.name,
