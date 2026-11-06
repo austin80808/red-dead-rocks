@@ -54,12 +54,14 @@ beside it, the walls and rocks extruded from OSM outside the scan, and the
 parking lots. Next up is making those look like Red Rocks (see Next steps).
 
 **Look (#18):** physically lit with Lumen GI and reflections, a 120 klx
-early-morning sun low in the ENE (behind the player at spawn) through the SkyAtmosphere, a real-time sky
-light, volumetric clouds, height fog and histogram auto exposure clamped to
-EV100 11-14.2. The ground is procedural Fountain Formation sandstone: red soil
+summer late-morning sun high in the south-east (behind the player at spawn, the
+light of most of the photo board's photos) through the SkyAtmosphere at Earth's
+own haze, a real-time sky light, volumetric clouds, a trace of height fog (the
+plains stay crisp to Denver) and histogram auto exposure clamped to EV100
+11.5-15.3. The ground is procedural Fountain Formation sandstone: red soil
 and olive grass on gentle slopes, banded red rock on steep ones, bands that fade
 to their average colour with distance instead of shimmering. The rows are
-terraces of stacked red flagstone with dusty sandstone treads and pale plank
+terraces of stacked red flagstone with pale dusty concrete treads and pale plank
 benches on steel brackets (see Seating); the stage is concrete; roads,
 lots and paths are asphalt and gravel with dusty edges. A generated terrain skirt
 carries the hills out to the horizon (no more flat blue plane past the 3.6 km
@@ -486,6 +488,36 @@ cameras are in `docs/media/vegetation-real/views.json`), then
 `python tools/make_reference_compare.py --shots out/shots --out docs/media/vegetation-real --cache out/refs`.
 
 ![The hillsides from the air](docs/media/vegetation/after_aerial.jpg)
+
+## Photo board
+
+The look is judged against six real photos, not by eye alone
+(`docs/superpowers/specs/2026-11-05-look-like-red-rocks-design.md`). Each view
+in `docs/media/photo-board/views.json` is a freely licensed Commons photo
+(postcard from the top row, up the rows, across the rows, the stage front, a
+monolith from the plaza, an aerial) with 6-10 landmarks clicked in the photo,
+the sun it was taken under, and colour sample boxes (sky, sunlit and shaded
+rock, treads, risers, plants, the plains). `tools/fit_photo_camera.py` fits the
+game camera to the landmarks (`redrocks.photo_camera`, a pinhole in the level
+frame, least squares; a fit with a mean landmark error over 1.5 % of the width
+is refused). `unreal/shoot_board.py` shoots every view in the editor world
+(no HUD, each view under its photo's sun and under the level's own), and
+`tools/make_board_compare.py` writes before | after | photo composites, a GIF
+and `scores.json`: CIE76 ΔE per sampled region (target 10, none over 20) and
+the skyline error (where rock, roof or hill meets sky; target 2 % of the image
+height). The three worst regions on the board pick the next thing to fix.
+
+```bash
+.venv/bin/python tools/fit_photo_camera.py                       # cameras from landmarks
+.venv/bin/python tools/make_board_compare.py --write-landmarks --shots out/board
+REDROCKS_OUT_DIR=$PWD/out REDROCKS_BOARD_PREFIX=after_ REDROCKS_BOARD_SUN=both REDROCKS_BOARD_CALIB=1 \
+  UnrealEditor RedRocks.uproject -nosplash -ExecCmds="py $PWD/unreal/shoot_board.py"
+.venv/bin/python tools/make_board_compare.py --shots out/board --pass p0 --calib   # projection check
+.venv/bin/python tools/make_board_compare.py --shots out/board --pass p0           # composites + scores
+```
+
+Photos download into `out/refs/` and are never committed; the composites are
+(CC BY-SA, see LICENSE). Results land in `docs/media/photo-board/<pass>/`.
 
 ## Explore it
 
