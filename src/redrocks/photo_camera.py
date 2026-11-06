@@ -2,7 +2,8 @@
 
 Conventions follow Unreal: left-handed, +X forward, +Y right, +Z up, units in
 centimetres, angles in degrees. Rotator yaw turns about Z, pitch about Y
-(positive pitch looks up) and roll about X.
+(positive pitch looks up) and roll about X, positive roll clockwise as
+seen from the camera (Unreal's FRotationMatrix: right = cos*r - sin*u, up = cos*u + sin*r).
 """
 
 from __future__ import annotations
@@ -71,7 +72,7 @@ def _axes(cam: Camera) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     r = np.array([-math.sin(yaw), math.cos(yaw), 0.0])
     u = np.cross(f, r)  # +Z for a level camera
     cr, sr = math.cos(roll), math.sin(roll)
-    return f, r * cr + u * sr, u * cr - r * sr
+    return f, r * cr - u * sr, u * cr + r * sr
 
 
 def _project(cam: Camera, pts: np.ndarray, size: tuple[int, int], floor: bool):

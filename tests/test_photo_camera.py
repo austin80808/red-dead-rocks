@@ -81,3 +81,30 @@ def test_fit_refuses_fewer_than_four_points_and_points_behind_the_camera():
     behind[3] = np.array([TRUE.x, TRUE.y, TRUE.z]) - 10000 * fwd
     with pytest.raises(FitRefused, match="behind"):
         fit_camera(behind, PX, SIZE, GUESS)
+
+
+def _unreal_axes(yaw, pitch, roll):
+    """Forward, right, up straight from Unreal's FRotationMatrix."""
+    sp, cp = np.sin(np.radians(pitch)), np.cos(np.radians(pitch))
+    sy, cy = np.sin(np.radians(yaw)), np.cos(np.radians(yaw))
+    sr, cr = np.sin(np.radians(roll)), np.cos(np.radians(roll))
+    fwd = np.array([cp * cy, cp * sy, sp])
+    right = np.array([sr * sp * cy - cr * sy, sr * sp * sy + cr * cy, -sr * cp])
+    up = np.array([-(cr * sp * cy + sr * sy), cy * sr - cr * sp * sy, cr * cp])
+    return fwd, right, up
+
+
+def test_roll_plus_ten_matches_unreal_example():
+    cam = Camera(0, 0, 0, yaw=0, pitch=0, roll=10, fov=90)
+    px, _ = project(cam, np.array([[1000.0, 0, 500]]), (1600, 1200))
+    assert px[0][0] == pytest.approx(730.5, abs=0.1)
+
+
+@pytest.mark.parametrize("rot", [(30, 20, 10), (-150, -8, 1.5), (200, 45, -35), (75, -60, 80)])
+def test_axes_match_unreal_rotation_matrix(rot):
+    from redrocks.photo_camera import _axes
+
+    yaw, pitch, roll = rot
+    got = _axes(Camera(0, 0, 0, yaw=yaw, pitch=pitch, roll=roll))
+    for g, want in zip(got, _unreal_axes(yaw, pitch, roll)):
+        assert g == pytest.approx(want, abs=1e-9)
