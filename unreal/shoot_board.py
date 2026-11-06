@@ -570,7 +570,7 @@ def _advance(now):
     phase = state["phase"]
     if phase == "start":
         state.update(t0=now, deadline=now + LOAD_TIMEOUT_S, results={}, order=[], queue=[], markers=[])
-        state["s"] = read_settings(os.environ, sys.argv)
+        state["s"] = read_settings(os.environ, _ARGV)
         if _game_world() is not None:
             _try("end Play In Editor", lambda: _sub("LevelEditorSubsystem").editor_request_end_play())
             state["phase"] = "end_pie"
@@ -680,5 +680,8 @@ def tick(delta):
         _finish()
 
 
+# `py file args` sets sys.argv only while the file runs (PythonScriptPlugin's
+# FPythonScopedArgv); the ticks run after, so keep a copy for --views.
+_ARGV = list(sys.argv)
 if hasattr(unreal, "register_slate_post_tick_callback"):  # in the editor; tests import the helpers
     handle = unreal.register_slate_post_tick_callback(tick)

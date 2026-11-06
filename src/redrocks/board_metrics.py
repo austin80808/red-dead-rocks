@@ -30,7 +30,11 @@ def fit_to(img: Image.Image, size: tuple[int, int]) -> Image.Image:
 
 def _sky_like(rgb: np.ndarray) -> np.ndarray:
     r, g, b = (rgb[..., i].astype(int) for i in range(3))
-    blue = (b > r + 10) & (b > g)
+    # Blue sky: blue well over red, green allowed a little over blue (the pale
+    # cyan sky of across_the_rows has g about equal to b), and bright: without
+    # the floor, blue-shaded hillsides, a black stage canopy and a PA stack all
+    # read as sky and the flood from the top edge runs down into them.
+    blue = (b > r + 10) & (g <= b + 22) & (b >= 170)
     lo, hi = rgb[..., :3].min(-1).astype(int), rgb[..., :3].max(-1).astype(int)
     return blue | ((lo >= 170) & (hi - lo <= 30))
 
