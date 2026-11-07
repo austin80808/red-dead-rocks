@@ -116,6 +116,16 @@ DARK_DESAT = 0.4
 # 133/85/61 (R/G 1.56), the brightest decile near the photos' sunlit buff.
 SCAN_SATURATION = 2.2
 SCAN_TINT = (1.6, 1.15, 1.05)
+# Bedding: the Fountain Formation's beds strike about north-south and dip about
+# 40 degrees east, which is what draws the slanting stripes across Ship Rock and
+# Creation Rock in the photos. The scan's 0.5 m texels blur them out, so a soft
+# band of +-STRATA_GAIN brightness runs along the beds, every STRATA_PERIOD_CM
+# measured across them, with a finer one at about a third of that.
+STRATA_DIP_DEG = 40.0
+STRATA_PERIOD_CM = 260.0
+STRATA_GAIN = 0.10
+STRATA_FINE_PERIOD_CM = 85.0
+STRATA_FINE_GAIN = 0.05
 # Masked clip for the dithered fade: the engine default, which the
 # DitherTemporalAA function is built around (alpha 0 clips every pixel).
 FADE_CLIP = 0.3333
@@ -400,8 +410,24 @@ def _build_material(textures):
                     op("MaterialExpressionAdd", spread, lum, 200, -150),
                     node("MaterialExpressionConstant3Vector", 200, -250,
                          constant=unreal.LinearColor(r=tr, g=tg, b=tb, a=1.0)), 400, -150)
-        base = node("MaterialExpressionSaturate", 600, -150)
-        link(graded, "", base, "")
+        # Bedding bands: graded * (1 + g * sin(2 pi d / P) + g2 * sin(2 pi d / P2)),
+        # d = world position across the beds (their normal: east and up, tilted by the dip).
+        import math as _m
+        dip = _m.radians(STRATA_DIP_DEG)
+        across = node("MaterialExpressionDotProduct", 0, 300)
+        link(node("MaterialExpressionWorldPosition", -200, 300), "", across, "A")
+        link(node("MaterialExpressionConstant3Vector", -200, 400,
+                  constant=unreal.LinearColor(r=_m.sin(dip), g=0.0, b=_m.cos(dip), a=1.0)), "", across, "B")
+        bands = None
+        for period, gain, y in ((STRATA_PERIOD_CM, STRATA_GAIN, 300), (STRATA_FINE_PERIOD_CM, STRATA_FINE_GAIN, 500)):
+            wave = node("MaterialExpressionSine", 200, y, period=float(period))
+            link(across, "", wave, "")
+            term = op("MaterialExpressionMultiply", wave, const(gain, 200, y + 80), 400, y)
+            bands = term if bands is None else op("MaterialExpressionAdd", bands, term, 600, y)
+        striped = op("MaterialExpressionMultiply", graded,
+                     op("MaterialExpressionAdd", bands, const(1.0, 600, 650), 800, 400), 1000, -150)
+        base = node("MaterialExpressionSaturate", 1200, -150)
+        link(striped, "", base, "")
     if "normal" in textures:
         lib.connect_material_property(
             sample(textures["normal"], -600, 300, unreal.MaterialSamplerType.SAMPLERTYPE_NORMAL),
