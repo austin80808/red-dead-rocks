@@ -83,7 +83,7 @@ PLAIN = {
     "M_Asphalt": ("4a4845", 0.85),
     "M_Lot": ("57544f", 0.85),
     "M_Gravel": ("9b6a4b", 0.95),
-    "M_Concrete": ("a8a196", 0.85),
+    "M_Concrete": ("8f847b", 0.85),  # weathered warm-grey concrete (stage_front photo); a8a196 read near-white in sun
     "M_Buildings": ("a66848", 0.85),
     "M_Sandstone": ("a2482a", 0.88),
     "M_Water": ("1d4b52", 0.04),  # Bear Creek: dark green-blue, glassy

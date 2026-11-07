@@ -147,11 +147,25 @@ def _sun():
     return "pitch %.1f yaw %.1f, %.0f lux" % (pitch, yaw, SUN_LUX)
 
 
+# The atmosphere's planet: its top sat at the level's Z = 0 (the plains east of
+# the venue), so the terrain skirt, which drops for Earth curvature beyond the
+# terrain, sank under the planet's surface tens of km out and the planet's own
+# dark grey ground showed as a navy band along the horizon, like a sea (and hid
+# Denver's tower tops by 7 m). Put the planet top 400 m lower and give its
+# ground the plains' dusty olive-tan, so what shows past the skirt is land haze.
+PLANET_TOP_CM = -40000.0
+PLANET_GROUND_ALBEDO = (0.36, 0.31, 0.22)  # linear, the plains seen from the top row
+
+
 def _atmosphere():
-    sky = _spawn(unreal.SkyAtmosphere, unreal.Vector(0, 0, 0), "SkyAtmosphere")
+    sky = _spawn(unreal.SkyAtmosphere, unreal.Vector(0, 0, PLANET_TOP_CM), "SkyAtmosphere")
     comp = sky.get_component_by_class(unreal.SkyAtmosphereComponent)
+    r, g, b = PLANET_GROUND_ALBEDO
     _set(comp, mie_scattering_scale=MIE_SCATTERING_SCALE,
-         aerial_pespective_view_distance_scale=AERIAL_PERSPECTIVE_SCALE)
+         aerial_pespective_view_distance_scale=AERIAL_PERSPECTIVE_SCALE,
+         transform_mode=unreal.SkyAtmosphereTransformMode.PLANET_TOP_AT_COMPONENT_TRANSFORM,
+         ground_albedo=unreal.Color(r=round(r ** (1 / 2.2) * 255), g=round(g ** (1 / 2.2) * 255),
+                                    b=round(b ** (1 / 2.2) * 255), a=255))
 
 
 def _sky_light():
