@@ -225,7 +225,11 @@ def test_real_build_towers_clear_the_seating():
     verts, faces = load(out / "Stage_Towers.obj")
     sv, sfaces = load(out / "Stairs.obj")
     stairs = unary_union([Polygon(sv[[t[0] - 1 for t in f]][:, :2] / 100) for f in sfaces]).buffer(0)
-    towers = unary_union([Polygon(verts[[t[0] - 1 for t in f]][:, :2] / 100).buffer(1e-3) for f in faces])
+    # The sound booth's flagstone base shares the mesh and stands on the rows on purpose.
+    parts = manifest["stage"]["objs"]["Stage_Towers"]["parts"]
+    keep = {i for n, r in parts.items() if n.startswith("tower_") for i in range(r["first_triangle"], r["end_triangle"])}
+    towers = unary_union([Polygon(verts[[t[0] - 1 for t in f]][:, :2] / 100).buffer(1e-3)
+                          for i, f in enumerate(faces) if i in keep])
     assert towers.distance(seat) > 1.0 and towers.distance(stairs) > 1.0
     for path in manifest["stage"]["aisles"].values():
         assert all(towers.distance(Point(e, n)) > 1.0 for e, n, _ in path)
