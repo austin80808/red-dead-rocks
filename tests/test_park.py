@@ -413,3 +413,13 @@ def test_rocks_obj_extrudes_park_outcrops_but_not_the_monoliths(tmp_path, surfac
     assert len(verts) == len(uvs) == mesh.vertices and len(faces) == mesh.triangles
     assert all(len(f) == 3 and all(len(t) == 2 for t in f) for f in faces)
     assert "o Rocks" in (tmp_path / "Rocks.obj").read_text()
+
+
+def test_buildings_obj_skips_the_stage_side_boxes_the_towers_model(tmp_path, surface):
+    from redrocks.park import STAGE_MODELLED_BUILDING_WAY_IDS
+
+    box = [(200, -180), (230, -180), (230, -160), (200, -160)]
+    data = osm_xml([({"building": "yes", "_close": True}, box), ({"building": "yes", "_close": True}, box)])
+    data.ways[1].id = STAGE_MODELLED_BUILDING_WAY_IDS[0]
+    mesh = export_buildings_obj(data, surface, tmp_path / "Buildings.obj")
+    assert mesh is not None and mesh.features == 1

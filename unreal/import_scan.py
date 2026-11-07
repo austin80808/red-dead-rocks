@@ -108,6 +108,14 @@ DARK_LUM = 0.025
 DARK_LIFT = 0.75
 DARK_SHADE = 0.35
 DARK_DESAT = 0.4
+# Colour grade toward the Fountain Formation's own red. The scan's baseColor is
+# grey-brown (median sRGB 96/84/75, R/G 1.14: the drone camera's white balance
+# and a hazy day), so in the sun it read pale beige beside the terrain's red
+# rock bands, while photos of the monoliths sit at R/G 1.5-1.7. Saturation about
+# the texel's own luminance, then a warm gain: the median lands near sRGB
+# 133/85/61 (R/G 1.56), the brightest decile near the photos' sunlit buff.
+SCAN_SATURATION = 2.2
+SCAN_TINT = (1.6, 1.15, 1.05)
 # Masked clip for the dithered fade: the engine default, which the
 # DitherTemporalAA function is built around (alpha 0 clips every pixel).
 FADE_CLIP = 0.3333
@@ -383,6 +391,17 @@ def _build_material(textures):
         link(tex, "RGB", base, "A")
         link(shade, "", base, "B")
         link(dark01, "", base, "Alpha")
+        # Grade: saturate((lum + (col - lum) * SCAN_SATURATION) * SCAN_TINT).
+        spread = op("MaterialExpressionMultiply",
+                    op("MaterialExpressionSubtract", base, lum, -200, -150),
+                    const(SCAN_SATURATION, -200, -250), 0, -150)
+        tr, tg, tb = SCAN_TINT
+        graded = op("MaterialExpressionMultiply",
+                    op("MaterialExpressionAdd", spread, lum, 200, -150),
+                    node("MaterialExpressionConstant3Vector", 200, -250,
+                         constant=unreal.LinearColor(r=tr, g=tg, b=tb, a=1.0)), 400, -150)
+        base = node("MaterialExpressionSaturate", 600, -150)
+        link(graded, "", base, "")
     if "normal" in textures:
         lib.connect_material_property(
             sample(textures["normal"], -600, 300, unreal.MaterialSamplerType.SAMPLERTYPE_NORMAL),

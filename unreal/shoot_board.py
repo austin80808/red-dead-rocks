@@ -126,7 +126,7 @@ def read_settings(env, argv=()):
         "landmarks": env.get("REDROCKS_BOARD_LANDMARKS") or os.path.join(board_dir, "landmarks_cm.json"),
         "views": views,
         "log": os.path.join(env.get("REDROCKS_LOG_DIR") or "/tmp", "redrocks_board.log"),
-        "width": SHOT_WIDTH,
+        "width": int(env.get("REDROCKS_BOARD_WIDTH") or SHOT_WIDTH),
     }
 
 
@@ -172,6 +172,14 @@ def camera_settings(view):
         "fov": float(cam.get("fov", 70.0)),
         "aspect_ratio": w / h,
     }
+
+
+def _night():
+    """unreal/night_show.py: the night show for views with a ``night`` entry."""
+    if _HERE not in sys.path:
+        sys.path.insert(0, _HERE)
+    import night_show
+    return night_show
 
 
 def _lighting():
@@ -249,7 +257,7 @@ def shot_plan(views, settings, landmarks=None):
         except (ValueError, KeyError, TypeError) as exc:
             problems.append((name, str(exc)))
             continue
-        base = {"view": name, "size": size, "camera": cam}
+        base = {"view": name, "size": size, "camera": cam, "night": view.get("night")}
         shots.append(dict(base, kind=first[0], file=first[1], sun=first[2], settle_s=SETTLE_S))
         if settings["calib"]:
             wanted = [lm["name"] for lm in view.get("landmarks", [])]
@@ -512,6 +520,9 @@ def _next_shot():
     _set_camera(camera, shot["camera"])
     _try("pilot camera", lambda: _sub("LevelEditorSubsystem").pilot_level_actor(camera))
     _set_sun(shot["sun"])
+    _night().restore()
+    if shot.get("night"):
+        _try("night show", lambda: _night().apply(_sub("EditorActorSubsystem").get_all_level_actors(), shot["night"]))
     if shot["kind"] == "calib":
         _spawn_markers(shot)
         flags = "0"
@@ -623,6 +634,8 @@ def _restore():
     except Exception as exc:
         log.append("warn  restore: no LevelEditorSubsystem: %r" % (exc,))
     _clear_markers()
+    _try("night restore", lambda: _night().restore())
+    _try("night log", lambda: log.extend(_night().log))
     if les is not None:
         _try("eject pilot", les.eject_pilot_level_actor)
     if state.get("camera") is not None:
@@ -666,18 +679,25 @@ def _finish():
     if handle is not None:
         unreal.unregister_slate_post_tick_callback(handle)
         handle = None
-    unreal.SystemLibrary.quit_editor()
+    if os.environ.get("REDROCKS_BOARD_STAY") != "1":  # pod_server.py keeps the editor up
+        unreal.SystemLibrary.quit_editor()
 
 
 def tick(delta):
-    if state.get("finished"):
+    # An engine ensure (e.g. EditorSetViewportRealtime under -RenderOffscreen) pumps
+    # Slate while it dumps its stack, which calls this tick again from inside the
+    # last one: without the guard, _prepare ran again and again, nested.
+    if state.get("finished") or state.get("in_tick"):
         return
+    state["in_tick"] = True
     try:
         _advance(time.time())
     except Exception as exc:
         log.append("ERROR: %r" % (exc,))
         log.extend("      " + line for line in traceback.format_exc().rstrip().splitlines())
         _finish()
+    finally:
+        state["in_tick"] = False
 
 
 # `py file args` sets sys.argv only while the file runs (PythonScriptPlugin's

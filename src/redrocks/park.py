@@ -114,6 +114,10 @@ BUILDING_UV_TILE_M = 5.0
 # OSM building=roof ways inside the amphitheatre bowl (stage roof & FOH booth) are
 # already modelled in full detail by Stage.obj, so skip them in Buildings.obj.
 BOWL_ROOF_KEEP_OUT_RADIUS_M = 60.0
+# OSM building boxes beside the stage that Stage_Towers.obj now models in full (the
+# stacked-flagstone towers and their linking walls): as plain boxes they poke
+# through the towers.
+STAGE_MODELLED_BUILDING_WAY_IDS = (91483340, 91483361)
 
 # Barriers / walls: (width_m, height_m) by barrier=* tag.
 BARRIER_DIMENSIONS_M: dict[str, tuple[float, float]] = {
@@ -650,7 +654,7 @@ def export_buildings_obj(osm: OsmData, surface: TerrainSurface, out_path: Path) 
     parts, features = [], 0
     bounds = surface.bounds_polygon()
     for way in osm.ways:
-        if not is_building(way):
+        if not is_building(way) or way.id in STAGE_MODELLED_BUILDING_WAY_IDS:
             continue
         xy = way_xy(osm, way, surface)
         if len(xy) < 4:
