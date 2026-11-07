@@ -457,7 +457,7 @@ def test_scan_cover_reads_the_fade_mask(tmp_path):
     assert covered(-5.0, 0.0) and not covered(5.0, 0.0) and not covered(50.0, 0.0)
 
 
-def test_rocks_obj_leaves_out_big_unnamed_slickrock_sheets(tmp_path, surface):
+def test_rocks_obj_leaves_out_big_bare_rock_areas(tmp_path, surface):
     from redrocks.park import BARE_ROCK_SHEET_M2, export_rocks_obj
 
     side = (BARE_ROCK_SHEET_M2 ** 0.5) + 10.0
@@ -465,8 +465,9 @@ def test_rocks_obj_leaves_out_big_unnamed_slickrock_sheets(tmp_path, surface):
     small = [(200, 200), (220, 200), (220, 220), (200, 220)]
     data = osm_xml([
         ({"natural": "bare_rock", "_close": True}, sheet),
-        ({"natural": "bare_rock", "name": "Big Named Rock", "_close": True}, sheet),
+        ({"natural": "bare_rock", "name": "Seven Ladders Rock", "_close": True}, sheet),
+        ({"natural": "bare_rock", "height": "20", "_close": True}, sheet),
         ({"natural": "bare_rock", "_close": True}, small),
     ])
     mesh = export_rocks_obj(data, surface, tmp_path / "Rocks.obj")
-    assert mesh is not None and mesh.features == 2
+    assert mesh is not None and mesh.features == 2  # the one with a height, and the small one

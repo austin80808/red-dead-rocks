@@ -972,10 +972,12 @@ def scan_cover(png: Path, meta_json: Path):
 # out: the scan has the real rock there, and the OSM extrusion (vertical sides,
 # flat top) stood in front of it as slab walls behind the stage.
 SCAN_COVERED_SHARE = 0.5
-# An unnamed natural=bare_rock area larger than this is a sheet of slickrock on
-# the hillside, not an upright outcrop: extruded it became a flat-topped mesa
-# (way at E233 N102, 23,000 m2, a slab wall across the view east of the stage).
-# The terrain's own material already turns rock-red on those slopes.
+# A natural=bare_rock area larger than this is mapped as the whole spread of a
+# tilted fin or a sheet of slickrock, not an upright outcrop's footprint:
+# extruded as a prism it became a flat-topped mesa (Seven Ladders Rock, way
+# 91535430, 23,000 m2 at E233 N102: a 28 m slab wall across the view east of
+# the stage). The 3DEP terrain already carries those fins' real relief, and its
+# material turns rock-red on their slopes. An explicit height= keeps one.
 BARE_ROCK_SHEET_M2 = 5000.0
 
 
@@ -998,7 +1000,7 @@ def export_rocks_obj(osm: OsmData, surface: TerrainSurface, out_path: Path, cove
             continue
         if covered is not None and _covered_share(poly, covered) >= SCAN_COVERED_SHARE:
             continue
-        if (way.tags.get("natural", "bare_rock") == "bare_rock" and "name" not in way.tags
+        if (way.tags.get("natural", "bare_rock") == "bare_rock"
                 and "height" not in way.tags and poly.area > BARE_ROCK_SHEET_M2):
             continue
         built = False
