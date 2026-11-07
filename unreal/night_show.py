@@ -30,7 +30,7 @@ PALETTE = [  # the colours a Red Rocks rig runs: magenta, deep blue, amber, cyan
     (1.0, 0.08, 0.55), (0.08, 0.25, 1.0), (1.0, 0.5, 0.05),
     (0.05, 0.85, 1.0), (0.55, 0.1, 1.0), (1.0, 0.92, 0.8)]
 MOVER_CD = 4.0e5
-BEAM_CD = 2.0e6
+BEAM_CD = 6.0e6  # narrow beams need this much to read through the haze
 WASH_CD = 6.0e4
 ROCK_CD = 1.6e6
 MOON_LUX = 0.25
@@ -126,7 +126,7 @@ def apply(actors, cfg):
         _state["restore"].append(lambda fc=fc: _try("fog vol off", lambda: fc.set_volumetric_fog(False)))
         for prop, val in (("fog_density", cfg.get("fog_density", 0.02)),
                           ("volumetric_fog_scattering_distribution", 0.6),
-                          ("volumetric_fog_extinction_scale", 0.6),
+                          ("volumetric_fog_extinction_scale", 1.5),
                           ("start_distance", 0.0)):
             old = _try("read fog %s" % prop, lambda prop=prop: fc.get_editor_property(prop))
             if old is not None:
@@ -178,7 +178,7 @@ def apply(actors, cfg):
         p[2] = north[2] + 150.0
         lean = (t - 0.5) * 50.0
         _spot(p, (68.0 - 8.0 * abs(t - 0.5), 155.0 + lean), BEAM_CD, PALETTE[(1, 0, 3, 5, 3, 0, 1)[i % 7]],
-              0.8, 1.8, 60000.0, 10.0, "NightBeam%d" % i)
+              1.2, 3.0, 60000.0, 60.0, "NightBeam%d" % i)
     # Warm white key on the deck from the roof, and a cool back wash.
     for j, (frac, colour) in enumerate(((0.3, (1.0, 0.85, 0.65)), (0.7, (1.0, 0.85, 0.65)))):
         p = _lerp(north, south, frac)
