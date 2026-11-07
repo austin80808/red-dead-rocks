@@ -11,6 +11,31 @@ them into a UE 5.8 project and build the level.
 
 The local checkout lives at `~/dev/redrocks-ue`.
 
+## The amphitheatre
+
+![Before and after, four views: wide from the top row, from the stage up the bowl, Ship Rock over the south rows, and a night show](docs/media/beauty/compare.jpg)
+
+*Rendered in Unreal 5.8 on a cloud RTX 4090 (Runpod), 2026-11-07. Left: the level
+as it was. Right: this branch. Views and suns: `docs/media/beauty/views.json`;
+the after shots alone are beside it (`top_rows_wide.jpg`, `stage_up_bowl.jpg`,
+`ship_rock.jpg`, `night_show.jpg`).*
+
+What changed for the bowl itself:
+
+| | |
+|---|---|
+| Stage | the real stage of #57: two stacked-flagstone towers, maroon roof with its black fascia, oxide-red steel |
+| Behind the stage | the OSM rock outcrops the drone scan already shows are no longer extruded, and big `bare_rock` areas (Seven Ladders Rock) are no longer 28 m flat-topped mesas; the scan's real rock and the drop to the plains show instead |
+| Sandstone | the scan's grey-brown texture (R/G 1.14) graded to the Fountain Formation's red (R/G ~1.55, from the photo board), so scanned and procedural rock match |
+| Sound booth | its base and parapet in the risers' red flagstone instead of a white concrete box |
+| Plains to Denver | prairie olive-tan instead of orange sand |
+| Night | `unreal/night_show.py`: twilight-blue sky, a moon, movers under the roof, beams, a warm key on the deck and colour washes on the rocks |
+
+How it is rendered: `tools/pod/rr_pod.sh` on the pod; `serve` keeps one editor up
+(`unreal/pod_server.py`) and takes jobs (rebuild, shots) from a queue, so a round
+of shots takes about a minute instead of a 3-5 minute editor start each time.
+`tools/make_beauty_compare.py` builds the composites.
+
 ## Progress
 
 ![The view up the bowl from the stage, stage by stage: first walkable level, look pass, benches on the scan, explorable realm, terraced seating](docs/media/progress.gif)
