@@ -144,8 +144,12 @@ def main():
         expected["Benches"] = manifest["benches"]["triangles"]
     if "stage" in manifest:
         expected["Stage"] = manifest["stage"]["triangles"]
+        for name, block in manifest["stage"].get("objs", {}).items():
+            expected[name] = block["triangles"]  # Stage_Steel, Stage_Roof, Stage_Fascia, Stage_Towers
     for key, block in manifest.get("park", {}).items():
         expected[block["obj"][:-4]] = block["triangles"]
+    if "denver" in manifest:
+        expected["Denver"] = manifest["denver"]["triangles"]
     for name, want in expected.items():
         mesh = unreal.EditorAssetLibrary.load_asset("/Game/RedRocks/%s" % name)
         if mesh is None:

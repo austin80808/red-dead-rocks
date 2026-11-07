@@ -1,0 +1,41 @@
+{
+  "about": "Beauty shots of the amphitheatre (unreal/shoot_board.py with REDROCKS_VIEWS pointing here). Level frame: X east, Y south, cm; yaw clockwise from +X seen from above. Golden hour: evening sun behind the top rows (WSW, 7 deg) for the views looking east; morning sun over the plains (E, 9 deg) for the views looking west. Night: sun under the horizon, moon, and the show rig of unreal/night_show.py.",
+  "views": [
+    {
+      "name": "top_rows_wide",
+      "what": "From the top walkway over the centre aisle: the 70 rows down to the stage, Creation Rock left, Ship Rock right, the plains out to Denver",
+      "aspect": [16, 9],
+      "camera": {"x": -6050.0, "y": 2480.0, "z": 22390.0, "yaw": -24.5, "pitch": -12.0, "roll": 0.0, "fov": 84.0},
+      "sun": {"azimuth_deg": 250.0, "elevation_deg": 30.0}
+    },
+    {
+      "name": "stage_up_bowl",
+      "what": "From the stage deck: the rows climbing the bowl between the monoliths",
+      "aspect": [16, 9],
+      "camera": {"x": 2650.0, "y": -1330.0, "z": 19290.0, "yaw": 156.0, "pitch": 11.0, "roll": 0.0, "fov": 88.0},
+      "sun": {"azimuth_deg": 92.0, "elevation_deg": 9.0}
+    },
+    {
+      "name": "ship_rock",
+      "what": "Ship Rock's face over the south aisle, from the middle rows",
+      "aspect": [16, 9],
+      "camera": {"x": -1200.0, "y": 1650.0, "z": 20500.0, "yaw": 128.0, "pitch": 22.0, "roll": 0.0, "fov": 62.0},
+      "sun": {"azimuth_deg": 75.0, "elevation_deg": 11.0}
+    },
+    {
+      "name": "night_show",
+      "what": "A show from the upper rows: the stage rig, beams in the haze, the rocks washed in colour",
+      "aspect": [16, 9],
+      "camera": {"x": -3700.0, "y": 1420.0, "z": 21450.0, "yaw": -24.0, "pitch": -7.0, "roll": 0.0, "fov": 78.0},
+      "sun": {"azimuth_deg": 258.0, "elevation_deg": -12.0},
+      "night": {
+        "stage": [[1651.8, -2413.5, 19105.8], [2731.1, -15.2, 19105.8]],
+        "roof_z": 20480.0,
+        "back": [[3648.9, -3312.3], [4728.2, -913.9]],
+        "rocks": [[-3500.0, -3600.0, 24500.0], [-3000.0, 4800.0, 23500.0], [4450.0, -2750.0, 20000.0]],
+        "exposure_ev": 2.0,
+        "fog_density": 0.02
+      }
+    }
+  ]
+}

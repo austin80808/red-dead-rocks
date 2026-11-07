@@ -1,6 +1,11 @@
+import io
+import types
+
 import numpy as np
 import pytest
+from PIL import Image
 
+from redrocks import dem as dem_mod
 from redrocks.dem import BBox, Dem, square_bbox
 
 BBOX = BBox(west=-105.21, south=39.66, east=-105.20, north=39.67)
@@ -62,3 +67,45 @@ def test_square_bbox_centred():
     lat, lon = box.centre
     assert lat == pytest.approx(39.6655)
     assert lon == pytest.approx(-105.2055)
+
+
+def test_cached_dem_asks_for_square_pixels_and_keeps_the_returned_extent(monkeypatch, tmp_path):
+    asked = {}
+    bbox = BBox(west=-105.0, south=39.70, east=-104.9, north=39.75)
+    rows = dem_mod.aspect_rows(bbox, 200)
+    assert rows == 100
+
+    def fake_json(url, params, timeout):
+        asked.update(params)
+        return {"href": "raster", "extent": {"xmin": -105.0, "ymin": 39.7, "xmax": -104.9, "ymax": 39.75}}
+
+    def fake_get(url, timeout, params=None):
+        buf = io.BytesIO()
+        Image.fromarray(np.full((rows, 200), 1600.0, dtype=np.float32), mode="F").save(buf, format="TIFF")
+        return types.SimpleNamespace(content=buf.getvalue())
+
+    monkeypatch.setattr(dem_mod, "_get_json", fake_json)
+    monkeypatch.setattr(dem_mod, "_get", fake_get)
+    got = dem_mod.cached_dem(bbox, 200, tmp_path)
+    assert asked["size"] == "200,100"
+    assert got.data.shape == (100, 200) and got.bbox == bbox
+    again = dem_mod.cached_dem(bbox, 200, tmp_path)  # from the file now
+    assert again.bbox == bbox and again.data.shape == (100, 200)
+
+
+def test_fetch_dem_can_keep_the_extent_the_service_widened(monkeypatch):
+    """3DEP keeps square pixels: a square raster of a non-square bbox comes back taller."""
+    bbox = BBox(west=-105.2265, south=39.6493, east=-105.1845, north=39.6817)
+
+    def fake_json(url, params, timeout):
+        return {"href": "r", "extent": {"xmin": bbox.west, "ymin": 39.6445, "xmax": bbox.east, "ymax": 39.6865}}
+
+    def fake_get(url, timeout, params=None):
+        buf = io.BytesIO()
+        Image.fromarray(np.zeros((8, 8), dtype=np.float32), mode="F").save(buf, format="TIFF")
+        return types.SimpleNamespace(content=buf.getvalue())
+
+    monkeypatch.setattr(dem_mod, "_get_json", fake_json)
+    monkeypatch.setattr(dem_mod, "_get", fake_get)
+    assert dem_mod.fetch_dem(bbox, size=8).bbox == bbox  # the park build's behaviour, unchanged
+    assert dem_mod.fetch_dem(bbox, size=8, keep_extent=True).bbox.north == 39.6865

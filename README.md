@@ -11,6 +11,31 @@ them into a UE 5.8 project and build the level.
 
 The local checkout lives at `~/dev/redrocks-ue`.
 
+## The amphitheatre
+
+![Before and after, four views: wide from the top row, from the stage up the bowl, Ship Rock over the south rows, and a night show](docs/media/beauty/compare.jpg)
+
+*Rendered in Unreal 5.8 on a cloud RTX 4090 (Runpod), 2026-11-07. Left: the level
+as it was. Right: this branch. Views and suns: `docs/media/beauty/views.json`;
+the after shots alone are beside it (`top_rows_wide.jpg`, `stage_up_bowl.jpg`,
+`ship_rock.jpg`, `night_show.jpg`).*
+
+What changed for the bowl itself:
+
+| | |
+|---|---|
+| Stage | the real stage of #57: two stacked-flagstone towers, maroon roof with its black fascia, oxide-red steel |
+| Behind the stage | the OSM rock outcrops the drone scan already shows are no longer extruded, and big `bare_rock` areas (Seven Ladders Rock) are no longer 28 m flat-topped mesas; the scan's real rock and the drop to the plains show instead |
+| Sandstone | the scan's grey-brown texture (R/G 1.14) graded to the Fountain Formation's red (R/G ~1.55, from the photo board), so scanned and procedural rock match |
+| Sound booth | its base and parapet in the risers' red flagstone instead of a white concrete box |
+| Plains to Denver | prairie olive-tan instead of orange sand |
+| Night | `unreal/night_show.py`: twilight-blue sky, a moon, movers under the roof, beams, a warm key on the deck and colour washes on the rocks |
+
+How it is rendered: `tools/pod/rr_pod.sh` on the pod; `serve` keeps one editor up
+(`unreal/pod_server.py`) and takes jobs (rebuild, shots) from a queue, so a round
+of shots takes about a minute instead of a 3-5 minute editor start each time.
+`tools/make_beauty_compare.py` builds the composites.
+
 ## Progress
 
 ![The view up the bowl from the stage, stage by stage: first walkable level, look pass, benches on the scan, explorable realm, terraced seating](docs/media/progress.gif)
@@ -49,18 +74,24 @@ The scan's placement is fitted by `tools/fit_scan.py` (scale within 8 % of
 0.516 m/unit, then terrain heights plus stage and rock landmarks; issue #14 has
 the residuals), on an absolute datum (see Scan edge blend).
 
-**What is still a blockout:** the stage, its shell and the two stone towers
-beside it, the walls and rocks extruded from OSM outside the scan, and the
-parking lots. Next up is making those look like Red Rocks (see Next steps).
+**What is still a blockout:** the stage's shell and back walls, the walls and
+rocks extruded from OSM outside the scan, and the parking lots. The stage's
+roof, steel frame and the two stone towers beside it are modelled from the scan
+and the photo board (see Stage blockout). Next up is making the rest look like
+Red Rocks (see Next steps).
 
 **Look (#18):** physically lit with Lumen GI and reflections, a 120 klx
-early-morning sun low in the ENE (behind the player at spawn) through the SkyAtmosphere, a real-time sky
-light, volumetric clouds, height fog and histogram auto exposure clamped to
-EV100 11-14.2. The ground is procedural Fountain Formation sandstone: red soil
+summer late-morning sun high in the south-east (behind the player at spawn, the
+light of most of the photo board's photos) through the SkyAtmosphere at Earth's
+own haze, a real-time sky light, volumetric clouds, a trace of height fog (the
+plains stay crisp to Denver) and histogram auto exposure clamped to EV100
+11.5-15.3. The ground is procedural Fountain Formation sandstone: red soil
 and olive grass on gentle slopes, banded red rock on steep ones, bands that fade
 to their average colour with distance instead of shimmering. The rows are
-terraces of stacked red flagstone with dusty sandstone treads and pale plank
-benches on steel brackets (see Seating); the stage is concrete; roads,
+terraces of stacked red flagstone with pale dusty concrete treads and pale plank
+benches on steel brackets (see Seating); the stage is concrete with an
+oxide-red steel frame, a maroon roof with a near-black front band and two
+stacked-flagstone towers; roads,
 lots and paths are asphalt and gravel with dusty edges. A generated terrain skirt
 carries the hills out to the horizon (no more flat blue plane past the 3.6 km
 terrain), and about 100,000 procedural junipers, ponderosa pines and scrub oak /
@@ -82,15 +113,21 @@ out/
   Bench_Brackets.obj       1,807 steel brackets lined up about the stage (21,684 triangles)
   Handrail.obj             steel rail on the top walkway's parapet
   Stairs.obj               row-end aisle stairs and cheek walls, two steps per row (5,040 triangles)
-  Booth.obj                the sound booth's posts and maroon roof, on its OSM footprint (way 229359709)
+  Booth.obj                the sound booth's posts and maroon roof, on its OSM footprint (way 229359709), squared to the stage
   scan_fade.png, .json     the scan's fade mask with the seating cut out (see Seating)
-  Stage.obj                stage, Y-columns, trusses, FOH booth & bowl end stairs (462 parts, 5,536 triangles)
+  Stage.obj                the stage's concrete: deck, steps, shell, walls, walkway, FOH deck, the towers' bases (31 parts, 428 triangles)
+  Stage_Steel.obj          Y-columns, trusses, purlins, the side roofs' columns and box-beam headers (29 parts, 348 triangles)
+  Stage_Roof.obj           the roof slab on the SkyDeck grid and the two lower side roofs (3 parts, 44 triangles)
+  Stage_Fascia.obj         the roof's near-black front band and its cut corners (3 parts, 36 triangles)
+  Stage_Towers.obj         the two towers' stacked flagstone and the sloped walls joining them to the stage (4 parts, 80 triangles)
   Roads.obj, Paths.obj     OSM highways as draped ribbons (57,146 / 34,472 triangles)
   Parking.obj              53 OSM parking lots as terrain-following patches (52,338 triangles)
   Buildings.obj            314 OSM park & Morrison buildings with buried foundations & parapets (5,852 triangles)
   Walls.obj                100 OSM retaining walls, stone walls, fences & rails (36,432 triangles)
   Rocks.obj                242 surveyed OSM rock & cliff outcrops across the park (30,480 triangles)
-  manifest.json            Z scale, bbox, origin, venue, monoliths, stage, park, explore (spots, cart route, sled hill), attribution
+  Denver.obj               downtown Denver's skyline, 946 OSM buildings 12 m+, 20.4 km ENE at its true place (51,304 triangles)
+  cache/                   Denver's Overpass answer and 3DEP ground, fetched once (see Denver on the horizon)
+  manifest.json            Z scale, bbox, origin, venue, monoliths, stage, park, denver, explore (spots, cart route, sled hill), attribution
 ```
 
 Clone with Git LFS installed: the scan, rock models and textures in `assets/`
@@ -110,7 +147,9 @@ python3 -m venv .venv && .venv/bin/pip install -e .
 ```
 
 `redrocks build` writes everything above. `--terrain-grid` sets the terrain
-mesh resolution (default 377; `0` skips it).
+mesh resolution (default 377; `0` skips it); `--no-denver` skips Denver.obj.
+`tools/check_denver.py --out out` checks the view from the top row to Denver
+(see Denver on the horizon).
 
 ### Seating
 
@@ -193,12 +232,16 @@ tread to the next across the row's band, two steps per row, and the stage's
 walkway sits 2 cm under the top tread.
 
 **The sound booth** stands where OSM has its roof (way 229359709,
-`building=roof`, about 6 x 4.5 m, around row 13 just off the centre line), not on
-row 8 where the blockout had it. Its deck covers that footprint 0.3 m over the
-highest tread under it, so you step in from the row behind; a parapet faces the
-stage, and four posts carry a flat maroon roof 2.6 m up (`Booth.obj`, `M_Roof`),
-like the one in the top-row photo. The scan shows no booth (it was flown without
-one), so nothing there is kept visible over it.
+`building=roof`, 5.3 x 5.1 m, around row 13 just off the centre line), not on
+row 8 where the blockout had it. It keeps that footprint's centre and size but
+is squared to the stage: OSM's outline runs about 21 degrees off the line to the
+stage, so the booth is turned until its front looks straight at the stage front
+centre (`facing_deg` in the manifest's `booth` entry, 31.7 degrees counter-clockwise
+from east on the real data). Its deck sits 0.3 m over the highest tread under
+it, so you step in from the row behind; a parapet faces the stage, and four
+posts carry a flat maroon roof 2.6 m up (`Booth.obj`, `M_Roof`), like the one in
+the top-row photo. The scan is cut out under the turned deck. The scan shows no
+booth (it was flown without one), so nothing there is kept visible over it.
 
 Current output for a 3.6 km box centred on the amphitheatre (it reaches
 downtown Morrison; the box was 2.4 km until the explorable realm):
@@ -353,6 +396,38 @@ retaining wall from the rock it stands against.
 | Retaining wall gap / height | 2.1 m / 12.9 m (were 2.0 / 6.0 estimates) | measured | low (+-1 m / +-2 m): the height is the whole rear face, rock included |
 | Front setback, columns size, shell, walkway width | see `stage.py` | estimate | not resolvable in the scan |
 
+**The roof, steel and towers** (P3 of the look spec). The roof slab's front
+corners are cut at 45 degrees and a near-black band covers its front
+(`Stage_Fascia.obj`), as the photo from the top row shows; lower side roofs
+4.1 m wide stand either side on rust-red columns with box-beam headers. Two
+stone towers stand either side of the downstage end, outside the deck: a pale
+concrete base, stacked red flagstone above it and a concrete cap, the inner
+front corner rounded; the right (south) tower's base has a tall round-arched
+opening right through it. A sloped stone wall joins each tower's back to the
+stage. Their plans and heights are measured on the scan's top surface by
+`tools/measure_stage_towers.py` (`tower_*` in `DIMENSIONS`): the scan's own stage
+sits about 11 degrees turned and 1.3 m off the blockout's and is 8% small as
+placed, so each tower is measured from the scan's roof and scaled to 0.516 m per
+unit like the other measured sizes. The left (north) tower is 6.7 x 9.2 m and
+15.7 m high, the right 5.5 x 6.2 m and 15.0 m, both just over the roof's top
+(14.3 m), as in the photos. The bases, arch, rounded corners and side roofs'
+frames are photo estimates. Because the scan's own roof and towers stand beside
+the new ones, `redrocks build` also cuts the scan out where it stands over 11 m
+above the deck around the stage (`stage.scan_stage_cut`), along with the towers'
+plans. Each material has its own OBJ: `M_Concrete` (Stage), `M_StageSteel`
+(Stage_Steel, new: painted oxide red, a little worn), `M_Roof` (Stage_Roof),
+`M_Steel` (Stage_Fascia) and `M_Benches` (Stage_Towers); all collide.
+`tools/render_stage_check.py` draws a flat-shaded check from the top row
+(`out/check_stage.png`, with `--photo` beside the postcard).
+
+| Dimension | Value | Kind | Source |
+|---|---|---|---|
+| Left tower: inner / outer face from the centre line | 20.9 / 27.7 m | measured | scan top, scaled; the top-row photo agrees within about 1 m |
+| Left tower: front / back of the front edge, top | +2.4 / -6.8 m, 15.7 m | measured | same |
+| Right tower: inner / outer, front / back, top | 23.3 / 28.8 m, +1.6 / -4.6 m, 15.0 m | measured | same |
+| Side roofs: width, depth, top | 4.1 m, 5.1 m, 13.0 m | measured | the scan's right side roof; OSM roof outline 4.0-4.2 m |
+| Tower base, corner, arch | 6.4 m, r 2.0 m, 2.0 m wide | estimate | photos |
+
 Re-run the measurement (needs `usd-core` in a venv, not a project dependency):
 `.venv/bin/python tools/measure_stage_scan.py --cache $SCRATCH/scan.npz --out $SCRATCH/diag`.
 It also writes a top-down height map and an axis cross-section with the
@@ -409,41 +484,203 @@ before/after shots are in `docs/media/scan-blend/` and
 
 ## Vegetation
 
-The hillsides carry about 100,000 procedural plants: Rocky Mountain and one-seed
-juniper, ponderosa pine, Gambel (scrub) oak and mountain mahogany. Nothing is
-downloaded: `redrocks.vegetation` grows every model from a seed and paints its
-leaf textures with Pillow, and `redrocks vegetation --out out` writes them to
+The hillsides carry about 237,000 procedural plants, modelled on summer photos
+of Red Rocks Park: Rocky Mountain and one-seed juniper, ponderosa pine, Gambel
+(scrub) oak and mountain mahogany. Nothing is downloaded: `redrocks.vegetation`
+grows every model from a seed, `redrocks.foliage_atlas` paints the leaf textures
+with Pillow at real size, and `redrocks vegetation --out out` writes them to
 `out/vegetation/` with `vegetation.json`, the list of instances.
 
-| Species | Model | Instances scale to | Looks like |
+| Species | Models | Instances | Looks like |
 |---|---|---|---|
-| Rocky Mountain juniper | `JuniperRM_0..2`, 5.0 m | 3-6 m | one gnarly trunk, dense irregular conical crown, blue-green |
-| One-seed juniper | `JuniperOS_0..2`, 3.6 m | 2-4.5 m | 2-4 stems from the base, broad rounded crown to the ground |
-| Ponderosa pine | `Ponderosa_0..3`, 18 m | 10-24 m | orange plated trunk clear for half its height, upturned branches, needle tufts |
-| Gambel oak | `Oak_0..2`, 1.6 m | 1-2 m | many thin stems, dense leafy dome, in clonal thickets |
-| Mountain mahogany | `Mahogany_0..2`, 1.9 m | 1.1-2 m | fewer stems, open grey-green, feathery seed plumes |
+| Rocky Mountain juniper | `JuniperRM_0..2`, 5.0 m | 3-6 m | a dense, almost solid oval-to-conical mass, dark grey-green, shaggy edge |
+| Rocky Mountain juniper, columnar | `JuniperRM_3..4`, 5.0 m | 3.7-5.8 m, beside the aisle stairs only | the narrow upright form planted along the aisles: one straight leader, dense to the ground, about 1.5 m across, tapering to a blunt point |
+| One-seed juniper | `JuniperOS_0..2`, 3.6 m | 2-4 m | several stems, a broad rounded crown down to the ground |
+| Ponderosa pine | `Ponderosa_0..4`, 18 m | 12-25 m | a straight trunk clear for about a third of its height; crooked limbs that dip and turn up; needles only in foxtail tufts at the branch and twig tips, sky between the tiers. 0 young and conical, 1-3 mature, 4 old and flat-topped |
+| Gambel oak | `Oak_0..2`, 2.6 m | 1.5-4 m | many stems, leafy almost to the ground |
+| Gambel oak patch | `OakPatch_0..2`, 2.6 m | 3-6 m across | a clonal thicket: many stems under one continuous canopy |
+| Mountain mahogany | `Mahogany_0..2`, 2.1 m | 1-3 m | twiggy and open, small grey-green leaves, feathery seed plumes |
+
+**Leaves are drawn at real size.** Each atlas tile is one leaf card of a known
+width (juniper 0.32 m, pine 0.48 m, oak 0.38 m, mahogany 0.28 m) and the
+painter works in metres: oak leaves 5-12 cm with rounded lobes, mahogany
+leaves 2-3.5 cm, ponderosa needles 10-18 cm, juniper sprays of 1-2 mm
+branchlets. Opaque crown cores carry each plant's mass and the masked cards
+clothe them, so the costly masked overdraw stays on the outer shell.
 
 Each model is three OBJs (cm, with UVs and normals on every face):
 **Trunk** (closed tapered tubes, watertight; the only part with collision, and
-only on trees), **Crown** (a lumpy core per foliage clump that gives the canopy
-mass at distance) and **Leaves** (crossed cards into a 2x2 atlas per species,
-their normals bent out from the crown so it shades as a volume).
-`unreal/setup_vegetation.py` imports them with Nanite (no hand-made LODs), builds
-`M_Veg_Bark` (world-space plates and fissures), `M_Veg_Leaves` (masked,
+only on trees), **Crown** (the opaque cores) and **Leaves** (cards into the 2x2
+atlas, their normals bent out from the crown so it shades as a volume).
+`unreal/setup_vegetation.py` imports them with Nanite, builds `M_Veg_Bark`
+(world-space plates and fissures that blend to one dark grey-brown from 6 to
+15 m away, as ponderosa trunks look in photos), `M_Veg_Leaves` (masked,
 two-sided, Two Sided Foliage) and `M_Veg_Crown`, and fills one instanced-mesh
-component per model part on a `Vegetation` actor.
+component per model part on a `Vegetation` actor. Run `setup_snow.py` after it
+(`rebuild_level.py` does), since it rebuilds the materials the snow is wired into.
 
 **Where they grow** (`redrocks.vegetation.place`, seeded, so every rebuild is
-the same): candidates every 6.5 m, kept in thickets by noise with open meadows
-between; ponderosa on the upper slopes and north-facing ground, junipers on the
-open rocky slopes, oak and mahogany lower down and on gentler ground. Nothing
-grows on cliffs (steeper than 33 degrees for shrubs, 37 for pines, 40 for junipers), in the scanned bowl, or on
-roads, paths, parking, benches and the stage (the masks the old scrub used).
+the same):
 
-![The hillsides from the air: junipers, ponderosa and scrub](docs/media/vegetation/after_aerial.jpg)
+- **Scrub thickets** (`in_thicket`): oak patches, oak and mahogany on a
+  jittered 4.1 m grid cover the lower slopes and draws with about 60 %
+  canopy; the grassy openings between keep a few lone bushes.
+- **Junipers** stand singly or in twos and threes, more on rocky
+  south-facing ground. **Ponderosa** grows in groves of 3-8 on the upper
+  and north-facing slopes.
+- Nothing grows on cliffs (steeper than 33 degrees for shrubs, 37 for pines,
+  40 for junipers), in the scanned bowl (but for the strips beside the aisle
+  stairs, below), or in buildings and walls. Trees keep
+  8 m off roads, paths, parking, buildings, walls, benches, the stage and the
+  sled run, and 2.5 m (pines) or 1 m (junipers) from each other; scrub grows
+  right up to the edge of roads, paths and buildings (2 m cells from their
+  triangles) without its canopy ever reaching over them.
+- Every plant is sunk so that no stem root stands above the ground under it,
+  however it is turned: oak patches on a slope root deeper downhill.
+- Shrub crowns are never culled, so the hillsides read as covered from the
+  air; shrub leaves and stems fade out from 320 to 400 m.
 
-Regenerate the shots with `unreal/shoot_vegetation.py` (needs the editor GUI;
-it also runs `ProfileGPU` at each view and logs the frame rate).
+**Beside the aisle stairs** (`redrocks.vegetation.place_aisles`). At the real
+venue the two side aisles climb beside planted strips: narrow upright junipers
+with scrub oak and mountain mahogany at their feet, between the stairs' outer
+cheek walls and the rock. The hillside pass keeps out of the scanned bowl, so
+these strips are planted on their own, on the scan's surface:
+
+- The strip runs out from each row's cheek wall, from 0.6 m to 8.6 m, and stops
+  where the scan's ground gets steeper than 35 degrees (rock face) or where it
+  meets the stage, the booth, the handrail or an OSM road, path, lot, building,
+  wall or rock (their triangles, at 0.5 m cells).
+- Plants come in clumps of 2-5: a short line of columnar junipers close to the
+  stairs with an oak or mahogany at their feet, or a juniper with a few shrubs,
+  2-4 m apart between clumps low in the bowl and by the stage-end towers and
+  further apart toward the top, plus a young ponderosa about every 15-25 m where
+  the strip is at least 5 m wide and the pine's crown clears everything.
+- No crown (the plant's whole reach in plan) comes within 0.3 m of a stair step
+  or cheek wall, the aisle path, the seating cut, the booth, the stage or those
+  OSM meshes, and no trunk within 1 m of a tread.
+- Trunks stand on the scan's ground (`assets/scan/scan_ground.npz`, not the
+  3DEP terrain), 10 cm under it (15 cm where a root would otherwise show on a
+  slope; no plant where even that is not enough), and not where the scan stands
+  more than 1.5 m over its ground within 0.5 m (`scan_top.npz`: the scan's own
+  trees and rocks, which fill much of the strips low on the south side).
+- `redrocks vegetation` reads the rasters from `--scan-ground` and `--scan-top`
+  (defaults in `assets/scan`) and sums the strips up under `aisle_planting` in
+  `vegetation.json`, every clump with the stair rows it stands beside. On the
+  real build: 54 plants in 22 clumps, 31 in 12 up the north aisle and 23 in 10
+  up the south one (26 columnar and 2 broad junipers, 16 scrub oak, 7 mountain
+  mahogany, 3 ponderosa), at least one clump in every ten rows on both sides.
+  The hillsides' placement is unchanged.
+
+**Side by side with Red Rocks Park** (before | after | photo; colour error
+ΔE of the sampled foliage and bark in [`delta_e.json`](docs/media/vegetation-real/delta_e.json)):
+
+![Trail through scrub oak toward a rock fin](docs/media/vegetation-real/trail.jpg)
+![A lone ponderosa](docs/media/vegetation-real/ponderosa.jpg)
+![Junipers in front of red rock](docs/media/vegetation-real/junipers.jpg)
+![The hillsides from above](docs/media/vegetation-real/hillsides.jpg)
+
+Photos from Wikimedia Commons:
+[Red Rocks Park in Denver](https://commons.wikimedia.org/wiki/File:Red_Rocks_Park_in_Denver.jpg) (Bigmacthealmanac, CC BY-SA 4.0),
+[Conifer (Red Rocks Park, west of Denver, Colorado, USA)](https://commons.wikimedia.org/wiki/File:Conifer_(Red_Rocks_Park,_west_of_Denver,_Colorado,_USA).jpg) (James St. John, CC BY 2.0),
+[Trail views in Red Rocks Park, Morrison, Colorado](https://commons.wikimedia.org/wiki/File:Trail_views_in_Red_Rocks_Park,_Morrison,_Colorado.jpg) (Lovemedead, CC BY-SA 4.0),
+[RedRocks.jpg](https://commons.wikimedia.org/wiki/File:RedRocks.jpg) (Hogs555, CC BY-SA 3.0).
+Because they contain those photos, the four composites in
+`docs/media/vegetation-real/` are CC BY-SA. The photos themselves are not
+committed: `tools/make_reference_compare.py` fetches them into `out/refs/`.
+
+Regenerate the comparisons: shoot `before_`/`after_` with
+`unreal/shoot_vegetation.py` (needs the editor GUI; the four photo-matched
+cameras are in `docs/media/vegetation-real/views.json`), then
+`python tools/make_reference_compare.py --shots out/shots --out docs/media/vegetation-real --cache out/refs`.
+
+![The hillsides from the air](docs/media/vegetation/after_aerial.jpg)
+
+## Photo board
+
+The look is judged against six real photos, not by eye alone
+(`docs/superpowers/specs/2026-11-05-look-like-red-rocks-design.md`). Each view
+in `docs/media/photo-board/views.json` is a freely licensed Commons photo
+(postcard from the top row, up the rows, across the rows, the stage front, a
+monolith from the plaza, an aerial) with 6-10 landmarks clicked in the photo,
+the sun it was taken under, and colour sample boxes (sky, sunlit and shaded
+rock, treads, risers, plants, the plains). `tools/fit_photo_camera.py` fits the
+game camera to the landmarks (`redrocks.photo_camera`, a pinhole in the level
+frame, least squares; a fit with a mean landmark error over 1.5 % of the width
+is refused). `unreal/shoot_board.py` shoots every view in the editor world
+(no HUD, each view under its photo's sun and under the level's own), and
+`tools/make_board_compare.py` writes before | after | photo composites, a GIF
+and `scores.json`: CIE76 ΔE per sampled region (target 10, none over 20) and
+the skyline error (where rock, roof or hill meets sky; target 2 % of the image
+height). The three worst regions on the board pick the next thing to fix.
+
+```bash
+.venv/bin/python tools/fit_photo_camera.py                       # cameras from landmarks
+.venv/bin/python tools/make_board_compare.py --write-landmarks --shots out/board
+REDROCKS_OUT_DIR=$PWD/out REDROCKS_BOARD_PREFIX=after_ REDROCKS_BOARD_SUN=both REDROCKS_BOARD_CALIB=1 \
+  UnrealEditor RedRocks.uproject -nosplash -ExecCmds="py $PWD/unreal/shoot_board.py"
+.venv/bin/python tools/make_board_compare.py --shots out/board --pass p0 --calib   # projection check
+.venv/bin/python tools/make_board_compare.py --shots out/board --pass p0           # composites + scores
+```
+
+Photos download into `out/refs/` and are never committed; the composites are
+(CC BY-SA, see LICENSE). Results land in `docs/media/photo-board/<pass>/`.
+
+## Denver on the horizon
+
+From the top rows you look over the stage, the hogback and the plains to
+downtown Denver ([the postcard](https://commons.wikimedia.org/wiki/File:Red_Rocks_Amphitheater.JPG)).
+`redrocks.denver` builds that skyline into `Denver.obj`, at its true place:
+**20.4 km from the stage front at a bearing of 63.8 degrees** (Republic Plaza
+20.5 km at 65.0). In a straight line downtown is 20.6 km from the venue, not
+the 15 miles usually quoted: that is the drive.
+
+| | |
+|---|---|
+| Buildings | every `building=*` and `building:part=*` way and multipolygon in 39.728-39.765 N, 105.016-104.962 W (Union Station and LoDo to Capitol Hill), from the Overpass API |
+| Heights | `height`, else `building:levels` x 3.5 m, else 10 m; parts start at `min_height` (or `building:min_level` x 3.5 m). Downtown is mapped in 3D, so an outline with parts inside it gives way to them (Republic Plaza is 29 parts) unless they stop short of its height. Tops under 12 m are left out. |
+| Triangles | 7,000 parts are mostly columns and crown pieces a few m² in plan: pieces whose bottom and top round to the same 3 m merge, footprints simplify to 1.5 m, those under 10 m² go unless they are spires on a roof, and prisms inside others go. 946 buildings make 1,894 closed prisms, 51,304 triangles |
+| Ground | each building stands on the lowest point under its outline on a 257 x 176 USGS 3DEP DEM of downtown (1,574-1,640 m); parts share their outline's ground |
+| Frame | the terrain frame, cm, Z = 0 at the terrain minimum; east and north from the venue's `LocalProjection`, a tangent plane at the origin, so bearings and distances from the bowl are true |
+| Earth curvature | every vertex drops by d²/2R x (1 - k), R = 6,371 km, k = 0.13 (refraction), d from the origin: 29 m at downtown, 43 m at 25 km |
+| In Unreal | `setup_gameplay.py` imports it with `M_DistantCity` (flat sRGB 170, 170, 165), no collision, no shadow, `MaxDrawDistance` 0, never distance-culled, out of the distance fields. The level has no far clip plane (the project keeps Unreal's infinite far plane). |
+
+The Overpass answer (28 MB) and the DEM are fetched once into `out/cache/`
+(`--denver-cache` moves it) and read from there on every later build, so
+rebuilds are offline; delete the files to refetch. When they cannot be
+fetched the build goes on without Denver. Overpass's public servers are
+slow and throttle: the first fetch took 9 minutes.
+
+**The terrain skirt meets it** (`unreal/setup_environment.py`). East of the
+3.6 km terrain the skirt used to settle on a flat plain at 1.70 km with
+undulations of up to ±63 m, 100 m over downtown's ground, and none of it
+curved. Now, by distance east, it follows the real plains, 1,580 m + 247 m x
+exp(-east / 9.53 km): 1.78 km at Morrison, 1.65 km at 12 km, 1.61 km at
+downtown, 1.58 km beyond; undulations over the plains are at most 13 m; the
+west and the far north and south are unchanged. Every ring past the
+terrain's edge drops by the same d²/2R x (1 - k) as Denver.obj (983 m at the
+skirt's 120 km edge), so the city and the plains agree. The 3.6 km terrain
+mesh stays flat: its edge would drop 0.2 m. The skirt reads the terrain's
+base elevation from `manifest.json`.
+
+**Can you see it?** `tools/check_denver.py --out out` rebuilds the skirt with
+setup_environment.py's own functions, marches sight lines from the top
+walkway's eye (1.7 m up, 1,965.8 m) to the tallest towers over the game's
+ground and over the real ground (3DEP, curved the same way), and renders the
+view down the stage axis, 60 degrees wide, to `out/check_denver.png`:
+
+| Tower | Height | Clear of the ground in front: game / real | Top vs the horizon behind: game / real |
+|---|---|---|---|
+| Republic Plaza | 220 m | 197 m / 220 m | -7 m / +14 m |
+| 1801 California | 216 m | 190 m / 215 m | -14 m / +15 m |
+| Wells Fargo Center | 213 m | 195 m / 209 m | -8 m / +15 m |
+
+In the game the skirt runs ~25 m over the real Platte valley in front of
+downtown, so the lowest ~20 m of the towers hide (about one pixel), and the
+towers' tops reach the limb of the SkyAtmosphere's own planet (its top is the
+level's Z = 0, 1.74 km; seen from the top row its limb is 0.48 degrees below
+level) rather than standing against blue sky. Neither the hogback (Dinosaur
+Ridge, ~1.83 km at 3.5 km) nor Green Mountain (2.09 km, left of downtown in
+the postcard) is in the skirt; neither hides Denver in reality.
 
 ## Explore it
 
@@ -594,11 +831,11 @@ a time, in this order; each writes a log to `/tmp/redrocks_*.log`:
 | `configure_level.py` | writes Lumen / distance fields / VSM / eye adaptation / TSR into `Config/DefaultEngine.ini` `[SystemSettings]`; post-process volume with Lumen, auto exposure (EV100 11-14.2) and a light grade; framing camera |
 | `fix_camera.py` | lifts the camera above the 645 m ridge, removes test actors |
 | `setup_materials.py` | procedural materials: `M_Sandstone` (30° strata that fade with distance, soil, grass, slope rock) with rock and ground instances; `M_Benches` (dusty sandstone treads, stacked red flagstone risers), `M_BenchWood` (plank boards), `M_Steel` (brackets, handrail); `M_Concrete`, `M_Asphalt`, `M_Lot`, `M_Gravel` |
-| `setup_environment.py` | terrain skirt from the DEM edge out to 120 km so the world has a horizon |
+| `setup_environment.py` | terrain skirt from the DEM edge out to 120 km so the world has a horizon: the plains to Denver in the east, foothills in the west, curved with the Earth (see Denver on the horizon) |
 | `setup_vegetation.py` | imports `out/vegetation/` (from `redrocks vegetation`): leaf atlases, bark/leaf/crown materials, 16 Nanite tree and shrub models, and every instance into one `Vegetation` actor; tree trunks block, canopies and shrubs don't |
 | `import_scan.py` | imports the ml0w scan with Nanite and credits it, at `FIT_DATUM_M` above the level's datum; its material fades the scan out at its edge and over the seating (`out/scan_fade.png`, see Seating); run after `import_redrocks.py` |
 | `cut_scan_collision.py` | cuts the seating out of the scan's collision: collision-only copies of the chunks that reach it, without the triangles over it, as their `ComplexCollisionMesh` (from `out/seating_cut.json`). Run after `import_scan.py` |
-| `setup_gameplay.py` | imports Stage, Roads, Paths, Parking; complex collision on every walkable mesh and on the scan (the hidden extruded rocks get none); PlayerStart on the stage deck facing up the bowl; FirstPerson game mode; in-world credits. Runs last |
+| `setup_gameplay.py` | imports Stage, Roads, Paths, Parking and Denver; complex collision on every walkable mesh and on the scan (the hidden extruded rocks get none); Denver never culled, no shadow, no collision; PlayerStart on the stage deck facing up the bowl; FirstPerson game mode; in-world credits. Runs last |
 | `setup_snow.py` | `MPC_Weather` (one scalar, `Snow`) and a snow layer in every `/Game/RedRocks` material: up-facing surfaces lerp to packed snow as `Snow` rises, in patches. Re-running skips materials that already have it |
 | `setup_explore.py` | the explorable realm: teleport spots, three shopping carts bound for Morrison, three sleds, the weather actor, `road`/`parking` tags, and the `RRGameMode` game mode. Needs the C++ module built. Runs last |
 | `setup_credits.py` | the press-**C** credits screen: input action `IA_Credits` (C, in `IMC_Default`), Widget Blueprint `WBP_Credits`, Actor Blueprint `BP_CreditsMenu` placed in the level. Text from `assets/*/ATTRIBUTION.md` and the manifest. Runs after `setup_gameplay.py` |
@@ -728,8 +965,22 @@ any build that ships.
   `3DEPElevation` ImageServer. 1 m source resolution in this area.
 - **Features** — OpenStreetMap via the main OSM API (not Overpass, which was
   rate-limited to the point of being unusable). ODbL 1.0, attribution required.
+- **Downtown Denver** — OpenStreetMap buildings via the Overpass API (the main
+  API's `map` call stops at 50,000 nodes; downtown's buildings alone are
+  226,000), and a coarse 3DEP DEM under them. Both are cached in `out/cache/`.
 
-Both are fetched live; nothing is vendored.
+The park's DEM and features are fetched live on every build; nothing is vendored.
+
+The 3DEP service keeps its pixels square in degrees: asked for a square
+raster of a bbox that is not square in degrees, it returns a wider extent
+than asked (its JSON says which). `dem.cached_dem` asks for a raster with the
+bbox's own aspect and keeps the extent returned. The park build still asks
+for a square raster of a square-in-metres bbox, which at 39.7 N comes back
+covering 30 % more latitude than the build assumes, so `RedRocks_Terrain.obj`
+and everything draped on it are squeezed north-south to 0.77 of the real
+ground (checked against a registered DEM: median difference 20.6 m as built,
+0.8 m once north is stretched by 1.295). Fixing it moves every terrain
+height outside the bowl's centre line.
 
 ## What the data actually gives you
 
@@ -808,8 +1059,12 @@ against real photos from the same spots:
 2. **Monoliths**: Creation and Ship Rock outside the scan are still OSM
    extrusions; their real shapes could come from USGS 3DEP lidar.
 3. **Parking lots**: stall lines, curbs, lights and cars on the 53 OSM lots.
-4. **The postcard view**: the real stage roof and its two stone towers, and the
-   view east to Denver over Stage Rock.
+4. **The postcard view**: the real stage roof and its two stone towers. The
+   view to Denver is in (Denver on the horizon); the hogback and Green
+   Mountain in front of it are not, and the build's stage axis (65.9 degrees,
+   from the row centres) is 12 degrees left of the OSM stage roof's (77.6), so
+   from the top row Denver shows straight over the stage, where the postcard
+   has it 13 degrees left.
 5. A packaged Mac build (#25), and controller and phone play.
 
 For a *fantasy replication* rather than a survey-accurate twin, the monoliths,
@@ -827,8 +1082,10 @@ sampling and interpolation, the Unreal Z scale formula, heightmap encoding, OSM
 parsing and feature classification, the seating bowl (arc rows, stage centre), the terraced
 seating (tread levels, terraces, planks, brackets lined up about the stage, front steps, the
 scan cut), monolith geometry, roads/paths/parking, the OBJ
-exports (terrain grid, seating, stage blockout, handrail, winding, and a valid UV on every face), and the
-CLI build. No network in tests.
+exports (terrain grid, seating, stage blockout, handrail, winding, and a valid UV on every face), the
+CLI build, and Denver (bearing and distance against a Vincenty geodesic, curvature, closed prisms that
+keep their tagged heights, the build from a fixture Overpass answer, the skirt's plains and curvature).
+No network in tests.
 
 The `unreal/` scripts are only checked offline: they must parse, and none may
 pass `unreal.Rotator` angles positionally. `rebuild_level.py`'s step order and

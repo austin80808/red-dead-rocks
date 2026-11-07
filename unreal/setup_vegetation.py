@@ -10,11 +10,15 @@ What it does, each step logged to $REDROCKS_LOG_DIR (default /tmp)/redrocks_vege
   1. Imports the four leaf atlases (T_Leaves_*) to /Game/RedRocks/Vegetation,
      keeping alpha coverage in the mips so distant cards don't thin out.
   2. Builds three procedural master materials and an instance per species:
-       M_Veg_Bark    world-space plates and fissures (orange ponderosa plates,
-                     shreddy grey-brown juniper, grey scrub stems)
-       M_Veg_Leaves  masked, two-sided, Two Sided Foliage shading: the atlas,
-                     tinted per instance, darker inside the crown
-       M_Veg_Crown   opaque foliage core with a broken-up normal
+       M_Veg_Bark    world-space plates and fissures (cinnamon ponderosa plates,
+                     shreddy grey-brown juniper, grey scrub stems) that blend to
+                     one far colour from 6 to 15 m away: ponderosa trunks read
+                     dark grey-brown at a distance, as in photos of the park
+       M_Veg_Leaves  masked, two-sided, Two Sided Foliage shading: the atlas
+                     (already in photo colours), a near-white per-instance tint,
+                     darker inside the crown
+       M_Veg_Crown   opaque foliage core, 0.8-0.95x the photo colour, with a
+                     broken-up normal
   3. Imports every model part with Nanite on (no hand-made LODs needed),
      keeping the generator's bent foliage normals. Tree trunks get
      complex-as-simple collision; canopies and shrubs get none.
@@ -22,7 +26,9 @@ What it does, each step logged to $REDROCKS_LOG_DIR (default /tmp)/redrocks_vege
      holding an instanced-mesh component per model part, filled from
      vegetation.json. Trunks block (BlockAll), everything else is NoCollision.
      Leaf cards stay out of distance-field lighting; shrub leaves cast no
-     shadow (their crown cores do) and shrubs cull past 1.2 km.
+     shadow (their crown cores do). Shrub leaves and stems fade out from 320
+     to 400 m (cull_distances); shrub crowns and every tree part never cull,
+     so the hillsides read as covered from the air.
   5. Saves the level, failing loudly if a save returns False.
 """
 
@@ -47,21 +53,30 @@ OLD_LABELS = ["Scrub", "Vegetation"]
 LOG_PATH = os.path.join(os.environ.get("REDROCKS_LOG_DIR", "/tmp"), "redrocks_vegetation.log")
 
 TREES = ("JuniperRM", "JuniperOS", "Ponderosa")  # these trunks block the player
-SHRUB_CULL_CM = 120000.0
+SHRUBS = ("Oak", "OakPatch", "Mahogany")
+SHRUB_FADE_CM = (32000, 40000)  # shrub leaves and stems: start, end of the cull fade
 
-# Bark per species group: (light, dark, plate size cm, vertical stretch, contrast)
+# Bark per species group: (near light, near dark, far, plate size cm, vertical stretch, contrast).
+# Near is within FAR_START_CM; past FAR_END_CM the bark is the far colour (the
+# ponderosa's is the photo's trunk colour at distance, #5A5236).
 BARK = {
-    "Ponderosa": ("#C0703F", "#2E211B", 28.0, 0.4, 1.0),
-    "Juniper": ("#8C7B6B", "#3B2F28", 9.0, 0.12, 0.8),
-    "Shrub": ("#7A6E64", "#3E3630", 6.0, 0.3, 0.5),
+    "Ponderosa": ("#B06C40", "#2E211B", "#4E463A", 28.0, 0.4, 1.0),
+    "Juniper": ("#857A6E", "#3B332D", "#5E564E", 9.0, 0.12, 0.8),
+    "Shrub": ("#7A746C", "#433E38", "#605B54", 6.0, 0.3, 0.5),
 }
-# Leaf tint pair per atlas (multiplies the atlas colour; picked per instance),
-# crown core colour pair, subsurface colour.
+FAR_START_CM, FAR_END_CM = 600.0, 1500.0
+# Leaf tint pair per atlas (multiplies the atlas, which is painted in the photo
+# colours, so the tints stay near white; picked per instance), crown core
+# colour pair (CORE_GAIN x the photo colour: below 1 for dense crowns whose
+# cores sit in shade, above 1 for the open ponderosa, whose cores read as the
+# lit needles of each tuft), subsurface colour. Tuned against the photo
+# captures (docs/media/vegetation-real/delta_e.json).
+CORE_GAIN = {"Juniper": (0.8, 0.95), "Pine": (0.95, 1.1), "Oak": (0.8, 0.95), "Mahogany": (0.8, 0.95)}
 FOLIAGE = {
-    "Juniper": (("#C8D8E0", "#E2E6D4"), ("#34463C", "#465446"), "#6E7F48"),
-    "Pine": (("#D6DEC0", "#B8C49A"), ("#243620", "#34472A"), "#7A8A3A"),
-    "Oak": (("#F0F0D0", "#D8D2A0"), ("#3A5022", "#55662C"), "#9AAA40"),
-    "Mahogany": (("#E8E8DA", "#D2D0BE"), ("#4E5644", "#646A52"), "#8E9460"),
+    "Juniper": (("#F4F4F4", "#E6EAE2"), ("#404937", "#4C5643"), "#6E7F48"),
+    "Pine": (("#F4F4F0", "#ECEEE4"), ("#636E47", "#738053"), "#6E8048"),
+    "Oak": (("#F6F6F0", "#ECEEE2"), ("#4A5226", "#57612D"), "#9AAA40"),
+    "Mahogany": (("#F2F2EE", "#E8EAE2"), ("#5F6352", "#71766A"), "#8E9460"),
 }
 
 log = []
@@ -80,6 +95,17 @@ def bark_group(model_name):
 
 def species_of(model_name):
     return model_name.rsplit("_", 1)[0]
+
+
+def cull_distances(model_name, part):
+    """(start_cm, end_cm) of the instance cull fade; (0, 0) never culls.
+
+    Shrub crowns stay at every distance so the hillsides read as covered; their
+    leaf cards and stems fade out together (no floating stems). Trees keep
+    everything."""
+    if species_of(model_name) in SHRUBS and part in ("Leaves", "Trunk"):
+        return SHRUB_FADE_CM
+    return (0, 0)
 
 
 def part_collides(model_name, part):
@@ -225,7 +251,9 @@ def build_bark(mat):
     lib.delete_all_material_expressions(mat)
     _usage(mat)
     g = Graph(mat)
-    light, dark = g.vector("BarkLight", "#C0703F"), g.vector("BarkDark", "#2E211B")
+    light, dark = g.vector("BarkLight", "#B06C40"), g.vector("BarkDark", "#2E211B")
+    far = g.vector("BarkFar", "#5A5236")
+    far_start, far_end = g.scalar("FarStartCm", FAR_START_CM), g.scalar("FarEndCm", FAR_END_CM)
     plate = g.scalar("PlateSize", 28.0)
     stretch = g.scalar("Stretch", 0.4)
     contrast = g.scalar("Contrast", 1.0)
@@ -248,6 +276,11 @@ def build_bark(mat):
     # Dust settles on upward-facing bark.
     base = g.lerp(base, g.node("MaterialExpressionConstant3Vector", constant=_lc("#9C6B4E")),
                   g.mul(g.sat(nz), 0.25))
+    # Plates and fissures only up close; at distance the trunk is one dark grey-brown.
+    span = g.node("MaterialExpressionDivide")
+    g.link(g.sub(g.node("MaterialExpressionPixelDepth"), far_start), span, "A")
+    g.link(g.sub(far_end, far_start), span, "B")
+    base = g.lerp(base, far, g.sat(span))
     g.out("MP_BASE_COLOR", base)
     g.out("MP_ROUGHNESS", 0.9)
 
@@ -371,11 +404,12 @@ def _materials(textures):
     leaves_m = _material("M_Veg_Leaves", build_leaves)
     crown_m = _material("M_Veg_Crown", build_crown)
     mats = {}
-    for group, (light, dark, size, stretch, contrast) in BARK.items():
+    for group, (light, dark, far, size, stretch, contrast) in BARK.items():
         mats[("Bark", group)] = _instance(
             "MI_Veg_Bark_%s" % group, bark_m,
-            scalars={"PlateSize": size, "Stretch": stretch, "Contrast": contrast},
-            vectors={"BarkLight": light, "BarkDark": dark})
+            scalars={"PlateSize": size, "Stretch": stretch, "Contrast": contrast,
+                     "FarStartCm": FAR_START_CM, "FarEndCm": FAR_END_CM},
+            vectors={"BarkLight": light, "BarkDark": dark, "BarkFar": far})
     for atlas, ((ta, tb), (ca, cb), sss) in FOLIAGE.items():
         mats[("Leaves", atlas)] = _instance(
             "MI_Veg_Leaves_%s" % atlas, leaves_m, vectors={"TintA": ta, "TintB": tb, "Subsurface": sss},
@@ -455,8 +489,9 @@ def _place(info, meshes):
                 # Masked shrub leaves in virtual shadow maps cost a lot for little;
                 # their opaque crown cores still cast the shadow.
                 comp.set_editor_property("cast_shadow", part != "Leaves")
-                comp.set_editor_property("instance_end_cull_distance", int(SHRUB_CULL_CM))
-                comp.set_editor_property("instance_start_cull_distance", int(SHRUB_CULL_CM * 0.8))
+            start_cm, end_cm = cull_distances(model["name"], part)
+            comp.set_editor_property("instance_start_cull_distance", int(start_cm))
+            comp.set_editor_property("instance_end_cull_distance", int(end_cm))
             comp.add_instances(transforms, False, True)
             if comp.get_instance_count() != len(transforms):
                 raise RuntimeError("placed %d of %d %s %s" % (comp.get_instance_count(), len(transforms),

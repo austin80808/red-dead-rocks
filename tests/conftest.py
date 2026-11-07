@@ -15,3 +15,6 @@ def no_scan_blend_by_default(monkeypatch):
     # Likewise the scan's fade mask and top raster: the seating cut opts in too.
     monkeypatch.setattr(cli, "DEFAULT_SCAN_FADE", Path("/nonexistent/scan_fade.png"))
     monkeypatch.setattr(cli, "DEFAULT_SCAN_TOP", Path("/nonexistent/scan_top.npz"))
+    # Downtown Denver fetches from Overpass and 3DEP: tests opt in with --denver
+    # and a cache seeded from a fixture (tests/test_denver.py).
+    monkeypatch.setattr(cli, "DEFAULT_DENVER", False)

@@ -49,9 +49,11 @@ RENDER_SETTINGS = [
 
 # Exposure range, EV100 (the project extends the luminance range, so the
 # min/max brightness fields are EV100). Sunlit sandstone at golden hour meters
-# about 13.5; deep shade under the rocks about 11.
-EXPOSURE_MIN_EV100 = 11.0
-EXPOSURE_MAX_EV100 = 14.2
+# about 13.5, at a late-morning sun about 15; deep shade under the rocks about 11.
+EXPOSURE_MIN_EV100 = 11.5
+# A sunny late morning meters about EV100 15 (sunny-16); the old 14.2 cap, set
+# for golden hour, would wash the high sun out and clip Lumen and the sky capture.
+EXPOSURE_MAX_EV100 = 15.3
 EXPOSURE_COMPENSATION = 0.3
 
 # Lumen defaults trace 200 m; the bowl is ~400 m across and the aerial camera
@@ -156,7 +158,9 @@ def _post_process(actors):
         bloom_intensity=0.35,
         lens_flare_intensity=0.0,
         vignette_intensity=0.3,
-        color_saturation=unreal.Vector4(x=1.06, y=1.06, z=1.06, w=1.0),
+        # Neutral saturation: the old 1.06 pushed the sandstone toward orange; the
+        # photos' rock and treads are dusty, not saturated.
+        color_saturation=unreal.Vector4(x=1.0, y=1.0, z=1.0, w=1.0),
         color_contrast=unreal.Vector4(x=1.04, y=1.04, z=1.04, w=1.0),
     )
     ppv.set_editor_property("settings", s)

@@ -11,7 +11,10 @@ placement, the scan's cut fade mask and its top raster, and reports:
   collision would turn into an invisible ledge, unless out/seating_cut.json is
   there for unreal/cut_scan_collision.py to cut the seating out of that collision.
 
-Stage.obj is left out: the sound booth stands on the rows on purpose.
+Stage.obj and the booth's flagstone base and parapet in Stage_Towers.obj ("# foh ..."
+parts) are left out: the sound booth stands on the rows on purpose. The
+stage's steel, roofs and towers (Stage_Steel, Stage_Roof, Stage_Fascia,
+Stage_Towers) are checked like the rest.
 
     .venv/bin/python tools/check_seating_clear.py [--out out]
 
@@ -36,12 +39,27 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 from redrocks.scan_blend import ScanHeights  # noqa: E402
 
-MESHES = ("RedRocks_Terrain", "Rocks", "Walls", "Buildings", "Paths", "Roads", "Parking", "Water")
+MESHES = ("RedRocks_Terrain", "Rocks", "Walls", "Buildings", "Paths", "Roads", "Parking", "Water",
+          "Stage_Steel", "Stage_Roof", "Stage_Fascia", "Stage_Towers")
 STEP_M = 0.55
 
 
 def _verts(path: Path) -> np.ndarray:
     return np.array([list(map(float, ln.split()[1:4])) for ln in path.open() if ln.startswith("v ")]) / 100.0
+
+
+def _verts_but_booth(path: Path) -> np.ndarray:
+    """A mesh's vertices except those only the sound booth's parts (``# foh ...``) use."""
+    v = _verts(path)
+    booth, other, part = set(), set(), ""
+    for ln in path.open():
+        if ln.startswith("# "):
+            part = ln[2:].strip()
+        elif ln.startswith("f "):
+            ids = {int(t.split("/")[0]) - 1 for t in ln.split()[1:]}
+            (booth if part.startswith("foh ") else other).update(ids)
+    drop = sorted(booth - other)
+    return np.delete(v, drop, axis=0) if drop else v
 
 
 def treads(benches: Path) -> list[tuple[float, Polygon]]:
@@ -74,7 +92,7 @@ def check(out: Path, scan_dir: Path) -> list[str]:
         path = out / f"{name}.obj"
         if not path.exists():
             continue
-        v = _verts(path)
+        v = _verts_but_booth(path)
         inside = v[shapely.contains_xy(seat, v[:, 0], v[:, 1])]
         above = [(x, y, z - t) for x, y, z in inside if (t := tread_at(x, y)) is not None and z > t + 1e-3]
         if above:

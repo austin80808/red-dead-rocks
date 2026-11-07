@@ -1,4 +1,4 @@
-"""Light Lvl_RedRocks: a golden-hour sun, sky, clouds, fog and a player start.
+"""Light Lvl_RedRocks: a summer late-morning sun, sky, clouds, fog and a player start.
 
 Run headless:
     UnrealEditor-Cmd RedRocks.uproject -run=pythonscript \
@@ -9,15 +9,17 @@ black until they exist. This script builds the whole outdoor rig, physically
 based so it reads right at eye level and from the air with one exposure range
 (configure_level.py sets the exposure and turns Lumen on):
 
-* Sun: a real-world-bright directional light (lux), low in the west-north-west
-  for late-afternoon golden hour, when the Fountain Formation glows red. The
-  SkyAtmosphere tints and dims it through the air, so its colour stays white.
-* SkyAtmosphere: Earth defaults with a little more haze, and aerial perspective
-  pulled in so the ridges a few km out turn blue-grey.
+* Sun: a real-world-bright directional light (lux), high in the south-east on
+  a clear summer late morning: the light most of the photo board's Commons
+  photos were taken under (short shadows, white light, sandstone its own red
+  rather than golden-hour orange). The SkyAtmosphere tints and dims it through
+  the air, so its colour stays white.
+* SkyAtmosphere: Earth's default haze and aerial perspective: Front Range air
+  is dry, and the postcard view shows downtown Denver crisp at ~25 km.
 * SkyLight: real-time capture of that sky, so shade is lit by the sky's real
   colour (Lumen adds the bounce from the red ground).
-* Height fog: thin haze that hides where the 2.4 km terrain and its skirt end,
-  coloured by the sky atmosphere.
+* Height fog: a trace of haze low on the plains, coloured by the sky
+  atmosphere; thin enough that Denver's skyline stays visible over the stage.
 * Volumetric clouds: the engine's simple cloud layer, high and sparse.
 
 Every rig actor is replaced on each run, so re-running updates its settings.
@@ -37,19 +39,21 @@ LEVEL_PATH = "/Game/RedRocks/Lvl_RedRocks"
 LOG_PATH = os.path.join(os.environ.get("REDROCKS_LOG_DIR", "/tmp"), "redrocks_lighting.log")
 
 # ---- Sun ---------------------------------------------------------------------
-# Red Rocks is at 39.67 N. Early on a summer morning the sun sits in the ENE, a
-# little over 20 degrees up (the Easter sunrise service is the venue's other
-# famous light). The player spawns on the stage facing WSW up the bowl, so a
-# morning sun is behind them and lights the rows and rock faces they see; an
-# afternoon sun (WNW) backlit the whole view into silhouette. The light travels
+# Red Rocks is at 39.67 N. At 10:30 solar time in late June the sun stands
+# about 65 degrees up at a bearing of about 124 (south-east); a little later in
+# the season or the morning gives the 130 / 58 used here, the light of most of
+# the photo board's photos (short shadows under the benches, white light). The
+# player spawns on the stage facing WSW up the bowl, so a morning sun is behind
+# them and lights the rows and rock faces they see; an afternoon sun (WNW)
+# backlit the whole view into silhouette. The light travels
 # away from the sun:
 # compass bearing (sun azimuth + 180), which in the level frame (X east, Y
 # south, yaw clockwise from +X seen from above, level_frame.py) is
 # yaw = bearing - 90.
-SUN_AZIMUTH_DEG = 75.0    # compass bearing of the sun, clockwise from north (ENE)
-SUN_ELEVATION_DEG = 24.0  # above the horizon: low and warm, but the bowl is still lit
+SUN_AZIMUTH_DEG = 130.0   # compass bearing of the sun, clockwise from north (SE)
+SUN_ELEVATION_DEG = 58.0  # above the horizon: late morning, high and white
 # Outside the atmosphere the sun gives about 120,000 lux; the SkyAtmosphere
-# takes off what the air absorbs, which at 24 degrees leaves a warm ~40-60 klx.
+# takes off what the air absorbs, which at 58 degrees leaves ~95-105 klx.
 SUN_LUX = 120000.0
 SUN_SOURCE_ANGLE_DEG = 0.53  # the real solar disc: soft, true-width penumbrae
 
@@ -60,16 +64,19 @@ SKY_LIGHT_INTENSITY = 1.0  # physical: the captured sky as-is
 SKY_LOWER_HEMISPHERE = (0.14, 0.07, 0.04)
 
 # ---- Atmosphere and fog ------------------------------------------------------
-MIE_SCATTERING_SCALE = 0.006   # Earth default is 0.003996: a touch hazier
-AERIAL_PERSPECTIVE_SCALE = 2.5  # >1 brings the blue-grey haze closer
+# The old golden-hour air (Mie 0.006, aerial perspective 2.5, fog 0.05) turned
+# everything past the bowl grey; the photos show the plains crisp to Denver.
+MIE_SCATTERING_SCALE = 0.0036  # Earth default is 0.003996: dry Front Range air
+AERIAL_PERSPECTIVE_SCALE = 1.0  # physical: haze builds over tens of km, not a few
 FOG_Z_CM = 0.0               # the plains east of the venue, terrain minimum
-FOG_DENSITY = 0.05
-FOG_HEIGHT_FALLOFF = 0.06    # thins out over the ~600 m of relief
-FOG_START_CM = 50000.0       # clear air across the venue itself
-DIRECTIONAL_INSCATTER = (0.9, 0.55, 0.3)  # warm glow toward the low sun
-# The fog's colour away from the sun comes from the sky, which alone paints
-# the far plains ocean-blue. Warm it toward the dusty grey of Front Range haze.
-FOG_SKY_TINT = (1.45, 1.22, 1.0)
+FOG_DENSITY = 0.004          # a trace: the SkyAtmosphere does the real haze
+FOG_HEIGHT_FALLOFF = 0.2     # engine default: the haze sits low on the plains
+FOG_START_CM = 200000.0      # clear air across the venue and the park
+FOG_MAX_OPACITY = 0.85       # never a wall: Denver's towers always show through
+DIRECTIONAL_INSCATTER = (0.45, 0.4, 0.33)  # a faint glow toward the sun
+# The fog's colour away from the sun comes from the sky; tint it a touch toward
+# the dusty grey of Front Range haze (the postcard's plains are neutral grey).
+FOG_SKY_TINT = (1.12, 1.06, 1.0)
 
 # ---- Clouds ------------------------------------------------------------------
 CLOUD_MATERIAL = "/Engine/EngineSky/VolumetricClouds/m_SimpleVolumetricCloud_Inst"
@@ -165,7 +172,7 @@ def _fog():
     # With a SkyAtmosphere the fog takes its colour from the sky; the flat
     # inscattering colour is zeroed so it does not paint everything grey-blue.
     _set(comp, fog_density=FOG_DENSITY, fog_height_falloff=FOG_HEIGHT_FALLOFF,
-         start_distance=FOG_START_CM, fog_max_opacity=1.0,
+         start_distance=FOG_START_CM, fog_max_opacity=FOG_MAX_OPACITY,
          fog_inscattering_luminance=unreal.LinearColor(r=0.0, g=0.0, b=0.0, a=1.0),
          sky_atmosphere_ambient_contribution_color_scale=unreal.LinearColor(
              r=FOG_SKY_TINT[0], g=FOG_SKY_TINT[1], b=FOG_SKY_TINT[2], a=1.0),

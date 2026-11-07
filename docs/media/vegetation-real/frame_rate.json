@@ -1,0 +1,126 @@
+{
+ "about": "Median frame times (ms) over 300 frames after a 100-frame warm-up, standalone game (-game, 1280x720, scalability High, 75 % screen percentage: the remote-play preset) on the M4 MacBook Air, CSV profiler, in the corrected (north on -Y) level. Spots are the game's RRGo teleports. Budget: at most 15 % slower than before.",
+ "spots": {
+  "2": {
+   "name": "top of the bowl",
+   "before": {
+    "frames": 300,
+    "FrameTime": 50.5,
+    "GameThreadTime": 1.7,
+    "RenderThreadTime": 50.4,
+    "GPUTime": 49.6,
+    "fps": 19.8
+   },
+   "after": {
+    "frames": 300,
+    "FrameTime": 62.1,
+    "GameThreadTime": 2.3,
+    "RenderThreadTime": 61.9,
+    "GPUTime": 60.7,
+    "fps": 16.1
+   },
+   "fps_change_percent": -18.7
+  },
+  "3": {
+   "name": "Creation Rock climb",
+   "before": {
+    "frames": 300,
+    "FrameTime": 50.5,
+    "GameThreadTime": 2.5,
+    "RenderThreadTime": 50.1,
+    "GPUTime": 51.0,
+    "fps": 19.8
+   },
+   "after": {
+    "frames": 300,
+    "FrameTime": 65.0,
+    "GameThreadTime": 2.4,
+    "RenderThreadTime": 64.9,
+    "GPUTime": 63.3,
+    "fps": 15.4
+   },
+   "fps_change_percent": -22.2
+  },
+  "4": {
+   "name": "Creation Rock summit",
+   "before": {
+    "frames": 300,
+    "FrameTime": 76.6,
+    "GameThreadTime": 2.5,
+    "RenderThreadTime": 76.6,
+    "GPUTime": 75.5,
+    "fps": 13.1
+   },
+   "after": {
+    "frames": 300,
+    "FrameTime": 65.4,
+    "GameThreadTime": 3.1,
+    "RenderThreadTime": 66.7,
+    "GPUTime": 60.6,
+    "fps": 15.3
+   },
+   "fps_change_percent": 16.8
+  },
+  "5": {
+   "name": "shopping carts (scrub-lined road)",
+   "before": {
+    "frames": 300,
+    "FrameTime": 118.0,
+    "GameThreadTime": 4.2,
+    "RenderThreadTime": 113.6,
+    "GPUTime": 110.3,
+    "fps": 8.5
+   },
+   "after": {
+    "frames": 300,
+    "FrameTime": 69.9,
+    "GameThreadTime": 2.9,
+    "RenderThreadTime": 71.6,
+    "GPUTime": 65.6,
+    "fps": 14.3
+   },
+   "fps_change_percent": 68.2
+  },
+  "6": {
+   "name": "sled hill",
+   "before": {
+    "frames": 300,
+    "FrameTime": 54.3,
+    "GameThreadTime": 1.7,
+    "RenderThreadTime": 54.3,
+    "GPUTime": 52.1,
+    "fps": 18.4
+   },
+   "after": {
+    "frames": 300,
+    "FrameTime": 67.8,
+    "GameThreadTime": 2.2,
+    "RenderThreadTime": 67.7,
+    "GPUTime": 64.2,
+    "fps": 14.7
+   },
+   "fps_change_percent": -20.1
+  },
+  "7": {
+   "name": "high ridge",
+   "before": {
+    "frames": 300,
+    "FrameTime": 57.4,
+    "GameThreadTime": 1.8,
+    "RenderThreadTime": 55.6,
+    "GPUTime": 54.0,
+    "fps": 17.4
+   },
+   "after": {
+    "frames": 300,
+    "FrameTime": 42.3,
+    "GameThreadTime": 2.5,
+    "RenderThreadTime": 42.3,
+    "GPUTime": 40.1,
+    "fps": 23.6
+   },
+   "fps_change_percent": 35.6
+  }
+ },
+ "status": "UNCONFIRMED single pass: each before ran ahead of its after on a fanless Mac that heats up, and the results swing both ways (three spots 19-22 % slower, three 17-68 % faster). Repeat with alternating order before judging the 15 % budget."
+}

@@ -7,11 +7,11 @@ Runs, in order, in this one Unreal Python interpreter:
     configure_level.py
     fix_camera.py
     setup_materials.py
-    setup_environment.py (terrain skirt to the horizon)
+    setup_environment.py (terrain skirt to the horizon, the plains to Denver)
     setup_vegetation.py  (junipers, ponderosa and scrub from out/vegetation)
     import_scan.py
     cut_scan_collision.py (the seating cut out of the scan's collision)
-    setup_gameplay.py    (stage/park meshes, collision, player start, credits)
+    setup_gameplay.py    (stage/park meshes, Denver's skyline, collision, player start, credits)
     setup_credits.py     (press-C credits overlay: input action, widget, actor)
     setup_snow.py        (MPC_Weather; every material whitens with its Snow)
     setup_explore.py     (carts, sleds, snow, teleport spots, RRGameMode)

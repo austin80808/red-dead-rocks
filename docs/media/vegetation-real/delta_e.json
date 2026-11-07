@@ -1,0 +1,29 @@
+{
+ "trail": {
+  "scrub oak": {
+   "photo": "#555D30",
+   "game": "#5B5C1D",
+   "delta_e": 10.2
+  }
+ },
+ "ponderosa": {
+  "needles": {
+   "photo": "#677145",
+   "game": "#4E5124",
+   "delta_e": 13.2
+  },
+  "trunk": {
+   "photo": "#7A684B",
+   "game": "#846942",
+   "delta_e": 7.6
+  }
+ },
+ "junipers": {
+  "juniper": {
+   "photo": "#717749",
+   "game": "#5E5E1E",
+   "delta_e": 14.6
+  }
+ },
+ "hillsides": {}
+}

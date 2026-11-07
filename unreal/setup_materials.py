@@ -17,12 +17,17 @@ no textures to import):
                         ground is red soil with patches of olive and dry grass.
     MI_Sandstone_Rock   instance for Creation_Rock and Ship_Rock: all rock
     MI_Sandstone_Ground instance for the terrain: soil and grass, rock on slopes
-    M_Benches           the terraced rows (redrocks.seating): dusty sandstone
+    M_Benches           the terraced rows (redrocks.seating): pale dusty concrete
                         treads on top, stacked red flagstone on the risers
     M_BenchWood         the bench planks: pale weathered boards with seams
-    M_Steel             bench brackets and the top handrail: dark, rust-tinted
-    M_Roof              the sound booth's posts and roof: maroon painted metal
-    M_Concrete          stage: warm grey with stains and speckle
+    M_Steel             bench brackets, the top handrail and the stage roof's dark
+                        front band (Stage_Fascia): dark, rust-tinted
+    M_Roof              the sound booth's posts and roof, the stage roof and its
+                        side roofs (Stage_Roof): maroon painted metal
+    M_StageSteel        the stage's columns, trusses and the side roofs' frames
+                        (Stage_Steel): oxide-red paint, a little worn
+    M_Concrete          stage (deck, shell, walls, the towers' bases): warm grey
+                        with stains and speckle
     M_Asphalt           roads: oxidised asphalt, worn patches, dusty edges
     M_Lot               parking: the same asphalt without road edges
     M_Gravel            paths: red decomposed-granite gravel, dusty edges
@@ -111,6 +116,16 @@ GROUND_INSTANCE = {
     "scalars": {"GrassAmount": 0.6, "DustAmount": 0.1, "SlopeRed": 2.2,
                 "BandThickness": 700.0, "BandContrast": 0.6},
     "vectors": {},
+}
+
+
+# The plains out to Denver (the terrain skirt): summer shortgrass prairie and
+# farmland, olive-tan from the top row in the photos. With the ground's soil
+# showing through they read as orange sand dunes at 5-20 km.
+PLAINS_INSTANCE = {
+    "scalars": {"GrassAmount": 1.0, "DustAmount": 0.05, "SlopeRed": 1.0,
+                "BandThickness": 700.0, "BandContrast": 0.3},
+    "vectors": {"DryGrassColor": "#8A8460", "GrassColor": "#5E6440", "SoilColor": "#7A5A40"},
 }
 
 
@@ -342,7 +357,9 @@ def build_benches(mat):
     tread on top. The risers' flagstone courses use world height, so they run
     level whatever depth the buried bottom reaches: thin courses (about 8 cm,
     as in the photos) of stones 22-72 cm long with wandering joints, each its
-    own red-brown. Stairs.obj (the row-end aisle stairs) takes it too.
+    own red-brown. Stairs.obj (the row-end aisle stairs) takes it too, and
+    Stage_Towers.obj: the stage towers' sides are the same stacked flagstone
+    (their prism UVs are metres too) and their tops take the tread colour.
     """
     lib.delete_all_material_expressions(mat)
     g = Graph(mat)
@@ -369,9 +386,10 @@ def build_benches(mat):
     head = g.add(g.smooth(0.95, 0.99, sf), g.one_minus(g.smooth(0.0, 0.02, sf)))
     joint = g.mul(g.sat(g.add(bed, g.mul(head, 0.8))), near)
     tint = g.noise(g.append(g.append(g.mul(stone, 713.0), g.mul(course, 1931.0)), 0.0), 1000.0, levels=1)
-    # Lyons/Fountain sandstone: dark red-brown to rust, a few paler buff stones.
-    rock = g.lerp(g.color("#5E2618"), g.color("#8E4227"), tint)
-    rock = g.lerp(rock, g.color("#A0694C"), g.mul(g.smooth(0.8, 0.97, tint), 0.7))
+    # Lyons/Fountain sandstone: red-brown to rust, a few paler buff stones. The
+    # photo board's risers in sun sample #7B4632 to #8F6D54: dusty, not rust-orange.
+    rock = g.lerp(g.color("#66301F"), g.color("#925137"), tint)
+    rock = g.lerp(rock, g.color("#A97C60"), g.mul(g.smooth(0.8, 0.97, tint), 0.7))
     blot = g.noise(wpos, 25.0, levels=2)
     rock = g.mul(rock, g.lerp(0.82, 1.1, blot))
     grain = g.noise(wpos, 4.0, levels=1, func="VALUE_ALU")
@@ -380,11 +398,13 @@ def build_benches(mat):
     rock = g.lerp(rock, g.color("#9A6A50"), g.mul(g.smooth(0.6, 0.88, cf), 0.25))
     riser = g.lerp(rock, g.color("#2A140D"), g.mul(joint, 0.75))
 
-    # Treads: packed red-tan sandstone and dust, worn paler where people walk.
+    # Treads: pale pink-beige concrete under red dust, worn paler where people
+    # walk. The photo board samples them at #FAE3CB in full sun (up the rows) and
+    # #C2B1A6 from the top row; the old red-tan (#A2735A) rendered orange.
     blotch = g.noise(wpos, 350.0, levels=3)
-    tread = g.lerp(g.color("#A2735A"), g.color("#86573F"), g.mul(g.smooth(0.3, 0.8, blotch), 0.7))
+    tread = g.lerp(g.color("#B89E8C"), g.color("#A2826F"), g.mul(g.smooth(0.3, 0.8, blotch), 0.7))
     worn = g.noise(wpos, 2500.0, levels=2)
-    tread = g.lerp(tread, g.color("#B58C70"), g.mul(g.smooth(0.55, 0.85, worn), 0.35))
+    tread = g.lerp(tread, g.color("#CAB5A5"), g.mul(g.smooth(0.55, 0.85, worn), 0.35))
     grit = g.noise(wpos, 3.0, levels=1, func="VALUE_ALU")
     tread = g.mul(tread, g.lerp(1.0, g.lerp(0.88, 1.1, grit), g.near_fade(300.0, 1500.0)))
 
@@ -444,6 +464,26 @@ def build_steel(mat):
     # Painted, not bare: from the top row a metallic strap mirrored the sky and
     # the bracket lines read white; in the photos they are dark.
     g.output(col, g.lerp(0.65, 0.9, rust), metallic=0.1)
+
+
+def build_stage_steel(mat):
+    """The stage's steel (Stage_Steel: columns, Y-arms, trusses, purlins, the
+    side roofs' columns and box-beam headers): oxide-red paint, about #A0482E in
+    the photos' sun, slightly rough. A little wear: broad sun-fading, paler
+    chalky patches where the paint is thin, small dark rust spots seen up close,
+    and red dust on whatever faces up."""
+    lib.delete_all_material_expressions(mat)
+    g = Graph(mat)
+    wpos = g.world_pos()
+    fade = g.noise(wpos, 600.0, levels=2)
+    wear = g.smooth(0.62, 0.82, g.noise(wpos, 45.0, levels=3))
+    rust = g.smooth(0.72, 0.9, g.noise(wpos, 9.0, levels=2))
+    col = g.lerp(g.color("#86381F"), g.color("#9A4A2F"), fade)
+    col = g.lerp(col, g.color("#A86F58"), g.mul(wear, 0.35))
+    col = g.lerp(col, g.color("#4A2015"), g.mul(rust, g.mul(g.near_fade(1200.0, 5000.0), 0.6)))
+    top = g.smooth(0.55, 0.75, g.sat(g.normal_z()))
+    col = g.lerp(col, g.color("#9A6A50"), g.mul(top, 0.25))
+    g.output(col, g.lerp(0.55, 0.78, wear), metallic=0.15)
 
 
 def _concrete_color(g, wpos, light_hex, dark_hex):
@@ -595,12 +635,20 @@ SURFACES = [
     ("M_BenchWood", build_bench_wood, "Bench_Planks"),
     ("M_Steel", build_steel, "Bench_Brackets"),
     ("M_Roof", build_roof, "Booth"),
+    ("M_StageSteel", build_stage_steel, "Stage_Steel"),
     ("M_Concrete", build_concrete, "Stage"),
     ("M_Asphalt", build_asphalt, "Roads"),
     ("M_Lot", build_lot, "Parking"),
     ("M_Gravel", build_gravel, "Paths"),
     ("M_Buildings", build_buildings, "Buildings"),
 ]
+# More meshes that take a material SURFACES builds (when they are already imported).
+ALSO_APPLY = {
+    "M_Concrete": ["Walls"],
+    "M_Steel": ["Handrail", "Stage_Fascia"],
+    "M_Roof": ["Stage_Roof"],
+    "M_Benches": ["Stage_Towers"],
+}
 
 
 def main():
@@ -615,6 +663,7 @@ def main():
                      "MI_Sandstone_Rock", sandstone, ROCK_INSTANCE)
         ground = _step("MI_Sandstone_Ground", make_instance,
                        "MI_Sandstone_Ground", sandstone, GROUND_INSTANCE)
+        _step("MI_Plains_Ground", make_instance, "MI_Plains_Ground", sandstone, PLAINS_INSTANCE)
 
     for name in ("Creation_Rock", "Ship_Rock", "Stage_Rock", "Rocks"):
         _step("apply %s" % name, apply_to_mesh, name, rock or sandstone)
@@ -623,12 +672,11 @@ def main():
 
     for mat_name, builder, mesh_name in SURFACES:
         mat = _step(mat_name, make_material, mat_name, builder)
-        if mat is not None and mesh_name:
-            _step("apply %s" % mesh_name, apply_to_mesh, mesh_name, mat)
-        if mat_name == "M_Concrete" and mat is not None:
-            _step("apply Walls", apply_to_mesh, "Walls", mat)
-        if mat_name == "M_Steel" and mat is not None:
-            _step("apply Handrail", apply_to_mesh, "Handrail", mat)
+        if mat is None:
+            continue
+        for name in [mesh_name] + ALSO_APPLY.get(mat_name, []):
+            if name:
+                _step("apply %s" % name, apply_to_mesh, name, mat)
 
     log.append("done")
 

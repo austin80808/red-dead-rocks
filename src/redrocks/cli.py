@@ -7,6 +7,7 @@ import json
 from pathlib import Path
 
 import numpy as np
+import requests
 
 from .dem import BBox, fetch_dem, square_bbox
 from .explore import Route, carve_creek, creek_route, export_water_obj, plan as explore_plan
@@ -46,6 +47,9 @@ DEFAULT_SCAN_GROUND = Path("assets") / "scan" / "scan_ground.npz"
 # the seating is cut out of a copy of the mask, out/scan_fade.png.
 DEFAULT_SCAN_TOP = Path("assets") / "scan" / "scan_top.npz"
 DEFAULT_SCAN_FADE = Path("assets") / "scan" / "scan_fade.png"
+# Downtown Denver's skyline (redrocks.denver): on unless --no-denver. Its
+# Overpass answer and ground DEM are fetched once into <out>/cache.
+DEFAULT_DENVER = True
 
 
 def build(args: argparse.Namespace) -> int:
@@ -152,8 +156,10 @@ def build(args: argparse.Namespace) -> int:
         print("\nblocking out the stage ...")
         booth_way, booth_plan = _sound_booth(osm, venue_way, projection)
         stage = export_stage_obj(venue.rows, lines, out_dir / "Stage.obj", base, ground=seat_ground,
-                                 levels=layout.levels, booth=booth_plan)
+                                 levels=layout.levels, booth=booth_plan, scan_top=scan_top)
         print(f"  {len(stage.parts)} parts, {stage.triangles} triangles -> {stage.path.name}")
+        for sub in stage.meshes.values():
+            print(f"  {len(sub.parts)} parts, {sub.triangles} triangles -> {sub.path.name}")
         print(f"  {stage.handrail_triangles} triangles -> {stage.handrail_path.name}")
         (out_dir / "seating_cut.json").unlink(missing_ok=True)
         if on_scan:
@@ -162,8 +168,8 @@ def build(args: argparse.Namespace) -> int:
             (out_dir / "seating_cut.json").write_text(json.dumps(cut) + "\n")
             print(f"  {len(cut['runs'])} runs -> seating_cut.json (for the scan's collision cut in Unreal)")
         if stage.booth_path is not None:
-            print(f"  sound booth on OSM way {booth_way.id}, deck {stage.booth_deck_elevation_m:.2f} m "
-                  f"-> {stage.booth_path.name}")
+            print(f"  sound booth on OSM way {booth_way.id}, deck {stage.booth_deck_elevation_m:.2f} m, "
+                  f"facing {stage.booth_facing_deg:.1f} deg (the stage front) -> {stage.booth_path.name}")
 
         spawn = player_spawn(
             stage.front_edge_east, stage.front_edge_north, stage.axis,
@@ -182,9 +188,16 @@ def build(args: argparse.Namespace) -> int:
         print(f"  -> {obj_path.name}")
 
     print("\nbuilding roads, paths and parking ...")
-    park = export_park(osm, ground_dem, out_dir, grid=grid)
+    fade_png = Path(getattr(args, "scan_fade", "") or "")
+    covered = None
+    if fade_png.is_file() and fade_png.with_suffix(".json").is_file():
+        from .park import scan_cover
+        covered = scan_cover(fade_png, fade_png.with_suffix(".json"))
+    park = export_park(osm, ground_dem, out_dir, grid=grid, covered=covered)
     for mesh in park.values():
         print(f"  {mesh.features} {mesh.name.lower()}, {mesh.triangles:,} triangles -> {mesh.path.name}")
+
+    denver = _denver(args, out_dir, projection, base, stage)
 
     manifest = {
         "venue": "Red Rocks Amphitheatre",
@@ -288,6 +301,11 @@ def build(args: argparse.Namespace) -> int:
                 "deck_elevation_m": round(stage.booth_deck_elevation_m, 3),
                 "east_m": round(float(np.mean(booth_plan[:, 0])), 3),
                 "north_m": round(float(np.mean(booth_plan[:, 1])), 3),
+                # Its front (the parapet) faces the stage front centre: degrees
+                # counter-clockwise from east, like the other headings here.
+                "facing_deg": round(stage.booth_facing_deg, 3),
+                "width_m": round(stage.booth_size_m[0], 3),
+                "depth_m": round(stage.booth_size_m[1], 3),
             }
         manifest["stage"] = {
             "obj": stage.path.name,
@@ -302,6 +320,21 @@ def build(args: argparse.Namespace) -> int:
             "front_edge_east_m": round(stage.front_edge_east, 3),
             "front_edge_north_m": round(stage.front_edge_north, 3),
             "axis_east_north": [round(stage.axis[0], 6), round(stage.axis[1], 6)],
+            # Stage.obj is the concrete; these hold the rest, one material each.
+            "objs": {
+                name: {
+                    "obj": sub.path.name,
+                    "triangles": sub.triangles,
+                    "parts": {p: {"first_triangle": a, "end_triangle": b} for p, (a, b) in sub.parts.items()},
+                }
+                for name, sub in stage.meshes.items()
+            },
+            # The two stone towers ("left"/"right" as seen from the seats): centre and cap top.
+            "towers": {
+                side: {"east_m": round(t["east_m"], 3), "north_m": round(t["north_m"], 3),
+                       "top_elevation_m": round(t["top_elevation_m"], 3)}
+                for side, t in stage.towers.items()
+            },
             "dimensions": [
                 {"name": d.name, "value_m": round(d.value_m, 4), "kind": d.kind, "source": d.source}
                 for d in DIMENSIONS
@@ -317,6 +350,8 @@ def build(args: argparse.Namespace) -> int:
             }
             for key, m in park.items()
         }
+    if denver is not None:
+        manifest["denver"] = denver
     print("\nplanning carts, sleds and teleport spots ...")
     park_frame = ParkSurface(ground_dem, grid)
     explore = explore_plan(
@@ -341,6 +376,33 @@ def build(args: argparse.Namespace) -> int:
     (out_dir / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n")
     print(f"\nwrote {out_dir}/manifest.json")
     return 0
+
+
+def _denver(args, out_dir: Path, projection, base: float, stage) -> dict | None:
+    """Denver.obj, downtown's skyline at its true place; the manifest block, or None.
+
+    The buildings (Overpass) and ground (3DEP) are fetched once into the cache
+    (``--denver-cache``, default <out>/cache) and read from it after that. When
+    they cannot be fetched the build goes on without Denver.
+    """
+    from . import denver
+
+    obj = out_dir / "Denver.obj"
+    obj.unlink(missing_ok=True)
+    if not getattr(args, "denver", False):
+        print("\nskipping downtown Denver (--no-denver)")
+        return None
+    cache = Path(getattr(args, "denver_cache", "") or out_dir / "cache")
+    print(f"\nbuilding downtown Denver's skyline (OSM and 3DEP cached in {cache}) ...")
+    try:
+        osm, ground = denver.fetch_downtown(cache)
+    except (RuntimeError, OSError, requests.RequestException) as exc:
+        print(f"  skipping Denver: could not fetch downtown ({exc}); re-run the build to retry")
+        return None
+    origin = (stage.front_edge_east, stage.front_edge_north) if stage is not None else (0.0, 0.0)
+    mesh = denver.export_denver(obj, osm, ground, projection, base, origin)
+    print(denver.summary(mesh))
+    return denver.manifest_block(mesh)
 
 
 def _trim_rows(args, osm, venue_way, projection, lines, seat_ground):
@@ -466,11 +528,23 @@ def vegetation(args: argparse.Namespace) -> int:
     if not terrain.is_file():
         print(f"no {terrain}; run `redrocks build --out {out_dir}` first")
         return 1
-    info = veg.export(out_dir / "vegetation", terrain_obj=terrain, avoid_dir=out_dir, seed=args.seed)
+    scan_ground, scan_top = Path(args.scan_ground or ""), Path(args.scan_top or "")
+    have_scan = scan_ground.name and scan_ground.is_file() and scan_top.name and scan_top.is_file()
+    info = veg.export(out_dir / "vegetation", terrain_obj=terrain, avoid_dir=out_dir, seed=args.seed,
+                      scan_ground=scan_ground if have_scan else None, scan_top=scan_top if have_scan else None)
     tris = sum(p["triangles"] for m in info["models"] for p in m["parts"].values())
     print(f"{len(info['models'])} models, {tris:,} triangles, {len(info['atlases'])} leaf atlases")
     for species, count in info["counts"].items():
         print(f"  {species:10s} {count:6d}")
+    aisle = info.get("aisle_planting")
+    if aisle:
+        print(f"beside the aisle stairs: {aisle['plants']} plants in {aisle['clumps']} clumps ("
+              + ", ".join(f"{side} {s['plants']} in {len(s['clumps'])}" for side, s in aisle["sides"].items())
+              + "): " + ", ".join(f"{sp} {n}" for sp, n in sorted(aisle["species"].items())))
+    elif not have_scan:
+        print(f"no scan rasters at {scan_ground} / {scan_top}; the strips beside the aisle stairs are not planted")
+    else:
+        print(f"no stairs in {out_dir}; the strips beside the aisle stairs are not planted")
     print(f"wrote {out_dir / 'vegetation'}")
     return 0
 
@@ -514,6 +588,17 @@ def main(argv: list[str] | None = None) -> int:
         help="ml0w scan fade mask (with its .json) from tools/scan_heights.py; out/ gets a "
         "copy with the seating cut out. Pass '' for no cut.",
     )
+    build_cmd.add_argument(
+        "--denver",
+        action=argparse.BooleanOptionalAction,
+        default=DEFAULT_DENVER,
+        help="write Denver.obj, downtown Denver's skyline from OSM at its true place (default on)",
+    )
+    build_cmd.add_argument(
+        "--denver-cache",
+        default="",
+        help="where Denver's Overpass answer and ground DEM are cached (default <out>/cache)",
+    )
     build_cmd.set_defaults(func=build)
 
     veg_cmd = sub.add_parser(
@@ -521,6 +606,17 @@ def main(argv: list[str] | None = None) -> int:
     )
     veg_cmd.add_argument("--out", default="out", help="directory holding RedRocks_Terrain.obj")
     veg_cmd.add_argument("--seed", type=int, default=1941, help="placement seed")
+    veg_cmd.add_argument(
+        "--scan-ground",
+        default=str(DEFAULT_SCAN_GROUND),
+        help="ml0w scan ground raster: the plants beside the aisle stairs stand on it. "
+        "Pass '' to leave those strips unplanted.",
+    )
+    veg_cmd.add_argument(
+        "--scan-top",
+        default=str(DEFAULT_SCAN_TOP),
+        help="ml0w scan top raster: no aisle plant's trunk goes where the scan stands tall (rocks, scanned bushes).",
+    )
     veg_cmd.set_defaults(func=vegetation)
 
     args = parser.parse_args(argv)

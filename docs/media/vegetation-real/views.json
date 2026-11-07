@@ -1,0 +1,172 @@
+{
+ "about": "Game views framed to match Wikimedia Commons photos of Red Rocks Park. unreal/shoot_vegetation.py shoots every view whose camera is set (cm, degrees); tools/make_reference_compare.py builds before | after | photo composites and samples' ΔE. Photos are fetched at run time, never committed.",
+ "views": [
+  {
+   "name": "trail",
+   "photo": {
+    "id": "ref09",
+    "title": "Red Rocks Park in Denver",
+    "page": "https://commons.wikimedia.org/wiki/File:Red_Rocks_Park_in_Denver.jpg",
+    "file_url": "https://thumb.wikimedia.org/wikipedia/commons/thumb/1/13/Red_Rocks_Park_in_Denver.jpg/1280px-Red_Rocks_Park_in_Denver.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=thumbnail",
+    "author": "Bigmacthealmanac",
+    "licence": "CC BY-SA 4.0"
+   },
+   "camera": {
+    "x": 67713,
+    "y": -82352,
+    "z": 5037,
+    "pitch": 3.0,
+    "yaw": 159.0,
+    "fov": 75
+   },
+   "aspect": [
+    16,
+    9
+   ],
+   "samples": [
+    {
+     "label": "scrub oak",
+     "kind": "green",
+     "photo_box": [
+      0,
+      330,
+      860,
+      622
+     ],
+     "game_box": [
+      0,
+      380,
+      1600,
+      720
+     ],
+     "target": "#555D30"
+    }
+   ]
+  },
+  {
+   "name": "ponderosa",
+   "photo": {
+    "id": "ref02",
+    "title": "Conifer (Red Rocks Park, west of Denver, Colorado, USA)",
+    "page": "https://commons.wikimedia.org/wiki/File:Conifer_(Red_Rocks_Park,_west_of_Denver,_Colorado,_USA).jpg",
+    "file_url": "https://thumb.wikimedia.org/wikipedia/commons/thumb/8/89/Conifer_%28Red_Rocks_Park%2C_west_of_Denver%2C_Colorado%2C_USA%29.jpg/1280px-Conifer_%28Red_Rocks_Park%2C_west_of_Denver%2C_Colorado%2C_USA%29.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=thumbnail",
+    "author": "James St. John",
+    "licence": "CC BY 2.0"
+   },
+   "camera": {
+    "x": -90891,
+    "y": 118104,
+    "z": 43660,
+    "pitch": 23.1,
+    "yaw": 180.0,
+    "fov": 70
+   },
+   "aspect": [
+    3,
+    4
+   ],
+   "samples": [
+    {
+     "label": "needles",
+     "kind": "green",
+     "photo_box": [
+      150,
+      50,
+      1050,
+      1300
+     ],
+     "game_box": [
+      600,
+      100,
+      1050,
+      560
+     ],
+     "target": "#68744B"
+    },
+    {
+     "label": "trunk",
+     "kind": "brown",
+     "photo_box": [
+      660,
+      1100,
+      700,
+      1400
+     ],
+     "game_box": [
+      785,
+      560,
+      815,
+      800
+     ],
+     "target": "#5A5236"
+    }
+   ]
+  },
+  {
+   "name": "junipers",
+   "photo": {
+    "id": "ref15",
+    "title": "Trail views in Red Rocks Park, Morrison, Colorado",
+    "page": "https://commons.wikimedia.org/wiki/File:Trail_views_in_Red_Rocks_Park,_Morrison,_Colorado.jpg",
+    "file_url": "https://thumb.wikimedia.org/wikipedia/commons/thumb/2/2c/Trail_views_in_Red_Rocks_Park%2C_Morrison%2C_Colorado.jpg/1280px-Trail_views_in_Red_Rocks_Park%2C_Morrison%2C_Colorado.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=thumbnail",
+    "author": "Lovemedead",
+    "licence": "CC BY-SA 4.0"
+   },
+   "camera": {
+    "x": 32025,
+    "y": 21766,
+    "z": 15227,
+    "pitch": 0.7,
+    "yaw": -177.7,
+    "fov": 70
+   },
+   "aspect": [
+    4,
+    3
+   ],
+   "samples": [
+    {
+     "label": "juniper",
+     "kind": "green",
+     "photo_box": [
+      540,
+      670,
+      670,
+      840
+     ],
+     "game_box": [
+      880,
+      520,
+      1000,
+      700
+     ],
+     "target": "#505B46"
+    }
+   ]
+  },
+  {
+   "name": "hillsides",
+   "photo": {
+    "id": "ref12",
+    "title": "RedRocks",
+    "page": "https://commons.wikimedia.org/wiki/File:RedRocks.jpg",
+    "file_url": "https://thumb.wikimedia.org/wikipedia/commons/thumb/0/00/RedRocks.jpg/1280px-RedRocks.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=thumbnail",
+    "author": "Hogs555",
+    "licence": "CC BY-SA 3.0"
+   },
+   "camera": {
+    "x": -112000,
+    "y": -22000,
+    "z": 45166,
+    "pitch": -9.0,
+    "yaw": 247.5,
+    "fov": 70
+   },
+   "aspect": [
+    4,
+    3
+   ],
+   "samples": []
+  }
+ ]
+}

@@ -8,9 +8,13 @@ or from the editor console:
     py "/Users/austin/dev/redrocks-ue/unreal/setup_gameplay.py"
 
 What it does, each step logged to /tmp/redrocks_gameplay.log as "ok" or "FAIL":
-  1. Imports Stage, Roads, Paths and Parking from out/ (skips any that are
-     missing) and places them at the origin: they are already in the terrain's
-     frame, in centimetres. Re-running replaces the actors, it never duplicates.
+  1. Imports the stage (Stage, the concrete, and Stage_Steel, Stage_Roof,
+     Stage_Fascia and Stage_Towers, one material each), Roads, Paths, Parking
+     and the rest of NEW_MESHES from out/ (skips any that are missing) and
+     places them at the origin: they are already in the terrain's frame, in
+     centimetres. Re-running replaces the actors, it never duplicates.
+     Denver (downtown's skyline, 20 km out) gets M_DistantCity, no collision,
+     no shadow, and is never culled by distance (FAR_AWAY_SETTINGS).
   2. Gives every OBJ actor scale (1, 1, 1): the OBJ importer negates Y, which
      is already the terrain -> level map (level Y = -north, level_frame.py).
      A Y scale of -1 here once built a mirror image of Red Rocks.
@@ -18,7 +22,8 @@ What it does, each step logged to /tmp/redrocks_gameplay.log as "ok" or "FAIL":
      stage and park meshes, so the player walks on the real triangles instead
      of falling through or tripping on a convex hull.
   3. Gives roads, paths, parking and the stage their materials (asphalt,
-     gravel, lot asphalt, concrete; built by setup_materials.py).
+     gravel, lot asphalt; the stage's concrete, oxide-red steel, maroon roof,
+     dark fascia and the towers' flagstone; built by setup_materials.py).
   4. Moves the PlayerStart onto the stage, 5 m behind the downstage edge,
      facing up the bowl, at the height of manifest.json's spawn block (the
      higher of the deck and the terrain under the player).
@@ -28,8 +33,10 @@ What it does, each step logged to /tmp/redrocks_gameplay.log as "ok" or "FAIL":
   7. When the ml0w scan is present: the scan chunks get complex collision and
      the extruded rocks are hidden in game with no collision (#16), so what
      blocks the player is the rock they see.
-  8. Places the attribution as text in the world, beside the spawn, so the
-     CC BY 4.0 (ml0w scan) and ODbL (OpenStreetMap) credits show in-game.
+  8. Places the attribution as text in the world, beside the spawn, for the
+     editor (CC BY 4.0 ml0w scan, ODbL OpenStreetMap). It is hidden in game:
+     in play the credits are the press-C overlay (setup_credits.py), whose hint
+     shows at the start, so no sign floats over the bowl in every view.
 """
 
 import json
@@ -52,13 +59,18 @@ LEVEL_PATH = "/Game/RedRocks/Lvl_RedRocks"
 GAME_MODE = "/Game/FirstPerson/Blueprints/BP_FirstPersonGameMode"
 LOG_PATH = os.path.join(os.environ.get("REDROCKS_LOG_DIR", "/tmp"), "redrocks_gameplay.log")
 
+# The stage's OBJs (redrocks.stage.STAGE_MESHES): the concrete, then one per material.
+STAGE_MESHES = ["Stage", "Stage_Steel", "Stage_Roof", "Stage_Fascia", "Stage_Towers"]
 # Meshes placed by this script (all in the terrain frame, origin, no rotation).
-NEW_MESHES = ["Stage", "Roads", "Paths", "Parking", "Buildings", "Walls", "Rocks", "Water",
-              "Bench_Planks", "Bench_Brackets", "Handrail", "Booth", "Stairs"]
+NEW_MESHES = STAGE_MESHES + ["Roads", "Paths", "Parking", "Buildings", "Walls", "Rocks", "Water",
+                             "Bench_Planks", "Bench_Brackets", "Handrail", "Booth", "Stairs", "Denver"]
 # Seen but not stood on: the planks and brackets sit on the terraces' riser
 # edges, a few cm over the treads; colliding with them would make every row a
-# step too tall to walk up (redrocks.seating).
-NO_COLLIDE = ["Bench_Planks", "Bench_Brackets"]
+# step too tall to walk up (redrocks.seating). Denver is 20 km away.
+NO_COLLIDE = ["Bench_Planks", "Bench_Brackets", "Denver"]
+# Seen only from far off: downtown Denver's skyline, ~20.5 km east-north-east
+# of the stage (redrocks.denver). See FAR_AWAY_SETTINGS.
+FAR_AWAY = ["Denver"]
 # Every mesh the player should be able to stand on or bump into.
 COLLIDE = ["RedRocks_Terrain", "Creation_Rock", "Ship_Rock", "Stage_Rock", "Benches"] + [
     m for m in NEW_MESHES if m not in NO_COLLIDE]
@@ -79,12 +91,20 @@ PLAIN = {
     "M_Steel": ("2e2d2b", 0.6),
     "M_Roof": ("7a2a22", 0.55),
     "M_Benches": ("94482c", 0.9),
+    # Downtown Denver at 20 km: pale grey-beige concrete and glass, sRGB
+    # (170, 170, 165); the sky atmosphere's haze does the rest.
+    "M_DistantCity": ("aaaaa5", 0.6),
+    "M_StageSteel": ("8e3f28", 0.65),  # the stage's painted oxide-red steel
 }
 MESH_MATERIAL = {
     "Roads": "M_Asphalt",
     "Paths": "M_Gravel",
     "Parking": "M_Lot",
     "Stage": "M_Concrete",
+    "Stage_Steel": "M_StageSteel",  # columns, Y-arms, trusses, purlins, side roofs' frames
+    "Stage_Roof": "M_Roof",  # the roof slab and side roofs: maroon painted metal, like the booth's
+    "Stage_Fascia": "M_Steel",  # the roof's dark front band: near-black painted steel
+    "Stage_Towers": "M_Benches",  # the towers' stacked red flagstone, like the risers
     "Buildings": "M_Buildings",
     "Walls": "M_Concrete",
     "Rocks": "MI_Sandstone_Rock",
@@ -94,6 +114,7 @@ MESH_MATERIAL = {
     "Handrail": "M_Steel",
     "Booth": "M_Roof",
     "Stairs": "M_Benches",  # the seating's flagstone risers and sandstone treads
+    "Denver": "M_DistantCity",
 }
 
 SPAWN_BACK_M = 5.0  # how far behind the downstage edge the player starts
@@ -268,6 +289,32 @@ def _no_collision(name):
     return name
 
 
+# A mesh seen only from tens of km: no shadow (nothing near it to shade, and a
+# 3 km-wide caster bloats the virtual shadow maps), never culled by distance
+# (MaxDrawDistance 0, no cull-distance volume), and out of the mesh distance
+# fields Lumen traces within a few hundred metres. The level has no far clip:
+# the project keeps Unreal's infinite far plane (its DefaultEngine.ini sets
+# only NearClipPlane), and the terrain skirt already draws out to 120 km.
+FAR_AWAY_SETTINGS = {
+    "cast_shadow": False,
+    "ld_max_draw_distance": 0.0,
+    "never_distance_cull": True,
+    "allow_cull_distance_volume": False,
+    "affect_distance_field_lighting": False,
+}
+
+
+def _far_away(name):
+    actors = _by_label(name)
+    if not actors:
+        raise RuntimeError("no actor labelled %s" % name)
+    for actor in actors:
+        comp = actor.static_mesh_component
+        for prop, value in FAR_AWAY_SETTINGS.items():
+            comp.set_editor_property(prop, value)
+    return len(actors)
+
+
 def _srgb_to_linear(hex_color):
     out = []
     for i in (0, 2, 4):
@@ -406,6 +453,9 @@ def _credits(manifest, spawn):
     comp.set_editor_property("horizontal_alignment", unreal.HorizTextAligment.EHTA_CENTER)
     comp.set_editor_property("text_render_color", unreal.Color(r=255, g=244, b=225, a=255))
     actor.tags = [unreal.Name("credits")]
+    # Floating text over the rows was the blockout's credit; play shows the
+    # press-C overlay instead, so keep this for the editor only.
+    actor.set_actor_hidden_in_game(True)
     return loc
 
 
@@ -430,6 +480,9 @@ def main():
         if _by_label(name):
             _step("scale %s" % name, _obj_scale, name)
             _step("no collision %s" % name, _no_collision, name)
+    for name in FAR_AWAY:
+        if _by_label(name):
+            _step("no shadow, never culled: %s" % name, _far_away, name)
     for name in COLLIDE:
         if unreal.EditorAssetLibrary.does_asset_exist("%s/%s" % (ASSET_DIR, name)):
             _step("collision %s" % name, _complex_collision, name)

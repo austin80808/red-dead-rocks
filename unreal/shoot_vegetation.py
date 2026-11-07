@@ -16,6 +16,9 @@ Views (each held 7 s so auto exposure settles; FPS is the mean over the last 3 s
   hillside  a juniper and a ponderosa a few metres apart, from 20 m, eye level
             (picked from out/vegetation/vegetation.json)
   aerial    450 m south of the origin, 450 m up, pitch -42, looking north
+  then every view in docs/media/vegetation-real/views.json whose camera is set
+  (REDROCKS_VIEWS overrides the path): the spots framed to match the Commons
+  photos, shot at the view's field of view.
 The pawn flies with gravity and collision off. REDROCKS_HIDE_VEGETATION=1
 hides the Vegetation actor for a baseline. At each shot ProfileGPU writes the
 view's GPU frame breakdown to the editor log. Screenshots:
@@ -39,6 +42,11 @@ import level_frame  # noqa: E402  (beside this script: terrain frame -> level fr
 OUT_DIR = os.environ.get("REDROCKS_OUT_DIR", "/Users/austin/dev/redrocks-ue/out")
 LOG_PATH = os.path.join(os.environ.get("REDROCKS_LOG_DIR", "/tmp"), "redrocks_vegetation_shots.log")
 PREFIX = os.environ.get("REDROCKS_SHOT_PREFIX", "")
+# Perf runs: e.g. REDROCKS_SCALABILITY=2 REDROCKS_SCREEN_PERCENT=75 (the remote-play preset).
+SCALABILITY = os.environ.get("REDROCKS_SCALABILITY", "")
+SCREEN_PERCENT = os.environ.get("REDROCKS_SCREEN_PERCENT", "")
+VIEWS_PATH = os.environ.get("REDROCKS_VIEWS", os.path.join(
+    os.path.dirname(os.path.abspath(__file__)), "..", "docs", "media", "vegetation-real", "views.json"))
 HOLD_S = 7.0
 FPS_WINDOW_S = 3.0
 SETTLE_S = 6.0
@@ -108,6 +116,29 @@ def _ground(world, x, y, ignore):
     return t[4].z if t and t[0] else None
 
 
+def matched_views(views):
+    """(name, (x, y, z), rotation, fov) in the level frame for each photo-matched view
+    whose camera is set. views.json holds cameras in the terrain frame (cm east,
+    north, up; yaw counter-clockwise from east), like vegetation.json."""
+    out = []
+    for v in views:
+        c = v["camera"]
+        if not any(c[k] for k in ("x", "y", "z")):
+            continue
+        x, y = level_frame.to_level(float(c["x"]), float(c["y"]))
+        out.append((v["name"], (x, y, float(c["z"])),
+                    {"pitch": float(c["pitch"]), "yaw": level_frame.level_yaw(float(c["yaw"])), "roll": 0.0},
+                    float(c["fov"])))
+    return out
+
+
+def _matched_from_file():
+    if not os.path.exists(VIEWS_PATH):
+        return []
+    with open(VIEWS_PATH) as fh:
+        return matched_views(json.load(fh)["views"])
+
+
 def _views(world, pawn):
     views = []
     m = _manifest()
@@ -158,6 +189,7 @@ def _views(world, pawn):
         log.append("      hillside pair: juniper (%.0f, %.0f), pine (%.0f, %.0f)" % (jx, jy, px, py))
     views.append(("aerial", level_frame.to_level(0.0, -45000.0) + (45000.0,),
                   {"pitch": -42.0, "yaw": level_frame.compass_yaw(0.0), "roll": 0.0}))
+    views += _matched_from_file()
     return views
 
 
@@ -185,9 +217,15 @@ def _game_world():
 
 
 def _hold(pawn, view):
-    _, (x, y, z), rot = view
+    (x, y, z), rot = view[1], view[2]
     pawn.set_actor_location(unreal.Vector(x, y, z - PAWN_EYE_OFFSET_CM), False, True)
     pawn.get_controller().set_control_rotation(unreal.Rotator(**rot))
+
+
+def _set_fov(world, view):
+    """Lock the camera to a matched view's field of view; 0 unlocks it (the default)."""
+    fov = view[3] if len(view) > 3 else 0.0
+    unreal.SystemLibrary.execute_console_command(world, "fov %.1f" % fov)
 
 
 def tick(delta):
@@ -217,6 +255,21 @@ def tick(delta):
                     move.set_editor_property("gravity_scale", 0.0)
                     move.set_movement_mode(unreal.MovementMode.MOVE_FLYING)
                 pawn.set_actor_enable_collision(False)
+                # Clean frames at the real frame rate: no HUD text, and no
+                # background-editor throttle (it pins the editor to ~8 fps).
+                unreal.SystemLibrary.execute_console_command(world, "showhud")
+                unreal.SystemLibrary.execute_console_command(world, "t.MaxFPS 0")
+                if SCALABILITY:
+                    unreal.SystemLibrary.execute_console_command(world, "scalability %s" % SCALABILITY)
+                if SCREEN_PERCENT:
+                    unreal.SystemLibrary.execute_console_command(world, "r.ScreenPercentage %s" % SCREEN_PERCENT)
+                log.append("      scalability %s, screen percentage %s" % (SCALABILITY or "default", SCREEN_PERCENT or "default"))
+                try:
+                    perf = unreal.get_default_object(unreal.EditorPerformanceSettings)
+                    perf.set_editor_property("throttle_cpu_when_not_foreground", False)
+                    log.append("      background throttle off")
+                except Exception as exc:
+                    log.append("      background throttle not changed: %r" % (exc,))
                 if os.environ.get("REDROCKS_HIDE_VEGETATION"):
                     # Baseline for the perf note: the same views without the plants.
                     for actor in unreal.GameplayStatics.get_all_actors_of_class(world, unreal.Actor):
@@ -231,21 +284,30 @@ def tick(delta):
                 _finish()
                 return
             view = views[state["view"]]
+            if state.get("fov_for") != state["view"]:
+                _set_fov(world, view)
+                state["fov_for"] = state["view"]
             _hold(pawn, view)
             elapsed = now - state["mark"]
             if elapsed >= HOLD_S - FPS_WINDOW_S:
-                state["deltas"].append(delta)
+                if not state["deltas"]:
+                    state["fps_t0"] = now
+                state["deltas"].append(now)
             if elapsed >= HOLD_S:
-                ds = state["deltas"] or [1.0]
-                fps = len(ds) / sum(ds)
-                worst = 1.0 / max(ds)
+                # Frames counted against the wall clock: Slate clamps each tick's
+                # delta to 1/8 s, so summed deltas cannot report below 8 fps.
+                ts = state["deltas"] or [now - 1.0, now]
+                span = max(ts[-1] - state.get("fps_t0", ts[0]), 1e-3)
+                fps = (len(ts) - 1) / span if len(ts) > 1 else 0.0
+                gaps = [b - a for a, b in zip(ts, ts[1:])] or [span]
+                worst = 1.0 / max(gaps)
                 name = PREFIX + "veg_" + view[0]
                 # GPU time for this view goes to the editor log (search "ProfileGPU"):
                 # frame rate alone is meaningless while macOS throttles a background editor.
                 unreal.SystemLibrary.execute_console_command(world, "ProfileGPU")
                 unreal.SystemLibrary.execute_console_command(world, "HighResShot 1600x900 filename=%s" % name)
                 log.append("ok    view %-9s fps %.1f (worst frame %.1f fps, %d frames) -> %s.png"
-                           % (view[0], fps, worst, len(ds), name))
+                           % (view[0], fps, worst, len(ts), name))
                 state.update(phase="after_shot", mark=now)
             return
         if phase == "after_shot":
@@ -257,4 +319,5 @@ def tick(delta):
         _finish()
 
 
-handle = unreal.register_slate_post_tick_callback(tick)
+if hasattr(unreal, "register_slate_post_tick_callback"):  # not when tests import the helpers
+    handle = unreal.register_slate_post_tick_callback(tick)
