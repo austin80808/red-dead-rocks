@@ -178,7 +178,11 @@ def _night():
     """unreal/night_show.py: the night show for views with a ``night`` entry."""
     if _HERE not in sys.path:
         sys.path.insert(0, _HERE)
+    import importlib
     import night_show
+    if not state.get("night_loaded"):  # a long-lived editor (pod_server.py) keeps old modules
+        night_show = importlib.reload(night_show)
+        state["night_loaded"] = True
     return night_show
 
 
@@ -492,6 +496,16 @@ def _prepare(world):
         state["sun"], state["sun_rotation"] = sun, sun.get_actor_rotation()
         log.append("      level sun: %s" % (state["sun_rotation"],))
     state["hidden"] = _hide_text(actors)
+    # REDROCKS_BOARD_HIDE: comma list of actor labels to hide for the run (look tests).
+    hide = [n.strip() for n in os.environ.get("REDROCKS_BOARD_HIDE", "").split(",") if n.strip()]
+    for actor in actors:
+        # Also what the game hides (setup_gameplay hides the extruded monoliths where
+        # the scan has the real rock): the shots show what a player sees.
+        in_game_hidden = bool(_try("hidden in game", lambda a=actor: a.get_editor_property("hidden")))
+        if (_label(actor) in hide or in_game_hidden) and not actor.is_temporarily_hidden_in_editor():
+            actor.set_is_temporarily_hidden_in_editor(True)
+            state["hidden"].append(actor)
+            log.append("      hid %s (%s)" % (_label(actor), "hidden in game" if in_game_hidden else "REDROCKS_BOARD_HIDE"))
     les = _sub("LevelEditorSubsystem")
     state["game_view_was"] = _try("read game view", les.editor_get_game_view)
     _try("game view on", lambda: les.editor_set_game_view(True))

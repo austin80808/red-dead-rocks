@@ -97,7 +97,9 @@ def test_steel_roof_fascia_and_stone_are_in_their_own_objs(built):
     assert set(mesh.meshes["Stage_Roof"].parts) == {"roof", "roof_wing_left", "roof_wing_right"}
     assert set(mesh.meshes["Stage_Fascia"].parts) == {"fascia_front", "fascia_chamfer_left", "fascia_chamfer_right"}
     assert set(mesh.meshes["Stage_Towers"].parts) == {
-        "tower_left_masonry", "tower_left_link", "tower_right_masonry", "tower_right_link"}
+        "tower_left_masonry", "tower_left_link", "tower_right_masonry", "tower_right_link",
+        # the sound booth's flagstone base and parapet
+        "foh_platform", "foh_wall_front", "foh_wall_e", "foh_wall_w"}
     # Stage.obj keeps only the concrete: the towers' bases and caps among it.
     assert all(stage_mesh_for(p) == "Stage" for p in mesh.parts)
     for p in ("deck", "shell_back", "retaining_wall", "walkway", "tower_left_base", "tower_left_cap",

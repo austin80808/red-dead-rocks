@@ -423,3 +423,50 @@ def test_buildings_obj_skips_the_stage_side_boxes_the_towers_model(tmp_path, sur
     data.ways[1].id = STAGE_MODELLED_BUILDING_WAY_IDS[0]
     mesh = export_buildings_obj(data, surface, tmp_path / "Buildings.obj")
     assert mesh is not None and mesh.features == 1
+
+
+def test_rocks_obj_leaves_out_outcrops_the_scan_shows(tmp_path, surface):
+    from redrocks.park import export_rocks_obj
+
+    near = [(10, 10), (30, 10), (30, 30), (10, 30)]
+    far = [(200, 200), (220, 200), (220, 220), (200, 220)]
+    data = osm_xml([({"natural": "bare_rock", "_close": True}, near), ({"natural": "bare_rock", "_close": True}, far)])
+    every = export_rocks_obj(data, surface, tmp_path / "all.obj")
+    assert every is not None and every.features == 2
+
+    def covered(x, y):  # the scan shows a 100 m disc about the origin
+        return x * x + y * y < 100.0 ** 2
+
+    some = export_rocks_obj(data, surface, tmp_path / "Rocks.obj", covered=covered)
+    assert some is not None and some.features == 1
+
+
+def test_scan_cover_reads_the_fade_mask(tmp_path):
+    import json
+
+    from PIL import Image
+
+    from redrocks.park import scan_cover
+
+    img = np.zeros((10, 10), dtype=np.uint8)
+    img[:, :5] = 255  # the west half shows the scan
+    Image.fromarray(img).save(tmp_path / "fade.png")
+    (tmp_path / "fade.json").write_text(json.dumps(
+        {"x0_cm": -1000.0, "y1_cm": 1000.0, "width_cm": 2000.0, "height_cm": 2000.0}))
+    covered = scan_cover(tmp_path / "fade.png", tmp_path / "fade.json")
+    assert covered(-5.0, 0.0) and not covered(5.0, 0.0) and not covered(50.0, 0.0)
+
+
+def test_rocks_obj_leaves_out_big_unnamed_slickrock_sheets(tmp_path, surface):
+    from redrocks.park import BARE_ROCK_SHEET_M2, export_rocks_obj
+
+    side = (BARE_ROCK_SHEET_M2 ** 0.5) + 10.0
+    sheet = [(0, 0), (side, 0), (side, side), (0, side)]
+    small = [(200, 200), (220, 200), (220, 220), (200, 220)]
+    data = osm_xml([
+        ({"natural": "bare_rock", "_close": True}, sheet),
+        ({"natural": "bare_rock", "name": "Big Named Rock", "_close": True}, sheet),
+        ({"natural": "bare_rock", "_close": True}, small),
+    ])
+    mesh = export_rocks_obj(data, surface, tmp_path / "Rocks.obj")
+    assert mesh is not None and mesh.features == 2

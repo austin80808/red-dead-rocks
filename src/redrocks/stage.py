@@ -390,6 +390,10 @@ def stage_mesh_for(name: str) -> str:
         return "Stage_Fascia"
     if name.startswith("tower_") and name.endswith(("_masonry", "_link")):
         return "Stage_Towers"
+    if name.startswith("foh_"):
+        # The sound booth's base and parapet are the risers' red flagstone at the
+        # real venue; in the stage concrete they read as a white box mid-bowl.
+        return "Stage_Towers"
     return "Stage"
 
 
@@ -1218,7 +1222,8 @@ STAGE_MESH_ABOUT = {
                    "the side roofs' columns and box-beam headers",
     "Stage_Roof": "Red Rocks stage roof, maroon painted metal: the slab on the SkyDeck grid and the lower side roofs",
     "Stage_Fascia": "Red Rocks stage roof's near-black front band and its cut corners",
-    "Stage_Towers": "Red Rocks stage towers' stacked flagstone, and the sloped stone walls joining them to the stage",
+    "Stage_Towers": "Red Rocks stage towers' stacked flagstone, the sloped stone walls joining them to the stage, "
+                    "and the sound booth's flagstone base and parapet",
 }
 
 

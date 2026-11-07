@@ -943,8 +943,45 @@ def rock_solid(
     return np.array(verts, dtype=float), np.array(uvs, dtype=float), np.array(tris, dtype=int)
 
 
-def export_rocks_obj(osm: OsmData, surface: TerrainSurface, out_path: Path) -> ParkMesh | None:
-    """Write ``Rocks.obj`` from surveyed OSM ``natural=bare_rock|stone|cliff`` ways, except the three monoliths."""
+def scan_cover(png: Path, meta_json: Path):
+    """``covered(x_m, y_m) -> bool``: where the ml0w scan is shown (fade mask >= 0.5).
+
+    The mask is assets/scan/scan_fade.png with its placement in scan_fade.json
+    (u = (X - x0_cm) / width_cm, v = (y1_cm - Y) / height_cm; X east, Y north, cm),
+    in the terrain frame the park meshes use (metres, east and north).
+    """
+    import json
+
+    from PIL import Image
+
+    meta = json.loads(Path(meta_json).read_text())
+    img = np.asarray(Image.open(png).convert("L"), dtype=np.float32) / 255.0
+    h, w = img.shape
+
+    def covered(x_m: float, y_m: float) -> bool:
+        u = (x_m * 100.0 - meta["x0_cm"]) / meta["width_cm"]
+        v = (meta["y1_cm"] - y_m * 100.0) / meta["height_cm"]
+        if not (0.0 <= u < 1.0 and 0.0 <= v < 1.0):
+            return False
+        return bool(img[int(v * h), int(u * w)] >= 0.5)
+
+    return covered
+
+
+# Share of an outcrop's footprint the scan must show before Rocks.obj leaves it
+# out: the scan has the real rock there, and the OSM extrusion (vertical sides,
+# flat top) stood in front of it as slab walls behind the stage.
+SCAN_COVERED_SHARE = 0.5
+# An unnamed natural=bare_rock area larger than this is a sheet of slickrock on
+# the hillside, not an upright outcrop: extruded it became a flat-topped mesa
+# (way at E233 N102, 23,000 m2, a slab wall across the view east of the stage).
+# The terrain's own material already turns rock-red on those slopes.
+BARE_ROCK_SHEET_M2 = 5000.0
+
+
+def export_rocks_obj(osm: OsmData, surface: TerrainSurface, out_path: Path, covered=None) -> ParkMesh | None:
+    """Write ``Rocks.obj`` from surveyed OSM ``natural=bare_rock|stone|cliff`` ways, except the three monoliths
+    and, given ``covered`` (scan_cover), the outcrops the scan already shows."""
     parts, features = [], 0
     bounds = surface.bounds_polygon()
     for way in osm.ways:
@@ -958,6 +995,11 @@ def export_rocks_obj(osm: OsmData, surface: TerrainSurface, out_path: Path) -> P
             poly = poly.buffer(0)
         poly = poly.intersection(bounds)
         if poly.is_empty:
+            continue
+        if covered is not None and _covered_share(poly, covered) >= SCAN_COVERED_SHARE:
+            continue
+        if (way.tags.get("natural", "bare_rock") == "bare_rock" and "name" not in way.tags
+                and "height" not in way.tags and poly.area > BARE_ROCK_SHEET_M2):
             continue
         built = False
         for g in getattr(poly, "geoms", [poly]):
@@ -977,8 +1019,22 @@ def export_rocks_obj(osm: OsmData, surface: TerrainSurface, out_path: Path) -> P
     return ParkMesh("Rocks", Path(out_path), features, v, t)
 
 
+def _covered_share(poly, covered, step_m: float = 2.0) -> float:
+    """Share of sample points on a grid over ``poly`` that ``covered`` says the scan shows."""
+    from shapely.geometry import Point
+
+    x0, y0, x1, y1 = poly.bounds
+    xs = np.arange(x0 + step_m / 2, x1, step_m) if x1 - x0 > step_m else np.array([(x0 + x1) / 2])
+    ys = np.arange(y0 + step_m / 2, y1, step_m) if y1 - y0 > step_m else np.array([(y0 + y1) / 2])
+    inside = [(x, y) for x in xs for y in ys if poly.contains(Point(x, y))]
+    if not inside:
+        c = poly.representative_point()
+        inside = [(c.x, c.y)]
+    return sum(covered(x, y) for x, y in inside) / len(inside)
+
+
 def export_park(
-    osm: OsmData, dem: Dem, out_dir: Path, grid: int = DEFAULT_GRID
+    osm: OsmData, dem: Dem, out_dir: Path, grid: int = DEFAULT_GRID, covered=None
 ) -> dict[str, ParkMesh]:
     """Write Roads.obj, Paths.obj, Parking.obj, Buildings.obj, Walls.obj and Rocks.obj; skips any with no features.
 
@@ -992,6 +1048,6 @@ def export_park(
         "parking": export_parking_obj(osm, surface, out_dir / "Parking.obj"),
         "buildings": export_buildings_obj(osm, surface, out_dir / "Buildings.obj"),
         "walls": export_walls_obj(osm, surface, out_dir / "Walls.obj"),
-        "rocks": export_rocks_obj(osm, surface, out_dir / "Rocks.obj"),
+        "rocks": export_rocks_obj(osm, surface, out_dir / "Rocks.obj", covered=covered),
     }
     return {k: v for k, v in results.items() if v is not None}

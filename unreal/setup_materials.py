@@ -119,6 +119,16 @@ GROUND_INSTANCE = {
 }
 
 
+# The plains out to Denver (the terrain skirt): summer shortgrass prairie and
+# farmland, olive-tan from the top row in the photos. With the ground's soil
+# showing through they read as orange sand dunes at 5-20 km.
+PLAINS_INSTANCE = {
+    "scalars": {"GrassAmount": 1.0, "DustAmount": 0.05, "SlopeRed": 1.0,
+                "BandThickness": 700.0, "BandContrast": 0.3},
+    "vectors": {"DryGrassColor": "#8A8460", "GrassColor": "#5E6440", "SoilColor": "#7A5A40"},
+}
+
+
 class Graph:
     """Small helper for wiring a material graph from Python.
 
@@ -653,6 +663,7 @@ def main():
                      "MI_Sandstone_Rock", sandstone, ROCK_INSTANCE)
         ground = _step("MI_Sandstone_Ground", make_instance,
                        "MI_Sandstone_Ground", sandstone, GROUND_INSTANCE)
+        _step("MI_Plains_Ground", make_instance, "MI_Plains_Ground", sandstone, PLAINS_INSTANCE)
 
     for name in ("Creation_Rock", "Ship_Rock", "Stage_Rock", "Rocks"):
         _step("apply %s" % name, apply_to_mesh, name, rock or sandstone)

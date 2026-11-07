@@ -188,7 +188,12 @@ def build(args: argparse.Namespace) -> int:
         print(f"  -> {obj_path.name}")
 
     print("\nbuilding roads, paths and parking ...")
-    park = export_park(osm, ground_dem, out_dir, grid=grid)
+    fade_png = Path(getattr(args, "scan_fade", "") or "")
+    covered = None
+    if fade_png.is_file() and fade_png.with_suffix(".json").is_file():
+        from .park import scan_cover
+        covered = scan_cover(fade_png, fade_png.with_suffix(".json"))
+    park = export_park(osm, ground_dem, out_dir, grid=grid, covered=covered)
     for mesh in park.values():
         print(f"  {mesh.features} {mesh.name.lower()}, {mesh.triangles:,} triangles -> {mesh.path.name}")
 

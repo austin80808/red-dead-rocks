@@ -468,7 +468,7 @@ def test_row_end_stairs_are_their_own_mesh(tmp_path):
 def test_foh_booth_and_end_of_row_stairs(tmp_path):
     mesh, (verts, _, faces, _), rows = export(tmp_path)
     for part_name in ("foh_platform", "foh_wall_front", "foh_wall_e", "foh_wall_w", "walkway_parapet"):
-        assert part_name in mesh.parts
+        assert part_name in every_part(mesh)
 
     # Every row has 2 steps at both ends (start and end) plus outer cheek walls.
     for r in rows:
@@ -694,7 +694,7 @@ def test_booth_already_facing_the_stage_is_unchanged(tmp_path):
 def test_without_a_footprint_the_booth_stays_a_blockout_and_has_no_roof(tmp_path):
     rows, lines = make_rows(10)
     mesh = export_stage_obj(rows, lines, tmp_path / "Stage.obj", BASE)
-    assert "foh_platform" in mesh.parts and mesh.booth_path is None
+    assert "foh_platform" in every_part(mesh) and mesh.booth_path is None
     assert not (tmp_path / "Booth.obj").exists()
 
 

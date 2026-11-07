@@ -99,14 +99,18 @@ def apply(actors, cfg):
     _state.update(on=True, spawned=[], restore=[])
     by_class = lambda cls: [a for a in actors if isinstance(a, cls)]
 
-    # Sun under the horizon (the sky goes to night), and off.
+    # Sun just under the horizon: the SkyAtmosphere turns the sky deep twilight
+    # blue (the planet shadows the direct light, so nothing is lit from below).
+    # cfg "sun_off": true goes to full black night instead.
     for sun in by_class(unreal.DirectionalLight):
         comp = sun.get_component_by_class(unreal.DirectionalLightComponent)
         rot, lux = sun.get_actor_rotation(), comp.get_editor_property("intensity")
         _state["restore"].append(lambda sun=sun, rot=rot: sun.set_actor_rotation(rot, False))
         _state["restore"].append(lambda comp=comp, lux=lux: comp.set_intensity(lux))
-        sun.set_actor_rotation(unreal.Rotator(pitch=14.0, yaw=rot.yaw, roll=0.0), False)
-        comp.set_intensity(0.0)
+        sun.set_actor_rotation(unreal.Rotator(pitch=float(cfg.get("sun_below_deg", 6.0)), yaw=rot.yaw, roll=0.0), False)
+        if cfg.get("sun_off"):
+            comp.set_intensity(0.0)
+    _try("volumetric fog cvar", lambda: unreal.SystemLibrary.execute_console_command(None, "r.VolumetricFog 1"))
     # A faint high moon in the south-west, so the rocks keep their outline.
     moon = _spawn(unreal.DirectionalLight, (0, 0, 40000), (-38.0, 30.0), "NightMoon")
     mc = moon.get_component_by_class(unreal.DirectionalLightComponent)

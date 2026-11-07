@@ -6,7 +6,7 @@
       "what": "From the top walkway over the centre aisle: the 70 rows down to the stage, Creation Rock left, Ship Rock right, the plains out to Denver",
       "aspect": [16, 9],
       "camera": {"x": -6050.0, "y": 2480.0, "z": 22390.0, "yaw": -24.5, "pitch": -12.0, "roll": 0.0, "fov": 84.0},
-      "sun": {"azimuth_deg": 258.0, "elevation_deg": 7.0}
+      "sun": {"azimuth_deg": 238.0, "elevation_deg": 21.0}
     },
     {
       "name": "stage_up_bowl",

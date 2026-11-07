@@ -52,7 +52,7 @@ TERRAIN_OBJ = os.path.join(OUT_DIR, "RedRocks_Terrain.obj")
 ASSET_DIR = "/Game/RedRocks"
 LEVEL_PATH = "/Game/RedRocks/Lvl_RedRocks"
 SKIRT_NAME = "Terrain_Skirt"
-SKIRT_MATERIAL = "/Game/RedRocks/Materials/MI_Sandstone_Ground"
+SKIRT_MATERIAL = "/Game/RedRocks/Materials/MI_Plains_Ground"  # setup_materials.PLAINS_INSTANCE
 LOG_PATH = os.path.join(os.environ.get("REDROCKS_LOG_DIR", "/tmp"), "redrocks_environment.log")
 
 # Rings, as distance past the terrain edge (cm), how many edge samples each
